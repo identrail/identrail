@@ -46,7 +46,8 @@ urlencode() {
 
 build_list_url() {
   local until_token="${1:-}"
-  local url="https://api.vercel.com/v6/deployments?projectId=$(urlencode "${project_ref}")&state=QUEUED&limit=100"
+  local url
+  url="https://api.vercel.com/v6/deployments?projectId=$(urlencode "${project_ref}")&state=QUEUED&limit=100"
   if [ -n "${team_id}" ]; then
     url="${url}&teamId=$(urlencode "${team_id}")"
   fi
@@ -71,11 +72,25 @@ declare -a rows_this_page
 
 declare -A kept_by_ref
 prune_ids=()
+page_response_file="$(mktemp)"
+delete_response_file="$(mktemp)"
+trap 'rm -f "${page_response_file}" "${delete_response_file}"' EXIT
 
 while :; do
-  page_payload="$(curl -fsS \
+  page_status="$(curl -sS \
+    -o "${page_response_file}" \
+    -w "%{http_code}" \
     -H "Authorization: Bearer ${token}" \
     "$(build_list_url "${next_token}")")"
+  if [ "${page_status}" = "403" ]; then
+    echo "Vercel token cannot list queued deployments for project '${project_ref}'; skipping queue cleanup."
+    exit 0
+  fi
+  if ! [[ "${page_status}" =~ ^2[0-9][0-9]$ ]]; then
+    echo "Vercel queued deployment lookup failed with HTTP ${page_status}." >&2
+    exit 1
+  fi
+  page_payload="$(<"${page_response_file}")"
   page_count="$(echo "${page_payload}" | jq '(.deployments // []) | length')"
   queued_count=$((queued_count + page_count))
 
@@ -119,12 +134,16 @@ echo "Queued deploys: ${queued_count}; keeping latest ${keep_per_ref} per branch
 echo "Pruning deployment IDs: ${prune_ids[*]}"
 
 for deployment_id in "${prune_ids[@]}"; do
-  if curl -fsS -X DELETE \
+  delete_status="$(curl -sS -X DELETE \
+    -o "${delete_response_file}" \
+    -w "%{http_code}" \
     -H "Authorization: Bearer ${token}" \
-    "$(build_delete_url "${deployment_id}")" \
-    >/dev/null; then
+    "$(build_delete_url "${deployment_id}")")"
+  if [[ "${delete_status}" =~ ^2[0-9][0-9]$ ]]; then
     echo "Removed ${deployment_id}"
+  elif [ "${delete_status}" = "403" ]; then
+    echo "Vercel token cannot remove queued deployment ${deployment_id}; skipping."
   else
-    echo "Could not remove ${deployment_id}; skipping."
+    echo "Could not remove ${deployment_id}; Vercel returned HTTP ${delete_status}."
   fi
 done

@@ -20,6 +20,11 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	testAWSCloudFormationTemplateChecksum = "sha256:458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2"
+	testAWSCloudFormationTemplateURL      = "https://cdn.identrail.example/connectors/aws/sha256/458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2/identrail-readonly.yaml"
+)
+
 type fakeAWSConnectorValidator struct {
 	result AWSConnectionValidationResult
 	err    error
@@ -406,7 +411,7 @@ func TestAWSConnectorStartRejectsLegacyManualConnectorResume(t *testing.T) {
 	}
 
 	svc := NewService(store, routerScanner{}, "aws")
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID: "workspace-a",
@@ -771,6 +776,1153 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	}
 }
 
+func TestRouterAWSConnectorOrganizationStackSetFlow(t *testing.T) {
+	r := newAWSConnectorFlowTestRouter(t, nil)
+
+	startResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"connector_id":"aws-org-prod",
+		"display_name":"Production organization",
+		"scope_type":"organization",
+		"deployment_method":"stackset_service_managed",
+		"target_regions":["us-east-1","eu-west-1"],
+		"target_ou_ids":["r-abcd"],
+		"excluded_account_ids":["210987654321"],
+		"auto_onboard_new_accounts":true,
+		"stack_set_name":"identrail-org-readonly"
+	}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected organization stackset start 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody AWSConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	if startBody.ScopeType != AWSConnectorScopeOrganization || startBody.DeploymentMethod != AWSConnectorDeploymentStackSetServiceManaged {
+		t.Fatalf("expected organization service-managed stackset, got scope=%q method=%q", startBody.ScopeType, startBody.DeploymentMethod)
+	}
+	if startBody.OnboardingStatus != AWSConnectorOnboardingNeedsFix {
+		t.Fatalf("expected organization onboarding to require trusted-access validation, got %q failures=%v", startBody.OnboardingStatus, startBody.StackSetOnboarding.Validation.FailureReasons)
+	}
+	if startBody.StackSetName != "identrail-org-readonly" || startBody.TemplateChecksum != testAWSCloudFormationTemplateChecksum {
+		t.Fatalf("expected stackset name and checksum, got name=%q checksum=%q", startBody.StackSetName, startBody.TemplateChecksum)
+	}
+	if startBody.TargetSummary == nil || !startBody.TargetSummary.AllAccounts || startBody.TargetSummary.AccountCountKnown ||
+		startBody.TargetSummary.OUCount != 1 || startBody.TargetSummary.RegionCount != 2 || startBody.TargetSummary.ExcludedAccountCount != 1 ||
+		startBody.TargetSummary.ExpectedStackInstancesKnown {
+		t.Fatalf("expected organization target-intent summary with unknown account count, got %+v", startBody.TargetSummary)
+	}
+	if !slices.Contains(startBody.NextActions, AWSConnectorNextActionOpenStackSet) ||
+		!slices.Contains(startBody.NextActions, AWSConnectorNextActionEnableTrustedAccess) ||
+		!slices.Contains(startBody.NextActions, AWSConnectorNextActionRegisterDelegatedAdmin) ||
+		!slices.Contains(startBody.NextActions, AWSConnectorNextActionRefreshStatus) {
+		t.Fatalf("expected stackset next actions, got %+v", startBody.NextActions)
+	}
+	if startBody.StackSetOnboarding == nil {
+		t.Fatalf("expected unified stackset onboarding payload")
+	}
+	if startBody.IdentrailAccountID != "999999999999" ||
+		startBody.StackSetOnboarding.AccountID != "" ||
+		startBody.StackSetOnboarding.ManagementAccountID != "" {
+		t.Fatalf("expected Identrail account to stay separate from customer management account, got identrail=%q onboarding=%+v", startBody.IdentrailAccountID, startBody.StackSetOnboarding)
+	}
+	if !startBody.StackSetOnboarding.Targets.AllAccounts ||
+		len(startBody.StackSetOnboarding.Targets.OrganizationalUnits) != 1 ||
+		len(startBody.StackSetOnboarding.Targets.Regions) != 1 ||
+		startBody.StackSetOnboarding.Targets.Regions[0].Region != "us-east-1" {
+		t.Fatalf("expected organization StackSet deployment to use the home region only, got %+v", startBody.StackSetOnboarding.Targets)
+	}
+	if len(startBody.StackSetOnboarding.Instances) != 0 ||
+		startBody.StackSetOnboarding.Summary.TargetAccountsKnown ||
+		startBody.StackSetOnboarding.Summary.TotalInstancesKnown ||
+		startBody.StackSetOnboarding.Summary.DeployedPercentKnown ||
+		startBody.StackSetOnboarding.CoverageExpectation.ExpectedAccountsKnown ||
+		startBody.StackSetOnboarding.CoverageExpectation.ExpectedInstancesKnown ||
+		startBody.StackSetOnboarding.CoverageExpectation.ExpectedCoverageTargetsKnown ||
+		startBody.StackSetOnboarding.CoverageExpectation.CoveragePercentKnown ||
+		startBody.StackSetOnboarding.CoverageExpectation.ExpectedRegions != 1 ||
+		!startBody.StackSetOnboarding.CoverageExpectation.ExpectedRegionsKnown {
+		t.Fatalf("service-managed organization projections must stay unknown until AWS expands membership, got onboarding=%+v", startBody.StackSetOnboarding)
+	}
+	if !slices.ContainsFunc(startBody.StackSetOnboarding.CoverageGaps, func(gap AWSStackSetOnboardingCoverageGap) bool {
+		return gap.Capability == "service_managed_stackset_membership" && gap.Status == "unknown"
+	}) {
+		t.Fatalf("expected service-managed membership coverage gap, got %+v", startBody.StackSetOnboarding.CoverageGaps)
+	}
+	if startBody.StackSetOnboarding.Status != awsPlatformDependencyStatusBlocked {
+		t.Fatalf("expected nested stackset onboarding to report blocked prerequisites, got %q", startBody.StackSetOnboarding.Status)
+	}
+	trustedAccess := requireAWSStackSetPrerequisite(t, startBody.Prerequisites, "stackset.trusted_access_enabled")
+	if trustedAccess.Satisfied || trustedAccess.Severity != "blocking" {
+		t.Fatalf("expected trusted access prerequisite to block until live AWS validation confirms it, got %+v", trustedAccess)
+	}
+	delegatedAdmin := requireAWSStackSetPrerequisite(t, startBody.Prerequisites, "stackset.delegated_admin_registered")
+	if delegatedAdmin.Satisfied || delegatedAdmin.Severity != "advisory" {
+		t.Fatalf("expected delegated admin to be an unsatisfied advisory, got %+v", delegatedAdmin)
+	}
+	if !strings.Contains(startBody.LaunchURL, "stacksets/create") ||
+		!strings.Contains(startBody.LaunchURL, "permissionModel=SERVICE_MANAGED") ||
+		!strings.Contains(startBody.LaunchURL, "organizationalUnitIds=r-abcd") ||
+		!strings.Contains(startBody.LaunchURL, "excludedAccounts=210987654321") ||
+		!strings.Contains(startBody.LaunchURL, "accountFilterType=DIFFERENCE") ||
+		!strings.Contains(startBody.LaunchURL, "regions=us-east-1") ||
+		!strings.Contains(startBody.LaunchURL, "autoDeploymentEnabled=true") ||
+		!strings.Contains(startBody.LaunchURL, "retainStacksOnAccountRemoval=false") ||
+		strings.Contains(startBody.LaunchURL, "eu-west-1") {
+		t.Fatalf("expected stackset launch URL with service-managed targets and exclusions, got %q", startBody.LaunchURL)
+	}
+	assertAWSConnectorStartPayloadNoSecretMaterial(t, startResp.Body.String())
+	if startBody.Connection.LaunchURL != "" {
+		t.Fatalf("expected nested connection to redact launch URL, got %q", startBody.Connection.LaunchURL)
+	}
+
+	pollResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/aws/aws-org-prod/poll?workspace_id=workspace-a&project_id=project-1", "")
+	if pollResp.Code != http.StatusOK {
+		t.Fatalf("expected organization stackset poll 200, got %d body=%s", pollResp.Code, pollResp.Body.String())
+	}
+	if strings.Contains(pollResp.Body.String(), startBody.ExternalID) || strings.Contains(pollResp.Body.String(), `"launch_url"`) {
+		t.Fatalf("expected poll response to redact launch URL and external id, got %s", pollResp.Body.String())
+	}
+	var pollBody struct {
+		Connection AWSConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(pollResp.Body.Bytes(), &pollBody); err != nil {
+		t.Fatalf("decode poll response: %v", err)
+	}
+	if pollBody.Connection.ScopeType != AWSConnectorScopeOrganization ||
+		pollBody.Connection.StackSetName != startBody.StackSetName ||
+		pollBody.Connection.TargetSummary == nil ||
+		!pollBody.Connection.TargetSummary.AllAccounts ||
+		len(pollBody.Connection.Prerequisites) == 0 {
+		t.Fatalf("expected poll to expose stackset lifecycle fields without setup secrets, got %+v", pollBody.Connection)
+	}
+}
+
+func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{8}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	accounts, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-selected-accounts",
+		DisplayName:            "Selected accounts",
+		ScopeType:              AWSConnectorScopeSelectedAccounts,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetAccountIDs:       []string{"111122223333", "444455556666"},
+		TargetOUIDs:            []string{"r-abcd"},
+		ExcludedAccountIDs:     []string{"444455556666"},
+		TargetRegions:          []string{"us-east-1", "eu-west-1"},
+		StackSetName:           "identrail-selected-accounts",
+		AutoOnboardNewAccounts: false,
+	})
+	if err != nil {
+		t.Fatalf("start selected accounts stackset: %v", err)
+	}
+	if accounts.TargetSummary == nil ||
+		accounts.TargetSummary.AccountCountKnown ||
+		accounts.TargetSummary.AccountCount != 0 ||
+		accounts.TargetSummary.OUCount != 1 ||
+		accounts.TargetSummary.RegionCount != 2 ||
+		accounts.TargetSummary.ExcludedAccountCount != 1 ||
+		accounts.TargetSummary.ExpectedStackInstances != 0 ||
+		accounts.TargetSummary.ExpectedStackInstancesKnown {
+		t.Fatalf("service-managed selected-account summary must leave counts unknown until AWS INTERSECTION resolves OU membership, got %+v", accounts.TargetSummary)
+	}
+	if accounts.StackSetOnboarding == nil ||
+		len(accounts.StackSetOnboarding.Targets.Accounts) != 1 ||
+		len(accounts.StackSetOnboarding.Targets.OrganizationalUnits) != 1 ||
+		len(accounts.StackSetOnboarding.Targets.Regions) != 1 ||
+		accounts.StackSetOnboarding.Targets.Regions[0].Region != "us-east-1" {
+		t.Fatalf("expected excluded account to be subtracted from launch targets, got onboarding=%+v", accounts.StackSetOnboarding)
+	}
+	if len(accounts.StackSetOnboarding.Instances) != 0 ||
+		accounts.StackSetOnboarding.Summary.TargetAccountsKnown ||
+		accounts.StackSetOnboarding.Summary.TotalInstancesKnown ||
+		accounts.StackSetOnboarding.Summary.DeployedPercentKnown ||
+		accounts.StackSetOnboarding.CoverageExpectation.ExpectedAccountsKnown ||
+		accounts.StackSetOnboarding.CoverageExpectation.ExpectedInstancesKnown ||
+		accounts.StackSetOnboarding.CoverageExpectation.ExpectedCoverageTargetsKnown ||
+		accounts.StackSetOnboarding.CoverageExpectation.CoveragePercentKnown ||
+		accounts.StackSetOnboarding.CoverageExpectation.ExpectedRegions != 1 ||
+		!accounts.StackSetOnboarding.CoverageExpectation.ExpectedRegionsKnown {
+		t.Fatalf("service-managed selected-account projections must stay unknown until AWS resolves INTERSECTION membership, got onboarding=%+v", accounts.StackSetOnboarding)
+	}
+	if !slices.ContainsFunc(accounts.StackSetOnboarding.CoverageGaps, func(gap AWSStackSetOnboardingCoverageGap) bool {
+		return gap.Capability == "service_managed_stackset_membership" && gap.Status == "unknown"
+	}) {
+		t.Fatalf("expected service-managed membership coverage gap, got %+v", accounts.StackSetOnboarding.CoverageGaps)
+	}
+	if !strings.Contains(accounts.LaunchURL, "organizationalUnitIds=r-abcd") ||
+		!strings.Contains(accounts.LaunchURL, "accounts=111122223333") ||
+		!strings.Contains(accounts.LaunchURL, "accountFilterType=INTERSECTION") ||
+		!strings.Contains(accounts.LaunchURL, "regions=us-east-1") ||
+		!strings.Contains(accounts.LaunchURL, "autoDeploymentEnabled=false") ||
+		strings.Contains(accounts.LaunchURL, "eu-west-1") ||
+		strings.Contains(accounts.LaunchURL, "accounts=444455556666") ||
+		strings.Contains(accounts.LaunchURL, "excludedAccounts=") {
+		t.Fatalf("expected launch URL to include root plus non-excluded selected-account filter, got %q", accounts.LaunchURL)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-selected-accounts")
+	if err != nil {
+		t.Fatalf("load selected-account connector: %v", err)
+	}
+	if _, ok := stored.State.Metadata["external_id"]; ok {
+		t.Fatalf("external id must not be persisted in selected-account metadata: %+v", stored.State.Metadata)
+	}
+	accountsRetry, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-selected-accounts",
+		DisplayName:            "Selected accounts",
+		ScopeType:              AWSConnectorScopeSelectedAccounts,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetAccountIDs:       []string{"444455556666", "111122223333"},
+		TargetOUIDs:            []string{"r-abcd"},
+		ExcludedAccountIDs:     []string{"444455556666"},
+		TargetRegions:          []string{"us-east-1", "eu-west-1"},
+		StackSetName:           "identrail-selected-accounts",
+		AutoOnboardNewAccounts: false,
+	})
+	if err != nil {
+		t.Fatalf("resume selected accounts stackset with reordered account set: %v", err)
+	}
+	if accountsRetry.LaunchURL != accounts.LaunchURL {
+		t.Fatalf("expected reordered account set retry to resume existing launch URL, got %q want %q", accountsRetry.LaunchURL, accounts.LaunchURL)
+	}
+
+	ous, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      "aws-selected-ous",
+		DisplayName:      "Selected OUs",
+		ScopeType:        AWSConnectorScopeSelectedOUs,
+		DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+		TargetOUIDs:      []string{"ou-abcd-12345678", "ou-abcd-87654321"},
+		TargetRegions:    []string{"us-east-1"},
+		StackSetName:     "identrail-selected-ous",
+	})
+	if err != nil {
+		t.Fatalf("start selected OU stackset: %v", err)
+	}
+	if ous.TargetSummary == nil || ous.TargetSummary.OUCount != 2 ||
+		ous.TargetSummary.AccountCountKnown || ous.TargetSummary.ExpectedStackInstancesKnown {
+		t.Fatalf("expected selected-OU summary with unknown account expansion, got %+v", ous.TargetSummary)
+	}
+	if ous.StackSetOnboarding == nil || len(ous.StackSetOnboarding.Targets.OrganizationalUnits) != 2 ||
+		!strings.Contains(ous.LaunchURL, "organizationalUnitIds=") {
+		t.Fatalf("expected selected OUs in launch plan, got launch=%q onboarding=%+v", ous.LaunchURL, ous.StackSetOnboarding)
+	}
+	if len(ous.StackSetOnboarding.Instances) != 0 ||
+		ous.StackSetOnboarding.Summary.TargetAccountsKnown ||
+		ous.StackSetOnboarding.Summary.TotalInstancesKnown ||
+		ous.StackSetOnboarding.CoverageExpectation.ExpectedAccountsKnown ||
+		ous.StackSetOnboarding.CoverageExpectation.ExpectedInstancesKnown ||
+		ous.StackSetOnboarding.CoverageExpectation.ExpectedCoverageTargetsKnown {
+		t.Fatalf("service-managed selected-OU projections must stay unknown until AWS expands membership, got onboarding=%+v", ous.StackSetOnboarding)
+	}
+	if ous.StackSetOnboarding.Status != awsPlatformDependencyStatusBlocked {
+		t.Fatalf("expected selected OU onboarding to report blocked prerequisites, got %q", ous.StackSetOnboarding.Status)
+	}
+}
+
+func TestAWSConnectorStartRejectsStackSetResumeSetupDrift(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{8}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-stackset",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1", "eu-west-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		StackSetName:           "identrail-org-readonly",
+	})
+	if err != nil {
+		t.Fatalf("start organization stackset: %v", err)
+	}
+	if !strings.Contains(started.LaunchURL, "organizationalUnitIds=r-abcd") ||
+		!strings.Contains(started.LaunchURL, "autoDeploymentEnabled=true") {
+		t.Fatalf("expected organization launch URL, got %q", started.LaunchURL)
+	}
+
+	retries := []struct {
+		name    string
+		request AWSConnectorStartRequest
+	}{
+		{
+			name: "selected OU scope",
+			request: AWSConnectorStartRequest{
+				WorkspaceID:      "workspace-a",
+				ProjectID:        "project-1",
+				ConnectorID:      "aws-stackset",
+				DisplayName:      "Selected OUs",
+				ScopeType:        AWSConnectorScopeSelectedOUs,
+				DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:    []string{"us-east-1"},
+				TargetOUIDs:      []string{"ou-abcd-12345678"},
+				StackSetName:     "identrail-selected-ous",
+			},
+		},
+		{
+			name: "self-managed deployment",
+			request: AWSConnectorStartRequest{
+				WorkspaceID:      "workspace-a",
+				ProjectID:        "project-1",
+				ConnectorID:      "aws-stackset",
+				DisplayName:      "Selected accounts",
+				ScopeType:        AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod: AWSConnectorDeploymentStackSetSelfManaged,
+				TargetRegions:    []string{"us-east-1"},
+				TargetAccountIDs: []string{"111122223333"},
+				StackSetName:     "identrail-self-managed",
+			},
+		},
+	}
+	for _, retry := range retries {
+		t.Run(retry.name, func(t *testing.T) {
+			_, err := svc.StartAWSConnector(ctx, retry.request)
+			if !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+				t.Fatalf("expected setup drift to be rejected, got %v", err)
+			}
+			stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-stackset")
+			if err != nil {
+				t.Fatalf("load stored connector: %v", err)
+			}
+			if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
+				t.Fatalf("setup drift must not replace launch URL, got %q want %q", got, started.LaunchURL)
+			}
+		})
+	}
+}
+
+func TestAWSConnectorStartStackSetResumeAllowsUnsetChecksumForExisting(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{9}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	request := AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-stackset-resume",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		StackSetName:           "identrail-org-readonly",
+	}
+	started, err := svc.StartAWSConnector(ctx, request)
+	if err != nil {
+		t.Fatalf("initial stackset start: %v", err)
+	}
+	if started.LaunchURL == "" {
+		t.Fatalf("expected launch URL on initial start")
+	}
+
+	svc.AWSCloudFormationTemplateSHA = ""
+	resumed, err := svc.StartAWSConnector(ctx, request)
+	if err != nil {
+		t.Fatalf("resume must succeed with unset configured checksum, got %v", err)
+	}
+	if resumed.LaunchURL != started.LaunchURL {
+		t.Fatalf("resume must return the stored launch URL, got %q want %q", resumed.LaunchURL, started.LaunchURL)
+	}
+	if resumed.StackSetOnboarding == nil || resumed.StackSetOnboarding.TemplateChecksum != testAWSCloudFormationTemplateChecksum {
+		t.Fatalf("resume must reuse the persisted template checksum, got %+v", resumed.StackSetOnboarding)
+	}
+
+	newRequest := request
+	newRequest.ConnectorID = "aws-stackset-new"
+	if _, err := svc.StartAWSConnector(ctx, newRequest); !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
+		t.Fatalf("new stackset setup without configured checksum must be rejected, got %v", err)
+	}
+}
+
+func TestAWSConnectorStartRejectsStackSetLaunchIdentityDrift(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{10}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	base := AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-stackset-identity",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		RoleName:               "IdentrailReadOnly",
+		StackSetName:           "identrail-org-readonly",
+	}
+	started, err := svc.StartAWSConnector(ctx, base)
+	if err != nil {
+		t.Fatalf("initial stackset start: %v", err)
+	}
+
+	retries := []struct {
+		name    string
+		mutate  func(AWSConnectorStartRequest) AWSConnectorStartRequest
+		wantErr error
+	}{
+		{
+			name: "role_name",
+			mutate: func(r AWSConnectorStartRequest) AWSConnectorStartRequest {
+				r.RoleName = "IdentrailReadOnlyRenamed"
+				return r
+			},
+			wantErr: ErrInvalidAWSConnectionRequest,
+		},
+		{
+			name: "stack_set_name",
+			mutate: func(r AWSConnectorStartRequest) AWSConnectorStartRequest {
+				r.StackSetName = "identrail-org-readonly-v2"
+				return r
+			},
+			wantErr: ErrInvalidAWSConnectionRequest,
+		},
+		{
+			name: "same identity is not drift",
+			mutate: func(r AWSConnectorStartRequest) AWSConnectorStartRequest {
+				return r
+			},
+			wantErr: nil,
+		},
+	}
+	for _, retry := range retries {
+		t.Run(retry.name, func(t *testing.T) {
+			_, err := svc.StartAWSConnector(ctx, retry.mutate(base))
+			if retry.wantErr == nil {
+				if err != nil {
+					t.Fatalf("expected identical retry to succeed, got %v", err)
+				}
+			} else if !errors.Is(err, retry.wantErr) {
+				t.Fatalf("expected %v, got %v", retry.wantErr, err)
+			}
+			stored, storeErr := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-stackset-identity")
+			if storeErr != nil {
+				t.Fatalf("load stored connector: %v", storeErr)
+			}
+			if got := awsMetadataString(stored.State.Metadata, "role_name"); got != base.RoleName {
+				t.Fatalf("role_name must be preserved, got %q want %q", got, base.RoleName)
+			}
+			if got := awsMetadataString(stored.State.Metadata, "stack_set_name"); got != base.StackSetName {
+				t.Fatalf("stack_set_name must be preserved, got %q want %q", got, base.StackSetName)
+			}
+			if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
+				t.Fatalf("launch URL must be preserved, got %q want %q", got, started.LaunchURL)
+			}
+		})
+	}
+}
+
+func TestAWSConnectorStartRejectsInvalidStackSetName(t *testing.T) {
+	tooLong := strings.Repeat("a", 129)
+	invalid := []struct {
+		name         string
+		stackSetName string
+	}{
+		{name: "digit_prefix", stackSetName: "123-invalid"},
+		{name: "underscore", stackSetName: "identrail_readonly"},
+		{name: "too_long", stackSetName: tooLong},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			store := db.NewMemoryStore()
+			ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+			seedDefaultProject(t, store, ctx, "project-1")
+			manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{11}, 32)}})
+			if err != nil {
+				t.Fatalf("build connector secret manager: %v", err)
+			}
+			svc := NewService(store, routerScanner{}, "aws")
+			svc.ConnectorSecretManager = manager
+			svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+			svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+			svc.AWSAccountID = "999999999999"
+
+			request := AWSConnectorStartRequest{
+				WorkspaceID:      "workspace-a",
+				ProjectID:        "project-1",
+				ConnectorID:      "aws-stackset-invalid-name-" + tc.name,
+				DisplayName:      "Production organization",
+				ScopeType:        AWSConnectorScopeOrganization,
+				DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:    []string{"us-east-1"},
+				TargetOUIDs:      []string{"r-abcd"},
+				StackSetName:     tc.stackSetName,
+			}
+			if _, err := svc.StartAWSConnector(ctx, request); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+				t.Fatalf("invalid stack_set_name %q must be rejected before persistence, got %v", tc.stackSetName, err)
+			}
+			if _, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", request.ConnectorID); !errors.Is(err, db.ErrNotFound) {
+				t.Fatalf("invalid stack_set_name must not persist a connector, got %v", err)
+			}
+		})
+	}
+}
+
+func TestAWSConnectorStartRejectsInvalidStackSetRoleName(t *testing.T) {
+	tooLong := strings.Repeat("a", 65)
+	invalid := []struct {
+		name     string
+		roleName string
+	}{
+		{name: "path_separator", roleName: "team/IdentrailReadOnly"},
+		{name: "too_long", roleName: tooLong},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			store := db.NewMemoryStore()
+			ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+			seedDefaultProject(t, store, ctx, "project-1")
+			manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{11}, 32)}})
+			if err != nil {
+				t.Fatalf("build connector secret manager: %v", err)
+			}
+			svc := NewService(store, routerScanner{}, "aws")
+			svc.ConnectorSecretManager = manager
+			svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+			svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+			svc.AWSAccountID = "999999999999"
+
+			request := AWSConnectorStartRequest{
+				WorkspaceID:      "workspace-a",
+				ProjectID:        "project-1",
+				ConnectorID:      "aws-stackset-invalid-role-" + tc.name,
+				DisplayName:      "Production organization",
+				ScopeType:        AWSConnectorScopeOrganization,
+				DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:    []string{"us-east-1"},
+				TargetOUIDs:      []string{"r-abcd"},
+				RoleName:         tc.roleName,
+				StackSetName:     "identrail-org-readonly",
+			}
+			if _, err := svc.StartAWSConnector(ctx, request); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+				t.Fatalf("invalid role_name %q must be rejected before persistence, got %v", tc.roleName, err)
+			}
+			if _, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", request.ConnectorID); !errors.Is(err, db.ErrNotFound) {
+				t.Fatalf("invalid role_name must not persist a connector, got %v", err)
+			}
+		})
+	}
+}
+
+func TestAWSConnectorStartRejectsInvalidStackSetNameOnResume(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{12}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	request := AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      "aws-stackset-resume-invalid-name",
+		DisplayName:      "Production organization",
+		ScopeType:        AWSConnectorScopeOrganization,
+		DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:    []string{"us-east-1"},
+		TargetOUIDs:      []string{"r-abcd"},
+		StackSetName:     "identrail-org-readonly",
+	}
+	if _, err := svc.StartAWSConnector(ctx, request); err != nil {
+		t.Fatalf("initial stackset start: %v", err)
+	}
+	invalidRetry := request
+	invalidRetry.StackSetName = "123-invalid"
+	if _, err := svc.StartAWSConnector(ctx, invalidRetry); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("invalid stack_set_name on resume must be rejected, got %v", err)
+	}
+}
+
+func TestAWSConnectorStartRejectsInvalidStackSetRoleNameOnResume(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{12}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	request := AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      "aws-stackset-resume-invalid-role",
+		DisplayName:      "Production organization",
+		ScopeType:        AWSConnectorScopeOrganization,
+		DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:    []string{"us-east-1"},
+		TargetOUIDs:      []string{"r-abcd"},
+		RoleName:         "IdentrailReadOnly",
+		StackSetName:     "identrail-org-readonly",
+	}
+	started, err := svc.StartAWSConnector(ctx, request)
+	if err != nil {
+		t.Fatalf("initial stackset start: %v", err)
+	}
+	invalidRetry := request
+	invalidRetry.RoleName = "team/IdentrailReadOnly"
+	if _, err := svc.StartAWSConnector(ctx, invalidRetry); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("invalid role_name on resume must be rejected, got %v", err)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", request.ConnectorID)
+	if err != nil {
+		t.Fatalf("load stored connector: %v", err)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "role_name"); got != request.RoleName {
+		t.Fatalf("invalid role_name retry must not overwrite stored role, got %q", got)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
+		t.Fatalf("invalid role_name retry must not rebuild launch URL, got %q want %q", got, started.LaunchURL)
+	}
+}
+
+func TestAWSConnectorStartStackSetRequiresConfiguredAccountID(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{13}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	request := AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      "aws-stackset-missing-account",
+		DisplayName:      "Production organization",
+		ScopeType:        AWSConnectorScopeOrganization,
+		DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:    []string{"us-east-1"},
+		TargetOUIDs:      []string{"r-abcd"},
+		StackSetName:     "identrail-org-readonly",
+	}
+	started, err := svc.StartAWSConnector(ctx, request)
+	if err != nil {
+		t.Fatalf("initial stackset start: %v", err)
+	}
+
+	svc.AWSAccountID = ""
+	if _, err := svc.StartAWSConnector(ctx, request); !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
+		t.Fatalf("resume with unset AWSAccountID must be rejected, got %v", err)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", request.ConnectorID)
+	if err != nil {
+		t.Fatalf("load stored connector: %v", err)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
+		t.Fatalf("rejected resume must not overwrite the stored launch URL, got %q want %q", got, started.LaunchURL)
+	}
+	newRequest := request
+	newRequest.ConnectorID = "aws-stackset-new-missing-account"
+	if _, err := svc.StartAWSConnector(ctx, newRequest); !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
+		t.Fatalf("new stackset setup with unset AWSAccountID must be rejected, got %v", err)
+	}
+}
+
+func TestAWSConnectorValidateRejectsSelectedAccountOutsideScope(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "333344445555",
+			PrincipalARN: "arn:aws:sts::333344445555:assumed-role/IdentrailReadOnly/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-east-1",
+			PermissionChecks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			},
+		},
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.AWSConnectorValidator = validator
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		ConnectorID:        "aws-selected-accounts",
+		DisplayName:        "Selected accounts",
+		ScopeType:          AWSConnectorScopeSelectedAccounts,
+		DeploymentMethod:   AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:      []string{"us-east-1"},
+		TargetAccountIDs:   []string{"111122223333", "333344445555"},
+		TargetOUIDs:        []string{"r-abcd"},
+		ExcludedAccountIDs: []string{"333344445555"},
+		StackSetName:       "identrail-selected-accounts",
+	}); err != nil {
+		t.Fatalf("start selected-account stackset connector: %v", err)
+	}
+
+	if _, err := svc.ValidateAWSConnector(ctx, "aws-selected-accounts", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::333344445555:role/IdentrailReadOnly",
+	}); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("expected excluded validation account to be rejected, got %v", err)
+	}
+
+	validator.result.AccountID = "666677778888"
+	validator.result.PrincipalARN = "arn:aws:sts::666677778888:assumed-role/IdentrailReadOnly/identrail-connector-validation"
+	if _, err := svc.ValidateAWSConnector(ctx, "aws-selected-accounts", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::666677778888:role/IdentrailReadOnly",
+	}); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("expected untargeted validation account to be rejected, got %v", err)
+	}
+
+	validator.result.AccountID = "111122223333"
+	validator.result.PrincipalARN = "arn:aws:sts::111122223333:assumed-role/IdentrailReadOnly/identrail-connector-validation"
+	connected, err := svc.ValidateAWSConnector(ctx, "aws-selected-accounts", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::111122223333:role/IdentrailReadOnly",
+	})
+	if err != nil {
+		t.Fatalf("expected targeted validation account to connect: %v", err)
+	}
+	if !connected.Connected || connected.AccountID != "111122223333" {
+		t.Fatalf("expected selected targeted account to connect, got %+v", connected)
+	}
+}
+
+func TestAWSConnectorValidateClearsStackSetLaunchPrerequisitesWhenConnected(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "123456789012",
+			PrincipalARN: "arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-east-1",
+			PermissionChecks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			},
+		},
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.AWSConnectorValidator = validator
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-org-prod",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		StackSetName:           "identrail-org-readonly",
+	})
+	if err != nil {
+		t.Fatalf("start organization stackset connector: %v", err)
+	}
+	if started.OnboardingStatus != AWSConnectorOnboardingNeedsFix || len(started.Prerequisites) == 0 {
+		t.Fatalf("expected launch-time stackset prerequisites before validation, got status=%q prereqs=%+v", started.OnboardingStatus, started.Prerequisites)
+	}
+
+	connected, err := svc.ValidateAWSConnector(ctx, "aws-org-prod", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+	})
+	if err != nil {
+		t.Fatalf("validate organization stackset connector: %v", err)
+	}
+	if connected.OnboardingStatus != AWSConnectorOnboardingConnected || len(connected.Prerequisites) != 0 {
+		t.Fatalf("expected connected validation to clear stale launch prerequisites, got status=%q prereqs=%+v", connected.OnboardingStatus, connected.Prerequisites)
+	}
+	if !slices.Contains(connected.NextActions, AWSConnectorNextActionStartIntelligence) ||
+		slices.Contains(connected.NextActions, AWSConnectorNextActionEnableTrustedAccess) {
+		t.Fatalf("expected connected next actions without stale StackSet blockers, got %+v", connected.NextActions)
+	}
+
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-org-prod")
+	if err != nil {
+		t.Fatalf("load validated stackset connector: %v", err)
+	}
+	if _, ok := stored.State.Metadata["prerequisites"]; ok {
+		t.Fatalf("connected stackset connector must not preserve launch-time prerequisites: %+v", stored.State.Metadata["prerequisites"])
+	}
+	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
+		t.Fatalf("expected validation to keep durable launch URL, got %q want %q", got, started.LaunchURL)
+	}
+
+	resumed, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-org-prod",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		StackSetName:           "identrail-org-readonly",
+	})
+	if err != nil {
+		t.Fatalf("resume connected organization stackset connector: %v", err)
+	}
+	if resumed.OnboardingStatus != AWSConnectorOnboardingConnected ||
+		resumed.Connection.OnboardingStatus != AWSConnectorOnboardingConnected ||
+		len(resumed.Prerequisites) != 0 ||
+		len(resumed.Connection.Prerequisites) != 0 {
+		t.Fatalf("expected connected retry to keep connected state without launch blockers, got response=%+v connection=%+v", resumed, resumed.Connection)
+	}
+	if resumed.StackSetOnboarding != nil {
+		t.Fatalf("connected retry must not attach a fresh blocked StackSet onboarding plan: %+v", resumed.StackSetOnboarding)
+	}
+	if slices.Contains(resumed.NextActions, AWSConnectorNextActionEnableTrustedAccess) ||
+		!slices.Contains(resumed.NextActions, AWSConnectorNextActionStartIntelligence) {
+		t.Fatalf("expected connected retry actions without trusted-access blockers, got %+v", resumed.NextActions)
+	}
+	if resumed.LaunchURL != started.LaunchURL {
+		t.Fatalf("expected connected retry to keep durable launch URL, got %q want %q", resumed.LaunchURL, started.LaunchURL)
+	}
+}
+
+func TestAWSConnectorStartRejectsInvalidStackSetScopeContracts(t *testing.T) {
+	r := newAWSConnectorFlowTestRouter(t, nil)
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "missing stackset target regions",
+			body: `{
+				"workspace_id":"workspace-a",
+				"project_id":"project-1",
+				"scope_type":"organization",
+				"target_ou_ids":["r-abcd"],
+				"deployment_method":"stackset_service_managed"
+			}`,
+		},
+		{
+			name: "organization service-managed requires root or OU target",
+			body: `{
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
+				"scope_type":"organization",
+				"deployment_method":"stackset_service_managed",
+					"target_regions":["us-east-1"]
+				}`,
+		},
+		{
+			name: "organization rejects account filters",
+			body: `{
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
+					"scope_type":"organization",
+					"deployment_method":"stackset_service_managed",
+					"target_ou_ids":["r-abcd"],
+					"target_account_ids":["123456789012"],
+					"target_regions":["us-east-1"]
+				}`,
+		},
+		{
+			name: "invalid selected OU id",
+			body: `{
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
+				"scope_type":"selected_ous",
+				"deployment_method":"stackset_service_managed",
+				"target_ou_ids":["not-an-ou"],
+					"target_regions":["us-east-1"]
+				}`,
+		},
+		{
+			name: "selected OUs reject account filters",
+			body: `{
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
+					"scope_type":"selected_ous",
+					"deployment_method":"stackset_service_managed",
+					"target_ou_ids":["ou-abcd-12345678"],
+					"target_account_ids":["123456789012"],
+					"target_regions":["us-east-1"]
+				}`,
+		},
+		{
+			name: "invalid selected account id",
+			body: `{
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
+				"scope_type":"selected_accounts",
+				"deployment_method":"stackset_service_managed",
+				"target_account_ids":["12345"],
+					"target_regions":["us-east-1"]
+				}`,
+		},
+		{
+			name: "selected accounts reject empty effective account filter",
+			body: `{
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
+					"scope_type":"selected_accounts",
+					"deployment_method":"stackset_service_managed",
+					"target_ou_ids":["r-abcd"],
+					"target_account_ids":["123456789012"],
+					"excluded_account_ids":["123456789012"],
+					"target_regions":["us-east-1"]
+				}`,
+		},
+		{
+			name: "service-managed selected accounts require root or OU target",
+			body: `{
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
+				"scope_type":"selected_accounts",
+				"deployment_method":"stackset_service_managed",
+				"target_account_ids":["123456789012"],
+				"target_regions":["us-east-1"]
+			}`,
+		},
+		{
+			name: "self-managed selected accounts reject auto onboarding",
+			body: `{
+				"workspace_id":"workspace-a",
+				"project_id":"project-1",
+				"scope_type":"selected_accounts",
+				"deployment_method":"stackset_self_managed",
+				"target_account_ids":["123456789012"],
+				"target_regions":["us-east-1"],
+				"auto_onboard_new_accounts":true
+			}`,
+		},
+		{
+			name: "self-managed organization",
+			body: `{
+				"workspace_id":"workspace-a",
+				"project_id":"project-1",
+				"scope_type":"organization",
+				"deployment_method":"stackset_self_managed",
+				"target_regions":["us-east-1"]
+			}`,
+		},
+		{
+			name: "self-managed selected OU",
+			body: `{
+				"workspace_id":"workspace-a",
+				"project_id":"project-1",
+				"scope_type":"selected_ous",
+				"deployment_method":"stackset_self_managed",
+				"target_ou_ids":["ou-abcd-12345678"],
+				"target_regions":["us-east-1"]
+			}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws", tc.body)
+			if resp.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
+func TestAWSConnectorStartSelectedAccountsSelfManagedBlocksOnAdministrationRole(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{8}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      "aws-selected-self-managed",
+		DisplayName:      "Selected self-managed accounts",
+		ScopeType:        AWSConnectorScopeSelectedAccounts,
+		DeploymentMethod: AWSConnectorDeploymentStackSetSelfManaged,
+		TargetAccountIDs: []string{"111122223333", "444455556666"},
+		TargetRegions:    []string{"us-east-1"},
+	})
+	if err != nil {
+		t.Fatalf("start self-managed selected accounts: %v", err)
+	}
+	if started.OnboardingStatus != AWSConnectorOnboardingNeedsFix {
+		t.Fatalf("expected self-managed setup to need administration role, got %q", started.OnboardingStatus)
+	}
+	adminRole := requireAWSStackSetPrerequisite(t, started.Prerequisites, "stackset.administration_role_configured")
+	if adminRole.Satisfied || adminRole.Severity != "blocking" {
+		t.Fatalf("expected missing administration role to block self-managed setup, got %+v", adminRole)
+	}
+	if !slices.Contains(started.NextActions, AWSConnectorNextActionOpenStackSet) ||
+		!slices.Contains(started.NextActions, AWSConnectorNextActionRefreshStatus) {
+		t.Fatalf("expected operator recovery actions for self-managed setup, got %+v", started.NextActions)
+	}
+}
+
+func TestAWSConnectorTargetSummaryCountsSelfManagedSelectedAccounts(t *testing.T) {
+	setup := awsConnectorSetupContract{
+		ScopeType:          AWSConnectorScopeSelectedAccounts,
+		DeploymentMethod:   AWSConnectorDeploymentStackSetSelfManaged,
+		TargetAccountIDs:   []string{"111122223333", "444455556666"},
+		ExcludedAccountIDs: []string{"444455556666"},
+		TargetRegions:      []string{"us-east-1"},
+	}
+	summary := awsConnectorTargetSummary(setup)
+	if summary == nil || !summary.AccountCountKnown || !summary.ExpectedStackInstancesKnown {
+		t.Fatalf("self-managed selected accounts must keep counts known, got %+v", summary)
+	}
+	if summary.AccountCount != 1 || summary.ExpectedStackInstances != 1 {
+		t.Fatalf("self-managed selected accounts must count effective accounts, got %+v", summary)
+	}
+
+	serviceManaged := setup
+	serviceManaged.DeploymentMethod = AWSConnectorDeploymentStackSetServiceManaged
+	serviceManaged.TargetOUIDs = []string{"r-abcd"}
+	serviceSummary := awsConnectorTargetSummary(serviceManaged)
+	if serviceSummary == nil || serviceSummary.AccountCountKnown || serviceSummary.ExpectedStackInstancesKnown ||
+		serviceSummary.AccountCount != 0 || serviceSummary.ExpectedStackInstances != 0 {
+		t.Fatalf("service-managed selected accounts must leave counts unknown because AWS INTERSECTION filters by OU membership, got %+v", serviceSummary)
+	}
+}
+
+func TestAWSConnectorTemplateURLMustCarryChecksum(t *testing.T) {
+	if !awsConnectorTemplateURLPinnedToChecksum(testAWSCloudFormationTemplateURL, testAWSCloudFormationTemplateChecksum) {
+		t.Fatalf("expected content-addressed template URL to match checksum")
+	}
+	if awsConnectorTemplateURLPinnedToChecksum("https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml", testAWSCloudFormationTemplateChecksum) {
+		t.Fatalf("mutable template URL must not be treated as checksum-pinned")
+	}
+	if awsConnectorTemplateURLPinnedToChecksum("https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml?sha256=458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2", testAWSCloudFormationTemplateChecksum) {
+		t.Fatalf("template URL query text must not satisfy checksum pinning")
+	}
+	if awsConnectorTemplateURLPinnedToChecksum("https://cdn.identrail.example/connectors/aws/sha256/1111111111111111111111111111111111111111111111111111111111111111/identrail-readonly.yaml?digest=458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2", testAWSCloudFormationTemplateChecksum) {
+		t.Fatalf("template URL must require the configured checksum in the content-addressed path")
+	}
+	if awsConnectorTemplateURLPinnedToChecksum(testAWSCloudFormationTemplateURL, "sha256:1111111111111111111111111111111111111111111111111111111111111111") {
+		t.Fatalf("template URL must not match a different checksum")
+	}
+}
+
+func TestAWSConnectorStartStackSetRejectsMutableTemplateURL(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{8}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	_, err = svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-stackset-mutable-template",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		StackSetName:           "identrail-org-readonly",
+	})
+	if !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
+		t.Fatalf("mutable StackSet template URL must be rejected before launch URL generation, got %v", err)
+	}
+	if _, loadErr := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-stackset-mutable-template"); !errors.Is(loadErr, db.ErrNotFound) {
+		t.Fatalf("mutable template URL must not persist a connector, got %v", loadErr)
+	}
+}
+
 func TestAWSConnectorStartResumesExistingCloudFormationSetup(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
@@ -781,7 +1933,7 @@ func TestAWSConnectorStartResumesExistingCloudFormationSetup(t *testing.T) {
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 
 	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
@@ -1030,7 +2182,7 @@ func TestAWSConnectorStartSerializesConcurrentExplicitConnectorStarts(t *testing
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 
 	const workers = 16
@@ -1090,7 +2242,7 @@ func TestAWSConnectorStartPersistsRecoveredExternalIDLaunchState(t *testing.T) {
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 
 	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
@@ -1192,7 +2344,7 @@ func TestAWSConnectorStartFailsOnUnreadableExternalIDEnvelope(t *testing.T) {
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 
 	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
@@ -1267,7 +2419,7 @@ func TestAWSConnectorStartPersistsRebuiltLaunchMetadataWithExistingExternalID(t 
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 
 	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
@@ -1428,6 +2580,7 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 				ScopeType:               AWSConnectorScopeOrganization,
 				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
 				TargetRegions:           []string{"us-east-1", "us-west-2", "us-east-1"},
+				TargetOUIDs:             []string{"r-abcd"},
 				ExcludedAccountIDs:      []string{"123456789012"},
 				AutoOnboardNewAccounts:  true,
 				DefaultScopeType:        AWSConnectorScopeSingleAccount,
@@ -1437,9 +2590,58 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 				ScopeType:              AWSConnectorScopeOrganization,
 				DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
 				TargetRegions:          []string{"us-east-1", "us-west-2"},
+				TargetOUIDs:            []string{"r-abcd"},
 				ExcludedAccountIDs:     []string{"123456789012"},
 				AutoOnboardNewAccounts: true,
 			},
+		},
+		{
+			name: "organization service-managed requires root target",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeOrganization,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "organization rejects selected OU target",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeOrganization,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetOUIDs:             []string{"ou-abcd-12345678"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "organization rejects multiple roots",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeOrganization,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetOUIDs:             []string{"r-abcd", "r-efgh"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "organization rejects account filters",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeOrganization,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetOUIDs:             []string{"r-abcd"},
+				TargetAccountIDs:        []string{"111122223333"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
 		},
 		{
 			name: "selected OUs requires OU ids",
@@ -1453,7 +2655,125 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "selected accounts accepts account ids",
+			name: "selected OUs reject account filters",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedOUs,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetOUIDs:             []string{"ou-abcd-12345678"},
+				TargetAccountIDs:        []string{"111122223333"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "selected OUs reject organization root target",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedOUs,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetOUIDs:             []string{"r-abcd"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "service-managed selected accounts require root or OU context",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetAccountIDs:        []string{"111122223333"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "selected accounts require effective account target after exclusions",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetAccountIDs:        []string{"111122223333"},
+				TargetOUIDs:             []string{"r-abcd"},
+				ExcludedAccountIDs:      []string{"111122223333"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "service-managed selected accounts reject auto onboarding",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetAccountIDs:        []string{"111122223333"},
+				TargetOUIDs:             []string{"r-abcd"},
+				AutoOnboardNewAccounts:  true,
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "self-managed selected accounts reject auto onboarding",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetSelfManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetAccountIDs:        []string{"111122223333"},
+				AutoOnboardNewAccounts:  true,
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "service-managed selected accounts accepts account filters with root target",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetAccountIDs:        []string{"111122223333", "111122223333"},
+				TargetOUIDs:             []string{"r-abcd"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			want: awsConnectorSetupContract{
+				ScopeType:        AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:    []string{"us-east-1"},
+				TargetAccountIDs: []string{"111122223333"},
+				TargetOUIDs:      []string{"r-abcd"},
+			},
+		},
+		{
+			name: "set-valued account and OU targets are canonicalized",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-west-2", "us-east-1"},
+				TargetAccountIDs:        []string{"444455556666", "111122223333", "444455556666"},
+				TargetOUIDs:             []string{"ou-abcd-87654321", "r-abcd", "ou-abcd-87654321"},
+				ExcludedAccountIDs:      []string{"444455556666", "444455556666"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			want: awsConnectorSetupContract{
+				ScopeType:          AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:   AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:      []string{"us-west-2", "us-east-1"},
+				TargetAccountIDs:   []string{"111122223333", "444455556666"},
+				TargetOUIDs:        []string{"ou-abcd-87654321", "r-abcd"},
+				ExcludedAccountIDs: []string{"444455556666"},
+			},
+		},
+		{
+			name: "self-managed selected accounts accepts account ids",
 			input: awsConnectorSetupInput{
 				ScopeType:               AWSConnectorScopeSelectedAccounts,
 				DeploymentMethod:        AWSConnectorDeploymentStackSetSelfManaged,
@@ -1605,7 +2925,7 @@ func TestAWSConnectorServiceErrorPaths(t *testing.T) {
 	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{ProjectID: "project-1"}); !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
 		t.Fatalf("expected missing template config error, got %v", err)
 	}
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{ProjectID: "project-1"}); !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
 		t.Fatalf("expected missing account config error, got %v", err)
 	}
@@ -1705,6 +3025,27 @@ func TestAWSMetadataHelpers(t *testing.T) {
 	}
 }
 
+func requireAWSStackSetPrerequisite(t *testing.T, prerequisites []AWSStackSetOnboardingPrerequisite, id string) AWSStackSetOnboardingPrerequisite {
+	t.Helper()
+	for _, prerequisite := range prerequisites {
+		if prerequisite.ID == id {
+			return prerequisite
+		}
+	}
+	t.Fatalf("missing stackset prerequisite %q in %+v", id, prerequisites)
+	return AWSStackSetOnboardingPrerequisite{}
+}
+
+func assertAWSConnectorStartPayloadNoSecretMaterial(t *testing.T, payload string) {
+	t.Helper()
+	lower := strings.ToLower(payload)
+	for _, forbidden := range []string{"getsecretvalue", "secretstring", "aws_secret_access_key", "aws_access_key_id", "secretaccesskey", "plaintext"} {
+		if strings.Contains(lower, forbidden) {
+			t.Fatalf("connector start payload leaked secret-like content %q in %s", forbidden, payload)
+		}
+	}
+}
+
 func newAWSConnectionTestRouter(t *testing.T, validator AWSConnectorValidator) ginEngineForTest {
 	t.Helper()
 	logger := zap.NewNop()
@@ -1734,7 +3075,8 @@ func newAWSConnectorFlowTestRouter(t *testing.T, validator AWSConnectorValidator
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.AWSConnectorValidator = validator
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
 	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{8}, 32)}})
 	if err != nil {

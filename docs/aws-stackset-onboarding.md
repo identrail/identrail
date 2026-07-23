@@ -1,9 +1,11 @@
 # AWS Organization StackSet onboarding
 
-Implements [#1504](https://github.com/identrail/identrail/issues/1504). This is
-the operator-facing app flow that previews, launches, and recovers the
-organization-wide CloudFormation StackSet that deploys Identrail's read-only
-AWS connector role into member accounts.
+Implements [#1504](https://github.com/identrail/identrail/issues/1504) and the
+connector-start backend contract from
+[#1752](https://github.com/identrail/identrail/issues/1752). This is the
+operator-facing setup flow that previews, launches, and recovers the
+organization-wide CloudFormation StackSet that deploys Identrail's read-only AWS
+connector role into member accounts.
 
 The implementation is **read-only**, **metadata-only**, and **non-mutating**.
 Identrail never executes the StackSet on the operator's behalf — it generates a
@@ -23,9 +25,14 @@ contents are never read.
   fixture states, a `deployment_mode` query parameter (`service_managed` or
   `self_managed`), and explicit failure reasons, recovery actions, and evidence
   links.
+- First-class connector setup through `POST /v1/connectors/aws` for
+  `scope_type=organization`, `scope_type=selected_ous`, and
+  `scope_type=selected_accounts`. The start response returns the StackSet launch
+  URL, StackSet name, template checksum, target summary, prerequisites, setup
+  lifecycle fields, and unified `stackset_onboarding` payload.
 - A CloudFormation StackSet console launch URL builder in
   `internal/connectors/aws/cfn.go` that pins the template URL, parameter set,
-  permission model, organizational units, account ids, and target regions
+  permission model, organizational units, account ids, and home deployment region
   without ever embedding a secret value in the URL.
 - A web app surface (`AWS → Accounts`) that renders the validation verdict,
   prerequisites, permission preview, target accounts/OUs/regions, per-instance
@@ -43,8 +50,10 @@ contents are never read.
   `AWSCloudFormationStackSetAdministrationRole` is reachable from the management
   account and `AWSCloudFormationStackSetExecutionRole` is bootstrapped in each
   target account.
-- The Identrail read-only connector template URL and checksum are configured on
-  the runtime (`AWSCloudFormationTemplateURL`).
+- The Identrail read-only connector template URL is configured on the runtime
+  as a content-addressed URL that includes the release SHA-256 digest, and
+  StackSet launches also have the matching release checksum configured
+  (`IDENTRAIL_AWS_CFN_TEMPLATE_URL` and `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256`).
 - An external ID is generated for the connector trust policy.
 
 The planner reports each prerequisite (`stackset.template_pinned`,
@@ -60,6 +69,17 @@ The response includes:
 
 - `stack_set_name`, `template_url`, `template_checksum`, `launch_url`,
   `deployment_mode`, and `partition`.
+- `target_summary` on connector start/poll responses. For Organization and OU
+  scopes, account and expected-instance counts are marked unknown because AWS
+  resolves member accounts during StackSet deployment. Self-managed selected
+  account scopes report exact counts after exclusions are applied. Service-
+  managed selected account scopes mark those counts unknown because AWS applies
+  the selected account IDs as an `INTERSECTION` filter inside the supplied root
+  or OU and may drop accounts outside that boundary.
+- `target_regions` on connector start/poll responses preserve the operator's
+  scan-region intent. The StackSet launch itself uses only the first normalized
+  region as the home deployment region because the connector template creates a
+  fixed-name IAM role, and IAM roles are global within an AWS account.
 - `validation` — `ready` / `degraded` / `blocked` / `permission_denied` with
   blocking/advisory prerequisite counts, failure reasons, and remediation hints.
 - `permission_preview` — the read-only discovery permission tier (and the
@@ -83,9 +103,52 @@ The response includes:
 - `diagnostics`, `coverage_gaps`, `evidence_links`, `failure_reasons`,
   `remediation_hints`.
 
-The console `launch_url` carries no secret values — only the pinned template
-URL, parameter names (`IdentrailAccountId`, `ExternalId`, `RoleName`), the
-permission model, the target OU IDs, and the target regions.
+The console `launch_url` carries no AWS access keys, secret access keys, session
+tokens, customer payloads, or object contents. It does include setup-safe
+CloudFormation parameters such as the generated external ID, pinned template URL,
+permission model, target OU IDs, account filters, and the home deployment
+region. Additional connector `target_regions` remain scan intent for later
+collector fan-out; they are not sent as extra StackSet regions for the read-only
+IAM role template.
+
+The start route is still setup-only. It persists declared Organization/OU/account
+target intent in connector metadata, but it does not create graph nodes or report
+confirmed coverage until a later validation pass observes deployed StackSet
+instances.
+
+## Service-managed vs self-managed
+
+- `stackset_service_managed` is the default for AWS Organizations and selected
+  OU onboarding. AWS CloudFormation StackSets uses Organizations trusted access
+  to deploy into member accounts. Identrail generates the console launch URL and
+  prerequisite plan; the operator enables trusted access or delegated admin in
+  AWS when required.
+- `auto_onboard_new_accounts` is serialized into the service-managed StackSet
+  launch URL so the AWS console creates the StackSet with the requested
+  automatic-deployment setting instead of relying on console defaults. Identrail
+  sets retained-on-removal to false for this connector role so accounts removed
+  from targeted OUs do not keep stale read-only access.
+- `scope_type=organization` with `stackset_service_managed` must include the
+  organization root ID in `target_ou_ids`. Use `scope_type=selected_ous` for OU
+  rollout. Organization and selected-OU scopes reject
+  `target_account_ids` so their operator-visible scope cannot drift into an
+  account-filtered rollout. Selected-OU scope accepts only `ou-...` IDs; roots
+  are reserved for organization-wide rollout or selected-account account-filter
+  context. `scope_type=selected_accounts` also requires a root or OU target, and
+  AWS applies the selected account IDs as an account filter inside that root or
+  OU target. If exclusions remove every selected account, or if selected-account
+  setup asks for future-account auto-onboarding, the request is rejected instead
+  of launching against a broader root or OU.
+- `stackset_self_managed` is allowed only for explicit selected account IDs in
+  this backend contract. The planner blocks until an administration role is
+  configured because self-managed StackSets need operator-managed admin and
+  execution roles.
+
+AWS references:
+
+- [CloudFormation StackSets with AWS Organizations](https://docs.aws.amazon.com/organizations/latest/userguide/services-that-can-integrate-cloudformation.html)
+- [Create service-managed StackSets](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-associate-stackset-with-org.html)
+- [Enable trusted access for StackSets](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-activate-trusted-access.html)
 
 ## Instance state lifecycle
 

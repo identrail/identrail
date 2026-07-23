@@ -11420,6 +11420,9 @@ components:
       enum:
         - launch_stack
         - open_stackset
+        - enable_trusted_access
+        - register_delegated_admin
+        - select_targets
         - validate_role
         - refresh_status
         - repair_permissions
@@ -11444,28 +11447,36 @@ components:
         stack_name:
           type: string
           default: identrail-readonly-connector
+        stack_set_name:
+          type: string
+          default: identrail-readonly-connector-stackset
         scope_type:
           $ref: "#/components/schemas/AWSConnectorScopeType"
         deployment_method:
           $ref: "#/components/schemas/AWSConnectorDeploymentMethod"
         target_regions:
           type: array
+          description: AWS scan-region intent for the connector. StackSet setup sends only the first normalized region to CloudFormation because the read-only IAM role is global per account.
           items:
             type: string
         target_account_ids:
           type: array
+          description: Explicit AWS account IDs for selected-account scope only. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets; organization and selected-OU scopes reject this field.
           items:
             type: string
         target_ou_ids:
           type: array
+          description: AWS OU IDs or root IDs. Organization StackSets require an r-... root target; selected-OU StackSets accept only ou-... identifiers; selected-account StackSets may use root or OU context for account filters.
           items:
             type: string
         excluded_account_ids:
           type: array
+          description: AWS account IDs excluded from StackSet rollout. For selected-account scope, exclusions must leave at least one effective selected account.
           items:
             type: string
         auto_onboard_new_accounts:
           type: boolean
+          description: Enables service-managed StackSet automatic deployment to future accounts under targeted organization or OU scopes. Rejected for selected-account StackSets because AWS automatic deployments do not honor account filters.
     AWSConnectorValidateRequest:
       type: object
       required: [role_arn]
@@ -11513,6 +11524,7 @@ components:
         template_url:
           type: string
           format: uri
+          description: CloudFormation template URL. StackSet launch responses require this URL to be content-addressed with the same SHA-256 digest reported in template_checksum.
         identrail_account_id:
           type: string
           description: AWS account ID that should be trusted by manually managed IAM roles.
@@ -11522,6 +11534,11 @@ components:
           type: string
         policy_hash:
           type: string
+        stack_set_name:
+          type: string
+        template_checksum:
+          type: string
+          description: Release-provided SHA-256 digest for the CloudFormation template. StackSet launch URLs are emitted only when the template URL is content-addressed with this digest.
         scope_type:
           $ref: "#/components/schemas/AWSConnectorScopeType"
         deployment_method:
@@ -11530,28 +11547,41 @@ components:
           $ref: "#/components/schemas/AWSConnectorOnboardingStatus"
         target_regions:
           type: array
+          description: AWS scan-region intent for the connector. StackSet setup sends only the first normalized region to CloudFormation because the read-only IAM role is global per account.
           items:
             type: string
         target_account_ids:
           type: array
+          description: Explicit AWS account IDs for selected-account scope only. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets; organization and selected-OU scopes reject this field.
           items:
             type: string
         target_ou_ids:
           type: array
+          description: AWS OU IDs or root IDs. Organization StackSets require an r-... root target; selected-OU StackSets accept only ou-... identifiers; selected-account StackSets may use root or OU context for account filters.
           items:
             type: string
         excluded_account_ids:
           type: array
+          description: AWS account IDs excluded from StackSet rollout. For selected-account scope, exclusions must leave at least one effective selected account.
           items:
             type: string
         auto_onboard_new_accounts:
           type: boolean
+          description: Enables service-managed StackSet automatic deployment to future accounts under targeted organization or OU scopes. Rejected for selected-account StackSets because AWS automatic deployments do not honor account filters.
         setup_summary:
           type: string
         next_actions:
           type: array
           items:
             $ref: "#/components/schemas/AWSConnectorNextAction"
+        target_summary:
+          $ref: "#/components/schemas/AWSConnectorTargetSummary"
+        prerequisites:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingPrerequisite"
+        stackset_onboarding:
+          $ref: "#/components/schemas/AWSStackSetOnboardingResult"
         permission_preview:
           type: array
           items:
@@ -11733,22 +11763,27 @@ components:
           $ref: "#/components/schemas/AWSConnectorOnboardingStatus"
         target_regions:
           type: array
+          description: AWS scan-region intent for the connector. StackSet setup sends only the first normalized region to CloudFormation because the read-only IAM role is global per account.
           items:
             type: string
         target_account_ids:
           type: array
+          description: Explicit AWS account IDs for selected-account scope only. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets; organization and selected-OU scopes reject this field.
           items:
             type: string
         target_ou_ids:
           type: array
+          description: AWS OU IDs or root IDs. Organization StackSets require an r-... root target; selected-OU StackSets accept only ou-... identifiers; selected-account StackSets may use root or OU context for account filters.
           items:
             type: string
         excluded_account_ids:
           type: array
+          description: AWS account IDs excluded from StackSet rollout. For selected-account scope, exclusions must leave at least one effective selected account.
           items:
             type: string
         auto_onboard_new_accounts:
           type: boolean
+          description: Enables service-managed StackSet automatic deployment to future accounts under targeted organization or OU scopes. Rejected for selected-account StackSets because AWS automatic deployments do not honor account filters.
         setup_summary:
           type: string
         next_actions:
@@ -11773,8 +11808,20 @@ components:
         template_url:
           type: string
           format: uri
+          description: CloudFormation template URL. StackSet launch responses require this URL to be content-addressed with the same SHA-256 digest reported in template_checksum.
         policy_hash:
           type: string
+        stack_set_name:
+          type: string
+        template_checksum:
+          type: string
+          description: Release-provided SHA-256 digest for the CloudFormation template. StackSet launch URLs are emitted only when the template URL is content-addressed with this digest.
+        target_summary:
+          $ref: "#/components/schemas/AWSConnectorTargetSummary"
+        prerequisites:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingPrerequisite"
         created_at:
           type: string
           format: date-time
@@ -11787,6 +11834,26 @@ components:
           type: string
           format: date-time
           nullable: true
+    AWSConnectorTargetSummary:
+      type: object
+      description: Operator-declared StackSet target intent. Region count records scan-region intent, while expected stack instances use the single home deployment region for the read-only IAM role template. Account and instance counts are marked known only for self-managed selected-account StackSets, where Identrail deploys directly to the supplied account IDs after exclusions. Organization, OU, and service-managed selected-account scopes are resolved by AWS during StackSet deployment; service-managed selected accounts use accountFilterType=INTERSECTION, so accounts outside the supplied root or OU may be dropped and the counts remain unknown until AWS resolves the effective targets.
+      properties:
+        account_count:
+          type: integer
+        account_count_known:
+          type: boolean
+        ou_count:
+          type: integer
+        region_count:
+          type: integer
+        excluded_account_count:
+          type: integer
+        expected_stack_instances:
+          type: integer
+        expected_stack_instances_known:
+          type: boolean
+        all_accounts:
+          type: boolean
     AWSPlatformBaselineRequest:
       type: object
       properties:
@@ -23507,6 +23574,7 @@ components:
       type: object
       properties:
         organization_id: { type: string }
+        all_accounts: { type: boolean }
         organizational_units:
           type: array
           items:
@@ -23548,13 +23616,18 @@ components:
       type: object
       properties:
         expected_accounts: { type: integer }
+        expected_accounts_known: { type: boolean }
         expected_regions: { type: integer }
+        expected_regions_known: { type: boolean }
         expected_instances: { type: integer }
+        expected_instances_known: { type: boolean }
         expected_coverage_targets: { type: integer }
+        expected_coverage_targets_known: { type: boolean }
         coverage_percent:
           type: number
           minimum: 0
           maximum: 100
+        coverage_percent_known: { type: boolean }
         global_service_notes: { type: string }
     AWSStackSetOnboardingRecoveryAction:
       type: object
@@ -23569,8 +23642,11 @@ components:
       type: object
       properties:
         target_accounts: { type: integer }
+        target_accounts_known: { type: boolean }
         target_regions: { type: integer }
+        target_regions_known: { type: boolean }
         total_instances: { type: integer }
+        total_instances_known: { type: boolean }
         pending_instances: { type: integer }
         active_instances: { type: integer }
         blocked_instances: { type: integer }
@@ -23584,6 +23660,7 @@ components:
           type: number
           minimum: 0
           maximum: 100
+        deployed_percent_known: { type: boolean }
         state_counts:
           type: object
           additionalProperties: { type: integer }

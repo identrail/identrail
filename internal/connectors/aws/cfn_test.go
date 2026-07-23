@@ -74,16 +74,20 @@ func TestBuildCloudFormationLaunchURL(t *testing.T) {
 }
 
 func TestBuildCloudFormationStackSetLaunchURL(t *testing.T) {
+	autoDeploy := false
 	launchURL := BuildCloudFormationStackSetLaunchURL(CloudFormationStackSetLaunchInput{
-		TemplateURL:           "https://cdn.example.com/identrail-readonly.yaml",
-		Region:                "us-east-1",
-		StackSetName:          "identrail-prod-stackset",
-		IdentrailAccountID:    "123456789012",
-		ExternalID:            "external-id",
-		RoleName:              "IdentrailReadOnlyProd",
-		PermissionModel:       StackSetLaunchPermissionModelServiceManaged,
-		OrganizationalUnitIDs: []string{"ou-xxxx-1", "ou-yyyy-2"},
-		TargetRegions:         []string{"us-east-1", "eu-west-1"},
+		TemplateURL:                  "https://cdn.example.com/identrail-readonly.yaml",
+		Region:                       "us-east-1",
+		StackSetName:                 "identrail-prod-stackset",
+		IdentrailAccountID:           "123456789012",
+		ExternalID:                   "external-id",
+		RoleName:                     "IdentrailReadOnlyProd",
+		PermissionModel:              StackSetLaunchPermissionModelServiceManaged,
+		OrganizationalUnitIDs:        []string{"ou-xxxx-1", "ou-yyyy-2"},
+		ExcludedAccountIDs:           []string{"999900001111"},
+		TargetRegions:                []string{"us-east-1", "eu-west-1"},
+		AutoDeploymentEnabled:        &autoDeploy,
+		RetainStacksOnAccountRemoval: false,
 	})
 	parsed, err := url.Parse(launchURL)
 	if err != nil || parsed.Scheme != "https" {
@@ -95,11 +99,42 @@ func TestBuildCloudFormationStackSetLaunchURL(t *testing.T) {
 	if !strings.Contains(parsed.Fragment, "organizationalUnitIds=ou-xxxx-1,ou-yyyy-2") {
 		t.Fatalf("expected OU ids in fragment, got %q", parsed.Fragment)
 	}
+	if !strings.Contains(parsed.Fragment, "excludedAccounts=999900001111") || !strings.Contains(parsed.Fragment, "accountFilterType=DIFFERENCE") {
+		t.Fatalf("expected excluded account filter in fragment, got %q", parsed.Fragment)
+	}
 	if !strings.Contains(parsed.Fragment, "regions=us-east-1,eu-west-1") {
 		t.Fatalf("expected target regions in fragment, got %q", parsed.Fragment)
 	}
+	if !strings.Contains(parsed.Fragment, "autoDeploymentEnabled=false") ||
+		!strings.Contains(parsed.Fragment, "retainStacksOnAccountRemoval=false") {
+		t.Fatalf("expected disabled auto-deployment setting in fragment, got %q", parsed.Fragment)
+	}
 	if !strings.Contains(parsed.Fragment, "stacksets/create") {
 		t.Fatalf("expected stacksets/create fragment, got %q", parsed.Fragment)
+	}
+
+	autoDeploy = true
+	filteredURL := BuildCloudFormationStackSetLaunchURL(CloudFormationStackSetLaunchInput{
+		TemplateURL:                  "https://cdn.example.com/identrail-readonly.yaml",
+		Region:                       "us-east-1",
+		PermissionModel:              StackSetLaunchPermissionModelServiceManaged,
+		OrganizationalUnitIDs:        []string{"r-abcd"},
+		TargetAccountIDs:             []string{"111122223333"},
+		TargetRegions:                []string{"us-east-1"},
+		AutoDeploymentEnabled:        &autoDeploy,
+		RetainStacksOnAccountRemoval: false,
+	})
+	filteredParsed, err := url.Parse(filteredURL)
+	if err != nil {
+		t.Fatalf("parse filtered stackset launch URL: %v", err)
+	}
+	if !strings.Contains(filteredParsed.Fragment, "organizationalUnitIds=r-abcd") ||
+		!strings.Contains(filteredParsed.Fragment, "accounts=111122223333") ||
+		!strings.Contains(filteredParsed.Fragment, "accountFilterType=INTERSECTION") {
+		t.Fatalf("expected root plus selected-account intersection filter, got %q", filteredParsed.Fragment)
+	}
+	if !strings.Contains(filteredParsed.Fragment, "autoDeploymentEnabled=true") {
+		t.Fatalf("expected enabled auto-deployment setting, got %q", filteredParsed.Fragment)
 	}
 
 	// Missing template URL yields empty so the surface can render a blocked state instead of a malformed URL.

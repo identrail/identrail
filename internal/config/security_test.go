@@ -428,12 +428,40 @@ func TestValidateSecurityRequiresAWSConnectorLaunchConfig(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityAllowsMissingAWSConnectorTemplateChecksum(t *testing.T) {
+	cfg := Config{
+		APIKeys:                      []string{"reader", "writer"},
+		WriteAPIKeys:                 []string{"writer"},
+		FeatureConnectorAWS:          true,
+		AWSCloudFormationTemplateURL: "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml",
+		AWSAccountID:                 "123456789012",
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected missing AWS template checksum to be migration-safe, got %v", err)
+	}
+}
+
+func TestValidateSecurityRejectsInvalidAWSConnectorTemplateChecksum(t *testing.T) {
+	cfg := Config{
+		APIKeys:                      []string{"reader", "writer"},
+		WriteAPIKeys:                 []string{"writer"},
+		FeatureConnectorAWS:          true,
+		AWSCloudFormationTemplateURL: "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml",
+		AWSCloudFormationTemplateSHA: "sha256:not-a-checksum",
+		AWSAccountID:                 "123456789012",
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_AWS_CFN_TEMPLATE_SHA256") {
+		t.Fatalf("expected invalid AWS template checksum error, got %v", err)
+	}
+}
+
 func TestValidateSecurityAcceptsAWSConnectorLaunchConfig(t *testing.T) {
 	cfg := Config{
 		APIKeys:                      []string{"reader", "writer"},
 		WriteAPIKeys:                 []string{"writer"},
 		FeatureConnectorAWS:          true,
 		AWSCloudFormationTemplateURL: "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml",
+		AWSCloudFormationTemplateSHA: "458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2",
 		AWSAccountID:                 "123456789012",
 	}
 	if err := ValidateSecurity(cfg); err != nil {

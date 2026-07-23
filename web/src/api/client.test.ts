@@ -769,11 +769,39 @@ describe('apiClient', () => {
           onboarding_status: 'draft',
           target_regions: ['us-east-1'],
           target_account_ids: ['123456789012'],
-          target_ou_ids: [],
+          target_ou_ids: ['r-abcd'],
           excluded_account_ids: [],
           auto_onboard_new_accounts: false,
           setup_summary: 'Selected AWS accounts setup planned through CloudFormation StackSets.',
-          next_actions: ['open_stackset', 'refresh_status'],
+          next_actions: ['enable_trusted_access', 'register_delegated_admin', 'open_stackset', 'refresh_status'],
+          stack_set_name: 'identrail-selected-stackset',
+          template_checksum: 'sha256:template',
+          target_summary: {
+            account_count: 1,
+            account_count_known: true,
+            ou_count: 1,
+            region_count: 1,
+            excluded_account_count: 0,
+            expected_stack_instances: 1,
+            expected_stack_instances_known: true,
+            all_accounts: false
+          },
+          prerequisites: [
+            {
+              id: 'stackset.trusted_access_enabled',
+              title: 'AWS Organizations trusted access is enabled',
+              severity: 'blocking',
+              satisfied: false,
+              reason: 'Identrail has not verified trusted access for CloudFormation StackSets yet.'
+            },
+            {
+              id: 'stackset.delegated_admin_registered',
+              title: 'CloudFormation delegated administrator is registered',
+              severity: 'advisory',
+              satisfied: false,
+              reason: 'Without a delegated administrator, onboarding must run from the management account itself.'
+            }
+          ],
           permission_checks: [],
           diagnostics: [],
           capabilities: { requested: ['discovery'], validated: ['discovery'], effective: ['discovery'], unavailable: [] }
@@ -784,17 +812,106 @@ describe('apiClient', () => {
         template_url: 'https://cdn.example.com/identrail-readonly.yaml',
         role_name: 'IdentrailReadOnly',
         stack_name: 'identrail-readonly-connector',
+        stack_set_name: 'identrail-selected-stackset',
         policy_hash: 'sha256:example',
+        template_checksum: 'sha256:template',
         scope_type: 'selected_accounts',
         deployment_method: 'stackset_service_managed',
         onboarding_status: 'draft',
         target_regions: ['us-east-1'],
         target_account_ids: ['123456789012'],
-        target_ou_ids: [],
+        target_ou_ids: ['r-abcd'],
         excluded_account_ids: [],
         auto_onboard_new_accounts: false,
         setup_summary: 'Selected AWS accounts setup planned through CloudFormation StackSets.',
-        next_actions: ['open_stackset', 'refresh_status'],
+        next_actions: ['enable_trusted_access', 'register_delegated_admin', 'open_stackset', 'refresh_status'],
+        target_summary: {
+          account_count: 1,
+          account_count_known: true,
+          ou_count: 1,
+          region_count: 1,
+          excluded_account_count: 0,
+          expected_stack_instances: 1,
+          expected_stack_instances_known: true,
+          all_accounts: false
+        },
+        prerequisites: [
+          {
+            id: 'stackset.trusted_access_enabled',
+            title: 'AWS Organizations trusted access is enabled',
+            severity: 'blocking',
+            satisfied: false,
+            reason: 'Identrail has not verified trusted access for CloudFormation StackSets yet.'
+          },
+          {
+            id: 'stackset.delegated_admin_registered',
+            title: 'CloudFormation delegated administrator is registered',
+            severity: 'advisory',
+            satisfied: false,
+            reason: 'Without a delegated administrator, onboarding must run from the management account itself.'
+          }
+        ],
+        stackset_onboarding: {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace/a',
+          project_id: 'project 1',
+          connector_id: 'aws-selected',
+          stack_set_name: 'identrail-selected-stackset',
+          deployment_mode: 'service_managed',
+          partition: 'aws',
+          parent_issue_number: 1504,
+          parent_issue_ref: '#1504',
+          current_issue_number: 1752,
+          current_issue_ref: '#1752',
+          version: 'aws-stackset-onboarding-v1',
+          status: 'degraded',
+          fixture_state: 'success',
+          confidence: 0.72,
+          validation: {
+            status: 'degraded',
+            confidence: 0.72,
+            blocking_count: 0,
+            advisory_count: 1,
+            prerequisites: [],
+            failure_reasons: [],
+            remediation_hints: []
+          },
+          permission_preview: [],
+          targets: { all_accounts: false, organizational_units: [], accounts: [], regions: [] },
+          instances: [],
+          coverage_expectation: {
+            expected_accounts: 0,
+            expected_regions: 0,
+            expected_instances: 0,
+            expected_coverage_targets: 0,
+            coverage_percent: 0,
+            global_service_notes: ''
+          },
+          recovery_actions: [],
+          summary: {
+            target_accounts: 0,
+            target_regions: 0,
+            total_instances: 0,
+            pending_instances: 0,
+            active_instances: 0,
+            blocked_instances: 0,
+            failed_instances: 0,
+            degraded_instances: 0,
+            suspended_instances: 0,
+            permission_denied_instances: 0,
+            unsupported_instances: 0,
+            resumable_instances: 0,
+            deployed_percent: 0,
+            state_counts: {}
+          },
+          failure_reasons: [],
+          remediation_hints: [],
+          evidence_links: [],
+          coverage_gaps: [],
+          diagnostics: [],
+          generated_at: '2026-07-17T00:00:00Z',
+          updated_at: '2026-07-17T00:00:00Z'
+        },
         permission_preview: [],
         permission_tiers: []
       })
@@ -807,8 +924,10 @@ describe('apiClient', () => {
         project_id: 'project 1',
         scope_type: 'selected_accounts',
         deployment_method: 'stackset_service_managed',
+        stack_set_name: 'identrail-selected-stackset',
         target_regions: ['us-east-1'],
         target_account_ids: ['123456789012'],
+        target_ou_ids: ['r-abcd'],
         excluded_account_ids: ['210987654321'],
         auto_onboard_new_accounts: false
       },
@@ -828,8 +947,10 @@ describe('apiClient', () => {
         project_id: 'project 1',
         scope_type: 'selected_accounts',
         deployment_method: 'stackset_service_managed',
+        stack_set_name: 'identrail-selected-stackset',
         target_regions: ['us-east-1'],
         target_account_ids: ['123456789012'],
+        target_ou_ids: ['r-abcd'],
         excluded_account_ids: ['210987654321'],
         auto_onboard_new_accounts: false
       })
