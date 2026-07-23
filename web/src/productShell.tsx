@@ -25076,16 +25076,45 @@ const REPO_INTELLIGENCE_ACTIVE_LIFECYCLE_STATUSES: readonly RepoFindingLifecycle
 // helper knows how to fix. Findings outside this set (notably GitHub posture
 // findings like github_default_branch_unprotected) are still worth showing in
 // the queue for triage, but requesting a preview would 422 back — the button
-// and the "fix-ready" count both need to reflect the actual set.
+// needs to reflect the actual accepted set.
 // See internal/findings/standards/repo_remediation.go for the authoritative
-// list; keep this predicate in sync.
-const REPO_INTELLIGENCE_REMEDIATION_DETECTOR_PREFIXES = ['workflow_', 'terraform_', 'docker_', 'k8s_', 'ai_agent_'];
+// list; keep this predicate in sync. Backend accepts any workflow_/ai_agent_
+// prefix (falls through to workflowGenericRemediation / aiAgentGeneric-
+// Remediation), but only the exact terraform_/docker_/k8s_ detectors listed
+// in repoMisconfigRemediation's switch — an unrecognized terraform_/docker_/
+// k8s_ prefix hits the switch's default and returns unsupported.
+const REPO_INTELLIGENCE_REMEDIATION_DETECTOR_PREFIXES = ['workflow_', 'ai_agent_'];
+const REPO_INTELLIGENCE_REMEDIATION_EXACT_DETECTORS = new Set<string>([
+  'k8s_privileged_true',
+  'terraform_public_s3_acl',
+  'terraform_open_ssh_rdp',
+  'docker_latest_tag'
+]);
+// The subset of supported detectors whose backend remediation returns
+// `Publishable: true` (deterministic patch templates, not guidance-only or
+// placeholder templates). Secret exposures and all guidance/placeholder
+// remediations return `Publishable: false`, so counting the whole supported
+// set as "fix-ready" would over-advertise. See deterministicRepoRemediation
+// call sites in internal/findings/standards/repo_remediation.go.
+const REPO_INTELLIGENCE_PUBLISHABLE_DETECTORS = new Set<string>([
+  'workflow_write_all_permissions',
+  'workflow_pull_request_target',
+  'k8s_privileged_true',
+  'terraform_public_s3_acl'
+]);
 
 function isRemediationSupportedFinding(finding: ApiFinding): boolean {
   if (finding.type === 'secret_exposure') return true;
   const detector = (finding.detector ?? '').toLowerCase();
   if (!detector) return false;
+  if (REPO_INTELLIGENCE_REMEDIATION_EXACT_DETECTORS.has(detector)) return true;
   return REPO_INTELLIGENCE_REMEDIATION_DETECTOR_PREFIXES.some((prefix) => detector.startsWith(prefix));
+}
+
+function isPublishableRemediationFinding(finding: ApiFinding): boolean {
+  const detector = (finding.detector ?? '').toLowerCase();
+  if (!detector) return false;
+  return REPO_INTELLIGENCE_PUBLISHABLE_DETECTORS.has(detector);
 }
 
 function isActiveRepoIntelligenceFinding(finding: ApiFinding): boolean {
@@ -25159,15 +25188,26 @@ function repoIntelligenceSlugKey(value: string): string {
   return canonicalGitHubRepositoryDisplay(value).toLowerCase();
 }
 
+type RepoIntelligenceScanLookup = {
+  scan: RepoScanRecord | null;
+  // True when the search hit its page ceiling with more workspace scans still
+  // available. A `null` scan with `truncated: true` means "the repository may
+  // have an older scan we did not reach" — the drilldown must say so instead
+  // of rendering "No scan yet", which would tell the operator the repository
+  // has never been scanned. The 20-page cap * 50-per-page limit means the
+  // repository's newest scan can be shadowed by 1,000 newer workspace scans.
+  truncated: boolean;
+};
+
 async function findRepoIntelligenceLatestScan(
   repository: string,
   auth: RequestAuthContext | undefined,
   isCurrent: () => boolean
-): Promise<RepoScanRecord | null> {
+): Promise<RepoIntelligenceScanLookup> {
   const target = repoIntelligenceSlugKey(repository);
   let cursor: string | undefined;
   for (let page = 0; page < REPO_INTELLIGENCE_SCAN_MAX_PAGES; page += 1) {
-    if (!isCurrent()) return null;
+    if (!isCurrent()) return { scan: null, truncated: false };
     const response = await apiClient.listRepoScans(
       { limit: REPO_INTELLIGENCE_SCAN_PAGE_LIMIT, cursor },
       auth
@@ -25175,11 +25215,11 @@ async function findRepoIntelligenceLatestScan(
     const match = response.items.find(
       (item) => repoIntelligenceSlugKey(item.repository) === target
     );
-    if (match) return match;
-    if (!response.next_cursor) return null;
+    if (match) return { scan: match, truncated: false };
+    if (!response.next_cursor) return { scan: null, truncated: false };
     cursor = response.next_cursor;
   }
-  return null;
+  return { scan: null, truncated: true };
 }
 
 type RepoIntelligenceFindingsResult = {
@@ -25241,6 +25281,7 @@ export function ProductGitHubRepositoryDetailPage() {
   );
 
   const [scan, setScan] = useState<RepoScanRecord | null>(null);
+  const [scanLookupTruncated, setScanLookupTruncated] = useState(false);
   const [findings, setFindings] = useState<ApiFinding[]>([]);
   const [findingsSummary, setFindingsSummary] = useState<RepoFindingsSummary | null>(null);
   const [findingsTruncated, setFindingsTruncated] = useState(false);
@@ -25261,6 +25302,7 @@ export function ProductGitHubRepositoryDetailPage() {
 
   const resetRepositoryState = useCallback(() => {
     setScan(null);
+    setScanLookupTruncated(false);
     setFindings([]);
     setFindingsSummary(null);
     setFindingsTruncated(false);
@@ -25389,9 +25431,10 @@ export function ProductGitHubRepositoryDetailPage() {
     }
 
     Promise.all([scansPromise, findingsPromise, graphPromise])
-      .then(([latestScan, findingsResult, graph]) => {
+      .then(([scanResult, findingsResult, graph]) => {
         if (requestID !== requestRef.current) return;
-        setScan(latestScan);
+        setScan(scanResult.scan);
+        setScanLookupTruncated(scanResult.truncated);
         setFindings(findingsResult.items);
         setFindingsSummary(findingsResult.summary);
         setFindingsTruncated(findingsResult.truncated);
@@ -25460,12 +25503,15 @@ export function ProductGitHubRepositoryDetailPage() {
     [posture, organizationPosture]
   );
   const completeness = repoIntelligenceScanCompleteness(scan);
-  // Derive fix-ready count from detector support (see
-  // isRemediationSupportedFinding) rather than from an evidence field the
-  // production finding collectors do not write. Reading finding.evidence.
-  // publishable would report zero on first render and grow only when the
-  // operator manually previewed each finding.
-  const publishableCount = queue.filter(({ finding }) => isRemediationSupportedFinding(finding)).length;
+  // Derive fix-ready count from the deterministic-patch subset of supported
+  // detectors — the ones whose backend remediation returns publishable:true.
+  // Reading finding.evidence.publishable would report zero on first render
+  // and grow only when the operator manually previewed each finding, and
+  // counting the full supported set would over-advertise since secret
+  // exposures and guidance-only workflow/ai_agent detectors return
+  // publishable:false even though a preview is available.
+  const publishableCount = queue.filter(({ finding }) => isPublishableRemediationFinding(finding)).length;
+  const previewReadyCount = queue.filter(({ finding }) => isRemediationSupportedFinding(finding)).length;
 
   const closePreview = useCallback(() => {
     // Bumping the request token here matters even when no request is in flight
@@ -25631,7 +25677,12 @@ export function ProductGitHubRepositoryDetailPage() {
           >
             <header className="idt-github-intelligence-panel-head">
               <p className="idt-app-kicker">Latest scan</p>
-              <h3>{scan ? formatTokenLabel(scan.status) : 'No scan yet'}</h3>
+              <h3>{scan ? formatTokenLabel(scan.status) : scanLookupTruncated ? 'Scan history truncated' : 'No scan yet'}</h3>
+              {!scan && scanLookupTruncated ? (
+                <p role="alert" className="idt-app-alert idt-app-alert-warning">
+                  Repository scan search hit its safety ceiling before finding a match. The repository may have an older scan behind more recent workspace scans; open the scans page and filter by repository to confirm.
+                </p>
+              ) : null}
             </header>
             <DomainStatusBadge
               variant={
@@ -25734,6 +25785,7 @@ export function ProductGitHubRepositoryDetailPage() {
                   {queue.length} finding{queue.length === 1 ? '' : 's'}
                   {findingsSummary?.total_open != null ? ` • ${findingsSummary.total_open} open` : ''}
                   {publishableCount > 0 ? ` • ${publishableCount} fix-ready` : ''}
+                  {previewReadyCount > publishableCount ? ` • ${previewReadyCount - publishableCount} preview-only` : ''}
                 </p>
               ) : null}
               {findingsTruncated ? (

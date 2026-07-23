@@ -15787,6 +15787,104 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(await screen.findByText(/No findings for this repository/i)).toBeInTheDocument();
   });
 
+  it('surfaces a truncated scan-history warning instead of "No scan yet" when the search hit its cap', async () => {
+    // ListRepoScans is workspace-wide, so a repository whose newest scan sits
+    // behind more than REPO_INTELLIGENCE_SCAN_MAX_PAGES * SCAN_PAGE_LIMIT
+    // newer workspace scans is never reached. Simulate that by returning
+    // pages that never match the target repository and always return a
+    // next_cursor so the fetcher exhausts its 20-page ceiling.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    const otherRepoScan: RepoScanRecord = {
+      ...completedScan,
+      id: 'repo-scan-other',
+      repository: 'someone-else/other-repo'
+    };
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({
+      items: [otherRepoScan],
+      next_cursor: 'never-exhausted'
+    });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(emptyRiskGraph);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Header reads "Scan history truncated", not "No scan yet". The banner
+    // steers the operator to filter by repository instead of assuming the
+    // repository has never been scanned.
+    expect(await screen.findByText(/Scan history truncated/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 3, name: /No scan yet/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Repository scan search hit its safety ceiling/i)).toBeInTheDocument();
+  });
+
+  it('counts publishable-patch detectors as fix-ready and guidance-only as preview-only', async () => {
+    // workflow_write_all_permissions → deterministic patch (Publishable:true).
+    // workflow_oidc_broad_trust → guidance-only (Publishable:false).
+    // Both are supported (Preview button), but only the first is fix-ready.
+    const fixReadyFinding: Finding = {
+      ...workflowFinding,
+      id: 'finding-workflow-write-all',
+      title: 'Workflow has write-all permissions',
+      detector: 'workflow_write_all_permissions'
+    };
+    await renderRepositoryDetail({ findings: [fixReadyFinding, workflowFinding] });
+    const queueList = await screen.findByLabelText('Prioritized findings queue');
+    expect(queueList.textContent).toContain('1 fix-ready');
+    expect(queueList.textContent).toContain('1 preview-only');
+  });
+
+  it('does not offer a Preview button for unrecognized terraform_ detectors', async () => {
+    // Frontend prefix set used to include terraform_/docker_/k8s_, but the
+    // backend switch only accepts a fixed list of exact detectors for these
+    // families. An unrecognized terraform_ detector would 422 on preview.
+    const unsupportedTerraformFinding: Finding = {
+      ...workflowFinding,
+      id: 'finding-terraform-unrecognized',
+      title: 'Unrecognized terraform misconfiguration',
+      detector: 'terraform_some_new_detector_backend_does_not_handle'
+    };
+    await renderRepositoryDetail({ findings: [unsupportedTerraformFinding] });
+    const queueList = await screen.findByLabelText('Prioritized findings queue');
+    // Row rendered for triage.
+    expect(queueList.textContent).toContain('Unrecognized terraform misconfiguration');
+    // No Preview button.
+    expect(screen.queryByRole('button', { name: /Preview remediation/i })).not.toBeInTheDocument();
+    expect(within(queueList).getByText(/Review in GitHub/i)).toBeInTheDocument();
+  });
+
   it('shows an error banner when the repository query parameter is missing', async () => {
     await renderRepositoryDetail({ initialRepository: '' });
     expect(await screen.findByText(/Repository not selected/i)).toBeInTheDocument();
@@ -16390,9 +16488,13 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(previewButtons.length).toBe(1);
     expect(within(queueList).getByText(/Review in GitHub/i)).toBeInTheDocument();
 
-    // Fix-ready count in the header matches the button count (1), not the
-    // full queue length (2).
-    expect(queueList.textContent).toContain('1 fix-ready');
+    // Header splits the queue by remediation category: workflow_oidc_broad_trust
+    // is supported (Preview button) but backend returns publishable:false
+    // (guidance-only), so it counts as preview-only rather than fix-ready. This
+    // matches the accepted-detector semantics in
+    // internal/findings/standards/repo_remediation.go.
+    expect(queueList.textContent).not.toContain('fix-ready');
+    expect(queueList.textContent).toContain('1 preview-only');
   });
 
   it('reports truncation when it stopped because the active-findings target filled while pages remained', async () => {
