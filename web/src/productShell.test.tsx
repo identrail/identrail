@@ -15648,6 +15648,7 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     posture?: GitHubRepositoryPosture;
     postureError?: { message: string; status: number };
     listRepoFindingsError?: { message: string; status: number };
+    listRepoScansError?: { message: string; status: number };
   } = {}) {
     mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
     mockBackendFeatures({ github: true });
@@ -15668,7 +15669,12 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
       }
     });
     vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: options.scans ?? [completedScan] });
+    const scansSpy = vi.spyOn(api.apiClient, 'listRepoScans');
+    if (options.listRepoScansError) {
+      scansSpy.mockRejectedValue(new api.ApiError(options.listRepoScansError.message, options.listRepoScansError.status));
+    } else {
+      scansSpy.mockResolvedValue({ items: options.scans ?? [completedScan] });
+    }
 
     const findingsSpy = vi.spyOn(api.apiClient, 'listRepoFindings');
     if (options.listRepoFindingsError) {
@@ -15891,9 +15897,39 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.getByRole('link', { name: /Back to repositories/i })).toBeInTheDocument();
   });
 
-  it('shows an error state when the findings request fails', async () => {
+  it('shows an inline findings error but keeps the scan strip and posture usable', async () => {
+    // Findings lane runs independently now, so a findings failure surfaces
+    // inline in the queue panel while the scan strip and posture panels
+    // still render their own successful state.
     await renderRepositoryDetail({ listRepoFindingsError: { message: 'boom', status: 500 } });
-    expect(await screen.findByText(/Couldn't load repository intelligence/i)).toBeInTheDocument();
+    // Scan strip commits its own success even though findings rejected.
+    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
+    // Findings queue panel surfaces its own error.
+    const queuePanel = await screen.findByLabelText('Prioritized findings queue');
+    expect(within(queuePanel).getByText(/boom/i)).toBeInTheDocument();
+    // No shared "Couldn't load repository intelligence" banner — that
+    // banner was misleading because it hid the successful scan panel.
+    expect(screen.queryByText(/Couldn't load repository intelligence/i)).not.toBeInTheDocument();
+  });
+
+  it('commits successful findings when the scan lookup rejects', async () => {
+    // Scan and findings lanes are independent, so a transient
+    // /v1/repo-scans failure must not discard a successfully fetched
+    // findings queue. Previously Promise.all rejected together, so the
+    // page misleadingly showed both "No scan yet" and "No findings"
+    // under a shared error banner even when findings was fine.
+    await renderRepositoryDetail({ listRepoScansError: { message: 'scans down', status: 502 } });
+    // Findings queue rendered from its own successful response.
+    const queuePanel = await screen.findByLabelText('Prioritized findings queue');
+    expect(within(queuePanel).getByText(/Default branch protection is unprotected/i)).toBeInTheDocument();
+    expect(within(queuePanel).getByText(/Workflow OIDC trust is broad/i)).toBeInTheDocument();
+    // Scan strip surfaces its own inline error, not the shared banner.
+    const scanPanel = await screen.findByLabelText('Latest scan');
+    expect(within(scanPanel).getByText(/scans down/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't load repository intelligence/i)).not.toBeInTheDocument();
+    // Not the misleading "No scan yet" fallback either — that would suggest
+    // the repository has never been scanned rather than a transient error.
+    expect(within(scanPanel).queryByRole('heading', { level: 3, name: /No scan yet/i })).not.toBeInTheDocument();
   });
 
   it('shows an inline posture error but keeps the rest of the drilldown usable', async () => {
@@ -16308,9 +16344,9 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
 
   it('does not render the previous repository\'s data when a reload rejects on error', async () => {
     // Start on repo A with data, then rerun the render pointing at repo B where
-    // listRepoFindings rejects. The header must swap to repo B but the queue,
-    // posture, and scan panels must not show repo A's leftover data — only the
-    // shared error banner.
+    // listRepoFindings rejects. The header must swap to repo B and the
+    // findings panel must show its own inline error — the queue and scan
+    // panels must not carry repo A's leftover data.
     await renderRepositoryDetail();
     // Confirm repo A rendered fully.
     await screen.findByRole('heading', { level: 2, name: targetRepository });
@@ -16325,7 +16361,9 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
       listRepoFindingsError: { message: 'transient outage', status: 500 }
     });
     await screen.findByRole('heading', { level: 2, name: otherRepository });
-    expect(await screen.findByText(/Couldn't load repository intelligence/i)).toBeInTheDocument();
+    // Findings panel surfaces its own error inline.
+    const queuePanel = await screen.findByLabelText('Prioritized findings queue');
+    expect(within(queuePanel).getByText(/transient outage/i)).toBeInTheDocument();
     // Stale queue rows from repo A must not be present.
     expect(screen.queryByText(/Default branch protection is unprotected/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Workflow OIDC trust is broad/i)).not.toBeInTheDocument();

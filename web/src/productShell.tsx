@@ -25295,12 +25295,20 @@ export function ProductGitHubRepositoryDetailPage() {
   const [riskGraph, setRiskGraph] = useState<RepoRiskGraph | null>(null);
   const [posture, setPosture] = useState<GitHubRepositoryPosture | null>(null);
   const [organizationPosture, setOrganizationPosture] = useState<GitHubOrganizationPosture | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [findingsLoading, setFindingsLoading] = useState(false);
   const [postureLoading, setPostureLoading] = useState(false);
   const [riskGraphLoading, setRiskGraphLoading] = useState(false);
+  // Shared error banner only surfaces effect-level failures the panels
+  // cannot express on their own (e.g. an adopted connection-status error).
+  // Per-lane errors surface in their own panels so a scan failure does not
+  // hide a successful findings queue and vice versa.
   const [error, setError] = useState('');
+  const [scanError, setScanError] = useState('');
+  const [findingsError, setFindingsError] = useState('');
   const [postureError, setPostureError] = useState('');
   const [riskGraphError, setRiskGraphError] = useState('');
+  const loading = scanLoading || findingsLoading;
   const [previewFindingID, setPreviewFindingID] = useState('');
   const [preview, setPreview] = useState<RepoFindingRemediationPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -25312,9 +25320,13 @@ export function ProductGitHubRepositoryDetailPage() {
   const resetRepositoryState = useCallback(() => {
     setScan(null);
     setScanLookupTruncated(false);
+    setScanError('');
+    setScanLoading(false);
     setFindings([]);
     setFindingsSummary(null);
     setFindingsTruncated(false);
+    setFindingsError('');
+    setFindingsLoading(false);
     setRiskGraph(null);
     setRiskGraphError('');
     setRiskGraphLoading(false);
@@ -25354,10 +25366,12 @@ export function ProductGitHubRepositoryDetailPage() {
     ) {
       requestRef.current += 1;
       resetRepositoryState();
-      // Keep loading=true while the connection is still resolving so the
-      // outer DomainLoadingState renders instead of empty-state panels that
-      // would flash "No scan yet" / "No findings" in the intermediate frame.
-      setLoading(domainData.loading);
+      // Keep both lanes marked loading while the connection is still
+      // resolving so the outer DomainLoadingState renders instead of
+      // empty-state panels that would flash "No scan yet" / "No findings"
+      // in the intermediate frame.
+      setScanLoading(domainData.loading);
+      setFindingsLoading(domainData.loading);
       setError('');
       return undefined;
     }
@@ -25367,7 +25381,8 @@ export function ProductGitHubRepositoryDetailPage() {
     // graph, and posture rendered under the new repository heading once
     // loading flipped back to false.
     resetRepositoryState();
-    setLoading(true);
+    setScanLoading(true);
+    setFindingsLoading(true);
     setError('');
 
     const auth = buildProductAuthContext(scope);
@@ -25404,17 +25419,49 @@ export function ProductGitHubRepositoryDetailPage() {
     // behavior — and fixing it requires backend filters (see follow-up
     // task). Posture is already environment-scoped because it uses the
     // connector endpoint that carries the project_id.
-    const scansPromise = findRepoIntelligenceLatestScan(requestedRepository, auth, isCurrent);
-    const findingsPromise = fetchRepoIntelligenceFindings(requestedRepository, auth, isCurrent);
+    // Scan lookup and findings pagination each run on their own promise
+    // lane so a transient failure on one endpoint cannot discard a
+    // successful response from the other. Holding findings behind a
+    // rejected /v1/repo-scans call would render "No findings" alongside
+    // a shared error banner even though the findings request completed
+    // successfully — and vice versa.
+    findRepoIntelligenceLatestScan(requestedRepository, auth, isCurrent)
+      .then((scanResult) => {
+        if (requestID !== requestRef.current) return;
+        setScan(scanResult.scan);
+        setScanLookupTruncated(scanResult.truncated);
+      })
+      .catch((scanFetchError: unknown) => {
+        if (requestID !== requestRef.current) return;
+        setScanError(formatAPIError(scanFetchError, 'Unable to load latest scan for this repository.'));
+      })
+      .finally(() => {
+        if (requestID === requestRef.current) {
+          setScanLoading(false);
+        }
+      });
 
-    // Risk graph runs on its own lane, separate from the main Promise.all,
-    // for the same reason posture does: it's optional enrichment (the queue
-    // already falls back to severity ordering when riskGraph is null) and
-    // its endpoint can be slow or unavailable independent of scans and
-    // findings. Holding scan and findings display behind a rejected or slow
-    // getRepoRiskGraph would render the drilldown as an error banner over
-    // the previous reset's empty "No scan yet" / "No findings" state even
-    // though both of those requests completed successfully.
+    fetchRepoIntelligenceFindings(requestedRepository, auth, isCurrent)
+      .then((findingsResult) => {
+        if (requestID !== requestRef.current) return;
+        setFindings(findingsResult.items);
+        setFindingsSummary(findingsResult.summary);
+        setFindingsTruncated(findingsResult.truncated);
+      })
+      .catch((findingsFetchError: unknown) => {
+        if (requestID !== requestRef.current) return;
+        setFindingsError(formatAPIError(findingsFetchError, 'Unable to load findings for this repository.'));
+      })
+      .finally(() => {
+        if (requestID === requestRef.current) {
+          setFindingsLoading(false);
+        }
+      });
+
+    // Risk graph runs on its own lane too. It's optional enrichment (the
+    // queue already falls back to severity ordering when riskGraph is
+    // null) and its endpoint can be slow or unavailable independent of
+    // scans and findings.
     setRiskGraphLoading(true);
     apiClient
       .getRepoRiskGraph({ repository: requestedRepository }, auth)
@@ -25464,28 +25511,6 @@ export function ProductGitHubRepositoryDetailPage() {
           }
         });
     }
-
-    Promise.all([scansPromise, findingsPromise])
-      .then(([scanResult, findingsResult]) => {
-        if (requestID !== requestRef.current) return;
-        setScan(scanResult.scan);
-        setScanLookupTruncated(scanResult.truncated);
-        setFindings(findingsResult.items);
-        setFindingsSummary(findingsResult.summary);
-        setFindingsTruncated(findingsResult.truncated);
-      })
-      .catch((fetchError: unknown) => {
-        if (requestID !== requestRef.current) return;
-        // The reset above already cleared the previous scope's data, so the
-        // error state is the only signal the operator sees — the panels
-        // render as empty/loading rather than as stale data from another repo.
-        setError(formatAPIError(fetchError, 'Unable to load repository intelligence.'));
-      })
-      .finally(() => {
-        if (requestID === requestRef.current) {
-          setLoading(false);
-        }
-      });
 
     return () => {
       if (requestID === requestRef.current) {
@@ -25676,7 +25701,7 @@ export function ProductGitHubRepositoryDetailPage() {
     );
   }
 
-  const statusTone = loading ? 'neutral' : error ? 'danger' : completeness.tone;
+  const statusTone = loading ? 'neutral' : error || scanError || findingsError ? 'danger' : completeness.tone;
 
   return (
     <DomainPageShell
@@ -25701,7 +25726,11 @@ export function ProductGitHubRepositoryDetailPage() {
         />
       ) : null}
 
-      {loading ? (
+      {loading && !scan && !findings.length && !scanError && !findingsError ? (
+        // Show the outer loading shell only on a cold cache when neither
+        // lane has committed anything yet. As soon as either lane settles
+        // (success or error) we render the individual panels so a
+        // successful lane is not held behind the other's in-flight request.
         <DomainLoadingState label="Loading repository intelligence" />
       ) : (
         <>
@@ -25711,47 +25740,68 @@ export function ProductGitHubRepositoryDetailPage() {
           >
             <header className="idt-github-intelligence-panel-head">
               <p className="idt-app-kicker">Latest scan</p>
-              <h3>{scan ? formatTokenLabel(scan.status) : scanLookupTruncated ? 'Scan history truncated' : 'No scan yet'}</h3>
-              {!scan && scanLookupTruncated ? (
+              <h3>
+                {scanLoading
+                  ? 'Loading latest scan…'
+                  : scanError
+                    ? 'Latest scan unavailable'
+                    : scan
+                      ? formatTokenLabel(scan.status)
+                      : scanLookupTruncated
+                        ? 'Scan history truncated'
+                        : 'No scan yet'}
+              </h3>
+              {!scanLoading && !scanError && !scan && scanLookupTruncated ? (
                 <p role="alert" className="idt-app-alert idt-app-alert-warning">
                   Repository scan search hit its safety ceiling before finding a match. The repository may have an older scan behind more recent workspace scans; open the scans page and filter by repository to confirm.
                 </p>
               ) : null}
             </header>
-            <DomainStatusBadge
-              variant={
-                completeness.tone === 'success'
-                  ? 'connected'
-                  : completeness.tone === 'warning'
-                    ? 'degraded'
-                    : completeness.tone === 'danger'
-                      ? 'missing-permissions'
-                      : 'disconnected'
-              }
-              label={completeness.label}
-              detail={scan?.finished_at ? formatDateLabel(scan.finished_at) : scan?.started_at ? formatDateLabel(scan.started_at) : undefined}
-            />
-            {scan ? (
-              <dl className="idt-github-intelligence-stats">
-                <div><dt>Findings</dt><dd>{scan.finding_count}</dd></div>
-                <div><dt>Files scanned</dt><dd>{scan.files_scanned}</dd></div>
-                <div><dt>Commits scanned</dt><dd>{scan.commits_scanned}</dd></div>
-                {scan.scan_mode ? <div><dt>Scan mode</dt><dd>{formatTokenLabel(scan.scan_mode)}</dd></div> : null}
-              </dl>
-            ) : null}
-            {scan?.source_health_details && scan.source_health_details.length > 0 ? (
-              <ul className="idt-github-intelligence-source-health" aria-label="Source health details">
-                {scan.source_health_details.map((source) => (
-                  <li key={source.source}>
-                    <strong>{formatTokenLabel(source.source)}</strong>
-                    <span className={`idt-source-status-pill is-${source.status === 'complete' ? 'success' : source.status === 'partial' || source.status === 'permission_limited' || source.status === 'rate_limited' ? 'warning' : 'neutral'}`}>
-                      {formatTokenLabel(source.status)}
-                    </span>
-                    {source.message ? <span>{source.message}</span> : null}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+            {scanLoading ? (
+              <DomainLoadingState label="Loading latest scan" />
+            ) : scanError ? (
+              // Scan lane failed independently. Findings and posture still
+              // render below with their own state, so this panel only
+              // reports its own error.
+              <p role="alert" className="idt-app-alert idt-app-alert-error">{scanError}</p>
+            ) : (
+              <>
+                <DomainStatusBadge
+                  variant={
+                    completeness.tone === 'success'
+                      ? 'connected'
+                      : completeness.tone === 'warning'
+                        ? 'degraded'
+                        : completeness.tone === 'danger'
+                          ? 'missing-permissions'
+                          : 'disconnected'
+                  }
+                  label={completeness.label}
+                  detail={scan?.finished_at ? formatDateLabel(scan.finished_at) : scan?.started_at ? formatDateLabel(scan.started_at) : undefined}
+                />
+                {scan ? (
+                  <dl className="idt-github-intelligence-stats">
+                    <div><dt>Findings</dt><dd>{scan.finding_count}</dd></div>
+                    <div><dt>Files scanned</dt><dd>{scan.files_scanned}</dd></div>
+                    <div><dt>Commits scanned</dt><dd>{scan.commits_scanned}</dd></div>
+                    {scan.scan_mode ? <div><dt>Scan mode</dt><dd>{formatTokenLabel(scan.scan_mode)}</dd></div> : null}
+                  </dl>
+                ) : null}
+                {scan?.source_health_details && scan.source_health_details.length > 0 ? (
+                  <ul className="idt-github-intelligence-source-health" aria-label="Source health details">
+                    {scan.source_health_details.map((source) => (
+                      <li key={source.source}>
+                        <strong>{formatTokenLabel(source.source)}</strong>
+                        <span className={`idt-source-status-pill is-${source.status === 'complete' ? 'success' : source.status === 'partial' || source.status === 'permission_limited' || source.status === 'rate_limited' ? 'warning' : 'neutral'}`}>
+                          {formatTokenLabel(source.status)}
+                        </span>
+                        {source.message ? <span>{source.message}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            )}
           </section>
 
           <section
@@ -25814,7 +25864,7 @@ export function ProductGitHubRepositoryDetailPage() {
             <header className="idt-github-intelligence-panel-head">
               <p className="idt-app-kicker">Prioritized queue</p>
               <h3>Findings ordered by blast radius</h3>
-              {queue.length > 0 ? (
+              {!findingsLoading && !findingsError && queue.length > 0 ? (
                 <p className="idt-app-kicker">
                   {queue.length} finding{queue.length === 1 ? '' : 's'}
                   {findingsSummary?.total_open != null ? ` • ${findingsSummary.total_open} open` : ''}
@@ -25822,13 +25872,19 @@ export function ProductGitHubRepositoryDetailPage() {
                   {previewReadyCount > publishableCount ? ` • ${previewReadyCount - publishableCount} preview-only` : ''}
                 </p>
               ) : null}
-              {findingsTruncated ? (
+              {!findingsLoading && !findingsError && findingsTruncated ? (
                 <p role="alert" className="idt-app-alert idt-app-alert-warning">
                   Findings pagination hit its safety ceiling before all pages returned. Refine filters in the GitHub findings page to review the rest.
                 </p>
               ) : null}
             </header>
-            {queue.length === 0 ? (
+            {findingsLoading ? (
+              <DomainLoadingState label="Loading findings" />
+            ) : findingsError ? (
+              // Findings lane failed independently. Scan strip, posture, and
+              // graph still render with their own state.
+              <p role="alert" className="idt-app-alert idt-app-alert-error">{findingsError}</p>
+            ) : queue.length === 0 ? (
               <DomainEmptyState
                 title="No findings for this repository"
                 body="Neither posture, AI/MCP, workflow, nor secret detectors reported an open finding for this repository."
