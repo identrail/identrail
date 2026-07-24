@@ -20983,7 +20983,7 @@ function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
           >
             {launchLabel}
           </button>
-          {start?.launch_url ? (
+          {start?.launch_url && blockingCount === 0 ? (
             <a className="idt-btn idt-btn-dark" href={start.launch_url} target="_blank" rel="noreferrer">
               <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
               <span>Open StackSet in AWS</span>
@@ -21047,8 +21047,13 @@ function AWSStackSetProgressPanel({
   onRefresh,
   refreshing
 }: AWSStackSetProgressPanelProps) {
+  // Prefer the start-response snapshot: it is derived from the connector's
+  // own targets and checkpoints. getAWSProjectStackSetOnboarding today uses
+  // a synthetic fixture that does not reflect this connector's OUs, accounts,
+  // or instances, so we only fall back to it when no start is available (an
+  // existing persisted connector on page load).
   const onboarding: AWSStackSetOnboardingResult | undefined | null =
-    persistedOnboarding ?? start?.stackset_onboarding ?? null;
+    start?.stackset_onboarding ?? persistedOnboarding ?? null;
   const summary: AWSStackSetOnboardingSummary | undefined = onboarding?.summary;
   const coverage: AWSStackSetOnboardingCoverageExpectation | undefined = onboarding?.coverage_expectation;
   const recoveryActions: AWSStackSetOnboardingRecoveryAction[] = onboarding?.recovery_actions ?? [];
@@ -22068,13 +22073,26 @@ export function ProductAWSConnectPage() {
       awsSetupModeTouchedRef.current = true;
       awsSetupModeRef.current = mode;
       setAWSSetupMode(mode);
-      setSuccessMessage('AWS StackSet setup is ready. Open the StackSet in AWS, then refresh status.');
+      const responsePrereqs = response.prerequisites ?? [];
+      const responseBlockingCount = responsePrereqs.filter(
+        (prereq) => !prereq.satisfied && prereq.severity === 'blocking'
+      ).length;
+      if (responseBlockingCount > 0) {
+        setSuccessMessage('AWS StackSet setup is prepared. Resolve blocking prerequisites before launching the StackSet.');
+      } else {
+        setSuccessMessage('AWS StackSet setup is ready. Open the StackSet in AWS, then refresh status.');
+      }
       if (response.stackset_onboarding) {
         setAWSStackSetOnboarding(response.stackset_onboarding);
       } else if (response.connector_id) {
         void refreshStackSetOnboarding(response.connector_id);
       }
-      if (response.launch_url && typeof window !== 'undefined' && !/jsdom/i.test(window.navigator.userAgent)) {
+      if (
+        responseBlockingCount === 0 &&
+        response.launch_url &&
+        typeof window !== 'undefined' &&
+        !/jsdom/i.test(window.navigator.userAgent)
+      ) {
         window.open(response.launch_url, '_blank', 'noopener,noreferrer');
       }
     } catch (error) {
@@ -22247,6 +22265,10 @@ export function ProductAWSConnectPage() {
     }
     return bits.join(' · ');
   })();
+  const stackSetBlockingPrereqCount = (() => {
+    const preferred = stackSetAWSStart?.prerequisites ?? connection?.prerequisites ?? [];
+    return preferred.filter((prereq) => !prereq.satisfied && prereq.severity === 'blocking').length;
+  })();
   // Only surface the persisted connection's launch URL when both the
   // deployment method and the scope type match the currently selected setup
   // mode. Otherwise a leftover StackSet console link can render under a
@@ -22308,8 +22330,11 @@ export function ProductAWSConnectPage() {
     if (isManualSetup && manualExternalID && !connectedNow) {
       return 'Add the trust policy in AWS, paste the role ARN, then validate the role.';
     }
-    if (isStackSetSetup && stackSetAWSStart?.launch_url) {
+    if (isStackSetSetup && stackSetAWSStart?.launch_url && stackSetBlockingPrereqCount === 0) {
       return 'Open the StackSet in AWS to deploy the read-only role, then refresh status.';
+    }
+    if (isStackSetSetup && stackSetAWSStart?.launch_url && stackSetBlockingPrereqCount > 0) {
+      return 'Resolve the blocking StackSet prerequisites, then open the StackSet in AWS.';
     }
     if (isStackSetSetup && !stackSetAWSStart) {
       return 'Pick target regions and accounts or OUs, then launch the StackSet setup.';
@@ -22760,7 +22785,7 @@ export function ProductAWSConnectPage() {
               </dl>
               <p>{setupSummaryBody}</p>
               <div className="idt-source-actions idt-aws-summary-actions">
-                {isStackSetSetup && stackSetAWSStart?.launch_url ? (
+                {isStackSetSetup && stackSetAWSStart?.launch_url && stackSetBlockingPrereqCount === 0 ? (
                   <a
                     className="idt-btn idt-btn-primary"
                     href={stackSetAWSStart.launch_url}
@@ -22770,7 +22795,7 @@ export function ProductAWSConnectPage() {
                     <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
                     <span>Open StackSet in AWS</span>
                   </a>
-                ) : launchURL ? (
+                ) : isStackSetSetup ? null : launchURL ? (
                   <a className="idt-btn idt-btn-primary" href={launchURL} target="_blank" rel="noreferrer">
                     <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
                     <span>Open AWS stack</span>
