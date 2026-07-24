@@ -589,10 +589,6 @@ function contractFromConnection(connection: AWSConnectionStatus): AWSStackSetCon
   });
 }
 
-function sortedCopy(values: string[]): string[] {
-  return [...values].sort();
-}
-
 function stackSetContractsMatch(a: AWSStackSetContractSnapshot, b: AWSStackSetContractSnapshot): boolean {
   if (a.scopeType !== b.scopeType) {
     return false;
@@ -603,19 +599,19 @@ function stackSetContractsMatch(a: AWSStackSetContractSnapshot, b: AWSStackSetCo
   if (a.stackSetName && b.stackSetName && a.stackSetName !== b.stackSetName) {
     return false;
   }
-  const stringSetsEqual = (left: string[], right: string[]) => {
+  // Backend awsConnectorSetupContractsMatch uses order-sensitive slices.Equal;
+  // reordering regions in particular changes the StackSet home region.
+  const stringListsEqual = (left: string[], right: string[]) => {
     if (left.length !== right.length) {
       return false;
     }
-    const l = sortedCopy(left);
-    const r = sortedCopy(right);
-    return l.every((value, index) => value === r[index]);
+    return left.every((value, index) => value === right[index]);
   };
   return (
-    stringSetsEqual(a.targetRegions, b.targetRegions) &&
-    stringSetsEqual(a.targetOUIDs, b.targetOUIDs) &&
-    stringSetsEqual(a.targetAccountIDs, b.targetAccountIDs) &&
-    stringSetsEqual(a.excludedAccountIDs, b.excludedAccountIDs)
+    stringListsEqual(a.targetRegions, b.targetRegions) &&
+    stringListsEqual(a.targetOUIDs, b.targetOUIDs) &&
+    stringListsEqual(a.targetAccountIDs, b.targetAccountIDs) &&
+    stringListsEqual(a.excludedAccountIDs, b.excludedAccountIDs)
   );
 }
 
@@ -646,6 +642,11 @@ const AWS_SCOPE_OPTION_LABELS: Record<AWSSetupMode, { title: string; kicker: str
     blurb: 'Use your change process'
   }
 };
+
+function awsRoleNameFromARN(roleARN: string): string {
+  const match = normalizeValue(roleARN).match(/^arn:(?:aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/(.+)$/);
+  return match ? match[1] : '';
+}
 
 function awsPartitionForManualTrustPolicy(roleARN: string, region: string): AWSPartition {
   const arnPartition = normalizeValue(roleARN).match(/^arn:(aws|aws-us-gov|aws-cn):iam::/)?.[1] as AWSPartition | undefined;
@@ -21228,7 +21229,8 @@ export function ProductAWSConnectPage() {
     targetAccountIDs: false,
     excludedAccountIDs: false,
     autoOnboardNewAccounts: false,
-    stackSetName: false
+    stackSetName: false,
+    roleName: false
   });
   const [awsCloudFormationStart, setAWSCloudFormationStart] = useState<AWSConnectorStartResponse | null>(null);
   const [awsPermissionPreview, setAWSPermissionPreview] = useState<AWSPermissionPreviewItem[]>([]);
@@ -21334,7 +21336,10 @@ export function ProductAWSConnectPage() {
             : current.autoOnboardNewAccounts,
           stackSetName: dirty.stackSetName
             ? current.stackSetName
-            : response.connection.stack_set_name || current.stackSetName
+            : response.connection.stack_set_name || current.stackSetName,
+          roleName: dirty.roleName
+            ? current.roleName
+            : awsRoleNameFromARN(response.connection.role_arn ?? '') || current.roleName
         }));
       } catch (error) {
         if (isStale()) {
@@ -21518,7 +21523,8 @@ export function ProductAWSConnectPage() {
       targetAccountIDs: false,
       excludedAccountIDs: false,
       autoOnboardNewAccounts: false,
-      stackSetName: false
+      stackSetName: false,
+      roleName: false
     };
     void refreshConnection('initial');
     void refreshBaseline();
@@ -21538,10 +21544,23 @@ export function ProductAWSConnectPage() {
       connectorScope === 'organization' ||
       connectorScope === 'selected_ous' ||
       connectorScope === 'selected_accounts';
-    if (isStackSetConnector && connection?.connector_id) {
-      void refreshStackSetOnboarding(connection.connector_id);
+    if (!isStackSetConnector || !connection?.connector_id) {
+      return;
     }
-  }, [connection?.connector_id, connection?.scope_type, refreshStackSetOnboarding]);
+    // Only refetch when the currently-selected wizard mode matches the
+    // persisted connector's scope. That way switching away and back restores
+    // the panel instead of leaving it blank until a page reload.
+    const connectorMode = awsSetupModeFromResponse(connectorScope);
+    if (connectorMode !== awsSetupMode) {
+      return;
+    }
+    void refreshStackSetOnboarding(connection.connector_id);
+  }, [
+    connection?.connector_id,
+    connection?.scope_type,
+    awsSetupMode,
+    refreshStackSetOnboarding
+  ]);
 
   if (!scope) {
     return (
@@ -21976,6 +21995,7 @@ export function ProductAWSConnectPage() {
         region: current.region || response.connection.region || 'us-east-1',
         displayName: current.displayName || response.connection.display_name || '',
         stackSetName: response.stack_set_name || current.stackSetName,
+        roleName: response.role_name || current.roleName,
         organizationRootID: responseRoot ?? current.organizationRootID,
         targetRegions:
           response.target_regions && response.target_regions.length > 0
@@ -22179,7 +22199,26 @@ export function ProductAWSConnectPage() {
     }
     return bits.join(' · ');
   })();
-  const launchURL = cloudFormationAWSStart?.launch_url ?? connection?.launch_url ?? '';
+  // Only surface the persisted connection's launch URL when its deployment
+  // method matches the currently selected setup mode; otherwise a leftover
+  // StackSet console link can render under Single account or Existing IAM role
+  // and send the operator back to the previous scope.
+  const persistedLaunchURLMatchesMode = (() => {
+    const method = connection?.deployment_method;
+    if (!method || !connection?.launch_url) {
+      return false;
+    }
+    if (isStackSetSetup) {
+      return method.startsWith('stackset_');
+    }
+    if (isManualSetup) {
+      return method === 'manual';
+    }
+    return method === 'cloudformation';
+  })();
+  const launchURL =
+    cloudFormationAWSStart?.launch_url ??
+    (persistedLaunchURLMatchesMode ? connection?.launch_url ?? '' : '');
   const hasConnectorSetup = Boolean(awsCloudFormationStart || connection?.connector_id);
   const hasRoleOnlyConnection = Boolean(connection?.role_arn && !connection?.connector_id && !awsCloudFormationStart);
   const showOperationalPanels = Boolean(

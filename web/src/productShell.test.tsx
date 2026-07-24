@@ -10185,6 +10185,302 @@ describe('Domain-first app routes', () => {
     expect(screen.queryByText(/Persisted organization recovery action/i)).not.toBeInTheDocument();
   });
 
+  it('drops connector_id when only the target region ordering changes', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-org-order',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'launch_ready'
+      },
+      connector_id: 'aws-org-order',
+      external_id: 'org-order-external',
+      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
+      template_url: 'https://example.com/template.yaml',
+      role_name: 'IdentrailReadOnly',
+      stack_name: 'identrail-readonly-connector',
+      stack_set_name: 'IdentrailReadOnlyCoverage',
+      policy_hash: 'sha256:example',
+      template_checksum: 'sha256:example',
+      scope_type: 'organization',
+      deployment_method: 'stackset_service_managed',
+      onboarding_status: 'launch_ready',
+      target_regions: ['us-east-1', 'us-west-2'],
+      target_account_ids: [],
+      target_ou_ids: ['r-abcd'],
+      excluded_account_ids: [],
+      auto_onboard_new_accounts: true,
+      setup_summary: 'Organization setup.',
+      next_actions: ['open_stackset', 'refresh_status'],
+      stackset_onboarding: readyAWSStackSetOnboarding,
+      permission_preview: [],
+      permission_tiers: []
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /AWS Organization/i }));
+    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
+    fireEvent.change(screen.getByLabelText(/Target regions/i), { target: { value: 'us-east-1, us-west-2' } });
+    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
+    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
+
+    // Only swap region ordering — backend matcher is order-sensitive, and the
+    // first region becomes the StackSet home region.
+    fireEvent.change(screen.getByLabelText(/Target regions/i), { target: { value: 'us-west-2, us-east-1' } });
+    fireEvent.click(screen.getByRole('button', { name: /Prepare StackSet again/i }));
+    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(2));
+    expect(startAWSConnector.mock.calls[1]?.[0]).toMatchObject({
+      connector_id: undefined,
+      target_regions: ['us-west-2', 'us-east-1'],
+      region: 'us-west-2'
+    });
+  });
+
+  it('restores persisted StackSet progress when switching back to the connectors scope', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-org-return',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'connected',
+        target_regions: ['us-east-1'],
+        target_ou_ids: ['r-abcd']
+      }
+    });
+    const persisted: AWSStackSetOnboardingResult = {
+      ...readyAWSStackSetOnboarding,
+      recovery_actions: [
+        {
+          id: 'return-recovery',
+          title: 'Persisted recovery action to restore',
+          description: 'Should reappear when returning to the organization scope.',
+          targets: []
+        }
+      ]
+    };
+    const getStackSetOnboarding = vi
+      .spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding')
+      .mockResolvedValue({ onboarding: persisted });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Initial hydrate.
+    expect(await screen.findByText(/Persisted recovery action to restore/i)).toBeInTheDocument();
+    const initialCallCount = getStackSetOnboarding.mock.calls.length;
+
+    // Switch away from the connector's scope.
+    fireEvent.click(screen.getByRole('button', { name: /Selected scope/i }));
+    expect(screen.queryByText(/Persisted recovery action to restore/i)).not.toBeInTheDocument();
+
+    // Switch back to the connector's scope — panel should reappear via a fresh refetch.
+    fireEvent.click(screen.getByRole('button', { name: /AWS Organization/i }));
+    expect(await screen.findByText(/Persisted recovery action to restore/i)).toBeInTheDocument();
+    expect(getStackSetOnboarding.mock.calls.length).toBeGreaterThan(initialCallCount);
+  });
+
+  it('hides a persisted StackSet launch URL when the operator switches to Single account', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-org-launch',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'connected',
+        target_regions: ['us-east-1'],
+        target_ou_ids: ['r-abcd'],
+        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/persisted'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
+      onboarding: readyAWSStackSetOnboarding
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Panel shows a StackSet link initially.
+    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /This AWS account/i }));
+
+    // Under Single account, the persisted StackSet launch URL must not surface.
+    const links = screen.queryAllByRole('link', { name: /Open AWS stack|Open StackSet in AWS/i });
+    for (const link of links) {
+      expect(link.getAttribute('href') ?? '').not.toContain('stacksets/persisted');
+    }
+  });
+
+  it('hydrates the role name from the stored role ARN so StackSet resume matches', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-org-role',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'connected',
+        target_regions: ['us-east-1'],
+        target_ou_ids: ['r-abcd'],
+        role_arn: 'arn:aws:iam::123456789012:role/CustomerReadOnlyIdentrail',
+        stack_set_name: 'CustomerNamedStackSet'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
+      onboarding: readyAWSStackSetOnboarding
+    });
+    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-org-role',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'launch_ready',
+        role_arn: 'arn:aws:iam::123456789012:role/CustomerReadOnlyIdentrail',
+        stack_set_name: 'CustomerNamedStackSet'
+      },
+      connector_id: 'aws-org-role',
+      external_id: 'role-hydrate-external',
+      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
+      template_url: 'https://example.com/template.yaml',
+      role_name: 'CustomerReadOnlyIdentrail',
+      stack_name: 'identrail-readonly-connector',
+      stack_set_name: 'CustomerNamedStackSet',
+      policy_hash: 'sha256:example',
+      template_checksum: 'sha256:example',
+      scope_type: 'organization',
+      deployment_method: 'stackset_service_managed',
+      onboarding_status: 'launch_ready',
+      target_regions: ['us-east-1'],
+      target_account_ids: [],
+      target_ou_ids: ['r-abcd'],
+      excluded_account_ids: [],
+      auto_onboard_new_accounts: true,
+      setup_summary: 'Organization setup.',
+      next_actions: ['open_stackset', 'refresh_status'],
+      stackset_onboarding: readyAWSStackSetOnboarding,
+      permission_preview: [],
+      permission_tiers: []
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
+    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
+
+    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
+    expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({
+      connector_id: 'aws-org-role',
+      role_name: 'CustomerReadOnlyIdentrail',
+      stack_set_name: 'CustomerNamedStackSet'
+    });
+  });
+
   it('does not reuse an existing StackSet connector when the operator switches to a different scope', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
