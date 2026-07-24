@@ -10393,6 +10393,62 @@ describe('Domain-first app routes', () => {
     }
   });
 
+  it('hides a persisted organization StackSet launch URL when switching to Selected OUs', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-org-cross-scope',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'connected',
+        target_regions: ['us-east-1'],
+        target_ou_ids: ['r-abcd'],
+        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/org-persisted'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
+      onboarding: readyAWSStackSetOnboarding
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
+    fireEvent.click(screen.getByRole('button', { name: /Selected scope/i }));
+
+    // Selected OUs shares the stackset_ deployment method with organization,
+    // but the scope type differs — the persisted URL must not leak through.
+    const links = screen.queryAllByRole('link', { name: /Open AWS stack|Open StackSet in AWS/i });
+    for (const link of links) {
+      expect(link.getAttribute('href') ?? '').not.toContain('stacksets/org-persisted');
+    }
+  });
+
   it('hydrates the role name from the stored role ARN so StackSet resume matches', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });

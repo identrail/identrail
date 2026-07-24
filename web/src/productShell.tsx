@@ -22247,13 +22247,17 @@ export function ProductAWSConnectPage() {
     }
     return bits.join(' · ');
   })();
-  // Only surface the persisted connection's launch URL when its deployment
-  // method matches the currently selected setup mode; otherwise a leftover
-  // StackSet console link can render under Single account or Existing IAM role
-  // and send the operator back to the previous scope.
+  // Only surface the persisted connection's launch URL when both the
+  // deployment method and the scope type match the currently selected setup
+  // mode. Otherwise a leftover StackSet console link can render under a
+  // different scope (Single account, Existing IAM role, or another StackSet
+  // scope) and send the operator back to the previous scope's targets.
   const persistedLaunchURLMatchesMode = (() => {
     const method = connection?.deployment_method;
     if (!method || !connection?.launch_url) {
+      return false;
+    }
+    if (connectionScopeMode !== awsSetupMode) {
       return false;
     }
     if (isStackSetSetup) {
