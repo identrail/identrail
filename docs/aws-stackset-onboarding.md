@@ -215,20 +215,30 @@ calls. The wizard is available at `AWS → Connect` inside a workspace and
 supports:
 
 - **AWS Organization** — Recommended for teams. Uses a service-managed
-  StackSet across the whole organization; exclusions and auto-onboard for new
-  accounts are exposed as first-class controls. Identrail never claims
-  organization-wide coverage while exclusions or missing trusted access are
-  present.
+  StackSet across the whole organization; the wizard requires the
+  Organizations root ID (`r-...`), and exposes exclusions and an
+  auto-onboard toggle for new accounts as first-class controls. Identrail
+  never claims organization-wide coverage while exclusions or missing
+  trusted access are present.
 - **Selected OUs** — Comma or space separated Organizations OU IDs
-  (`ou-1234-abcd5678`). Root IDs (`r-...`) are also accepted for whole-org
-  intent. Auto-onboard applies to accounts moved into the covered OUs later.
-- **Selected accounts** — Comma or space separated 12-digit AWS account IDs.
-  Auto-onboard is disabled by design for selected-account deployments.
-- **Excluded accounts** — Optional 12-digit exclusion list. Coverage claims
-  never include excluded accounts, even when the organization path is chosen.
+  (`ou-1234-abcd5678`). Root IDs (`r-...`) are **not accepted here**; pick the
+  AWS Organization path if you want whole-organization coverage. Auto-onboard
+  applies to accounts moved into the covered OUs later.
+- **Selected accounts** — Comma or space separated 12-digit AWS account IDs
+  plus the Organizations root ID. Service-managed StackSet needs the root ID
+  to scope the account filter, but the effective coverage is still limited to
+  the account IDs you pick. Auto-onboard is disabled by design for
+  selected-account deployments.
+- **Excluded accounts** — Optional 12-digit exclusion list. Available on the
+  AWS Organization and Selected OUs paths; the Selected accounts path uses the
+  account list itself as the authoritative filter and drops any exclusion
+  entries at submission. Coverage claims never include excluded accounts.
 - **Target regions** — Region codes for StackSet instance deployment. The role
   itself is deployed to a single home region even when multiple scan regions
   are selected.
+- **Resume**: clicking "Prepare StackSet again" on an existing connector sends
+  the current connector ID, so the backend resumes the same setup lifecycle
+  instead of minting a fresh external ID.
 
 The wizard blocks launch when target inputs are missing or malformed
 (unknown region code, non-12-digit account ID, invalid OU ID) and surfaces

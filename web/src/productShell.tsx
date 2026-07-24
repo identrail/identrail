@@ -429,7 +429,8 @@ const AWS_REGION_PATTERN = /^[a-z]{2}(-gov)?-[a-z]+-[0-9]$/;
 type AWSSetupMode = 'cloudformation' | 'organization' | 'selected_ous' | 'selected_accounts' | 'manual';
 type AWSPartition = 'aws' | 'aws-us-gov' | 'aws-cn';
 
-const AWS_OU_ID_PATTERN = /^(ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}|r-[a-z0-9]{4,32})$/;
+const AWS_OU_ID_PATTERN = /^ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}$/;
+const AWS_ORG_ROOT_ID_PATTERN = /^r-[a-z0-9]{4,32}$/;
 const AWS_ACCOUNT_ID_PATTERN = /^[0-9]{12}$/;
 
 function splitScopeTokens(value: string): string[] {
@@ -20566,11 +20567,13 @@ function awsScopeSummaryLabel(mode: AWSSetupMode, start: AWSConnectorStartRespon
 type AWSStackSetScopeStepProps = {
   mode: AWSSetupMode;
   onChooseMode: (mode: AWSSetupMode) => void;
+  organizationRootID: string;
   targetRegions: string;
   targetOUIDs: string;
   targetAccountIDs: string;
   excludedAccountIDs: string;
   autoOnboardNewAccounts: boolean;
+  onChangeOrganizationRootID: (value: string) => void;
   onChangeRegions: (value: string) => void;
   onChangeOUIDs: (value: string) => void;
   onChangeAccountIDs: (value: string) => void;
@@ -20592,11 +20595,13 @@ function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
   const {
     mode,
     onChooseMode,
+    organizationRootID,
     targetRegions,
     targetOUIDs,
     targetAccountIDs,
     excludedAccountIDs,
     autoOnboardNewAccounts,
+    onChangeOrganizationRootID,
     onChangeRegions,
     onChangeOUIDs,
     onChangeAccountIDs,
@@ -20696,6 +20701,22 @@ function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
             </small>
           </label>
 
+          {(isOrganization || isSelectedAccounts) ? (
+            <label>
+              Organization root ID
+              <input
+                value={organizationRootID}
+                onChange={(event) => onChangeOrganizationRootID(event.target.value)}
+                placeholder="r-abcd"
+                aria-describedby="idt-aws-scope-root-hint"
+              />
+              <small id="idt-aws-scope-root-hint" className="idt-aws-scope-hint">
+                Starts with r-. Find it in the AWS Organizations console. Required by
+                service-managed StackSet even when picking specific accounts.
+              </small>
+            </label>
+          ) : null}
+
           {isSelectedOUs ? (
             <label>
               Target OU IDs
@@ -20707,7 +20728,8 @@ function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
                 aria-describedby="idt-aws-scope-ous-hint"
               />
               <small id="idt-aws-scope-ous-hint" className="idt-aws-scope-hint">
-                Organizations OU IDs. Root IDs (r-...) also allowed for the whole organization.
+                Organizations OU IDs (ou-...). Root IDs (r-...) are not accepted here —
+                use the AWS Organization path for whole-organization coverage.
               </small>
             </label>
           ) : null}
@@ -20865,18 +20887,26 @@ function stackSetOnboardingStatusTone(status: string): 'success' | 'warning' | '
 }
 
 type AWSStackSetProgressPanelProps = {
-  start: AWSConnectorStartResponse;
+  start: AWSConnectorStartResponse | null;
+  persistedOnboarding: AWSStackSetOnboardingResult | null;
   onRefresh?: () => void;
   refreshing: boolean;
 };
 
-function AWSStackSetProgressPanel({ start, onRefresh, refreshing }: AWSStackSetProgressPanelProps) {
-  const onboarding = start.stackset_onboarding;
+function AWSStackSetProgressPanel({
+  start,
+  persistedOnboarding,
+  onRefresh,
+  refreshing
+}: AWSStackSetProgressPanelProps) {
+  const onboarding: AWSStackSetOnboardingResult | undefined | null =
+    start?.stackset_onboarding ?? persistedOnboarding ?? null;
   const summary: AWSStackSetOnboardingSummary | undefined = onboarding?.summary;
   const coverage: AWSStackSetOnboardingCoverageExpectation | undefined = onboarding?.coverage_expectation;
   const recoveryActions: AWSStackSetOnboardingRecoveryAction[] = onboarding?.recovery_actions ?? [];
   const instances: AWSStackSetOnboardingInstance[] = onboarding?.instances ?? [];
-  const prereqs: AWSStackSetOnboardingPrerequisite[] = onboarding?.validation?.prerequisites ?? start.prerequisites ?? [];
+  const prereqs: AWSStackSetOnboardingPrerequisite[] =
+    onboarding?.validation?.prerequisites ?? start?.prerequisites ?? [];
   const status = onboarding?.status ?? 'blocked';
   const tone = stackSetOnboardingStatusTone(status);
   const statusLabel = stackSetOnboardingStatusLabel(status);
@@ -21049,21 +21079,33 @@ export function ProductAWSConnectPage() {
     roleName: 'IdentrailReadOnly',
     stackName: 'identrail-readonly-connector',
     stackSetName: 'identrail-readonly-stackset',
+    organizationRootID: '',
     targetRegions: 'us-east-1',
     targetOUIDs: '',
     targetAccountIDs: '',
     excludedAccountIDs: '',
     autoOnboardNewAccounts: true
   });
+  const awsScopeDirtyRef = useRef({
+    organizationRootID: false,
+    targetRegions: false,
+    targetOUIDs: false,
+    targetAccountIDs: false,
+    excludedAccountIDs: false,
+    autoOnboardNewAccounts: false
+  });
   const [awsCloudFormationStart, setAWSCloudFormationStart] = useState<AWSConnectorStartResponse | null>(null);
   const [awsPermissionPreview, setAWSPermissionPreview] = useState<AWSPermissionPreviewItem[]>([]);
   const [awsPermissionTiers, setAWSPermissionTiers] = useState<AWSCapabilityPermissionTier[]>([]);
   const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
+  const [awsStackSetOnboarding, setAWSStackSetOnboarding] = useState<AWSStackSetOnboardingResult | null>(null);
+  const [awsStackSetOnboardingLoading, setAWSStackSetOnboardingLoading] = useState(false);
   const connectionRequestRef = useRef(0);
   const baselineRequestRef = useRef(0);
   const awsStartRequestRef = useRef(0);
   const awsPollRequestRef = useRef(0);
   const awsValidationRequestRef = useRef(0);
+  const awsStackSetOnboardingRequestRef = useRef(0);
   const awsSetupModeTouchedRef = useRef(false);
   const awsSetupModeRef = useRef<AWSSetupMode>('cloudformation');
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
@@ -21113,6 +21155,10 @@ export function ProductAWSConnectPage() {
           awsSetupModeRef.current = next;
           return next;
         });
+        const dirty = awsScopeDirtyRef.current;
+        const responseOUIDs = response.connection.target_ou_ids ?? [];
+        const rootFromOUIDs = responseOUIDs.find((id) => AWS_ORG_ROOT_ID_PATTERN.test(id));
+        const ouOnlyIDs = responseOUIDs.filter((id) => AWS_OU_ID_PATTERN.test(id));
         setAWSForm((current) => ({
           ...current,
           roleARN: response.connection.role_arn ?? (preserveManualDraft ? current.roleARN : ''),
@@ -21120,27 +21166,35 @@ export function ProductAWSConnectPage() {
           region: response.connection.region ?? 'us-east-1',
           displayName: response.connection.display_name ?? '',
           sessionName: preserveManualDraft ? current.sessionName : 'identrail-connector-validation',
-          targetRegions:
-            response.connection.target_regions && response.connection.target_regions.length > 0
-              ? response.connection.target_regions.join(', ')
-              : current.targetRegions,
-          targetOUIDs:
-            response.connection.target_ou_ids && response.connection.target_ou_ids.length > 0
-              ? response.connection.target_ou_ids.join(', ')
-              : current.targetOUIDs,
-          targetAccountIDs:
-            response.connection.target_account_ids && response.connection.target_account_ids.length > 0
-              ? response.connection.target_account_ids.join(', ')
-              : current.targetAccountIDs,
-          excludedAccountIDs:
-            response.connection.excluded_account_ids && response.connection.excluded_account_ids.length > 0
-              ? response.connection.excluded_account_ids.join(', ')
-              : current.excludedAccountIDs,
-          autoOnboardNewAccounts:
-            response.connection.connector_id &&
-            typeof response.connection.auto_onboard_new_accounts === 'boolean'
-              ? response.connection.auto_onboard_new_accounts
-              : current.autoOnboardNewAccounts
+          organizationRootID: dirty.organizationRootID
+            ? current.organizationRootID
+            : rootFromOUIDs ?? current.organizationRootID,
+          targetRegions: dirty.targetRegions
+            ? current.targetRegions
+            : response.connection.target_regions && response.connection.target_regions.length > 0
+            ? response.connection.target_regions.join(', ')
+            : current.targetRegions,
+          targetOUIDs: dirty.targetOUIDs
+            ? current.targetOUIDs
+            : ouOnlyIDs.length > 0
+            ? ouOnlyIDs.join(', ')
+            : current.targetOUIDs,
+          targetAccountIDs: dirty.targetAccountIDs
+            ? current.targetAccountIDs
+            : response.connection.target_account_ids && response.connection.target_account_ids.length > 0
+            ? response.connection.target_account_ids.join(', ')
+            : current.targetAccountIDs,
+          excludedAccountIDs: dirty.excludedAccountIDs
+            ? current.excludedAccountIDs
+            : response.connection.excluded_account_ids && response.connection.excluded_account_ids.length > 0
+            ? response.connection.excluded_account_ids.join(', ')
+            : current.excludedAccountIDs,
+          autoOnboardNewAccounts: dirty.autoOnboardNewAccounts
+            ? current.autoOnboardNewAccounts
+            : response.connection.connector_id &&
+              typeof response.connection.auto_onboard_new_accounts === 'boolean'
+            ? response.connection.auto_onboard_new_accounts
+            : current.autoOnboardNewAccounts
         }));
       } catch (error) {
         if (isStale()) {
@@ -21236,6 +21290,45 @@ export function ProductAWSConnectPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, awsCloudFormationStart?.connector_id, connection?.connector_id]);
 
+  const refreshStackSetOnboarding = useCallback(async () => {
+    const requestID = ++awsStackSetOnboardingRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    if (!scope || !requestEnvironmentID) {
+      setAWSStackSetOnboarding(null);
+      setAWSStackSetOnboardingLoading(false);
+      return;
+    }
+    const isStale = () =>
+      requestID !== awsStackSetOnboardingRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    setAWSStackSetOnboardingLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectStackSetOnboarding(
+        scope.workspaceID,
+        requestEnvironmentID,
+        undefined,
+        undefined,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setAWSStackSetOnboarding(response.onboarding);
+    } catch {
+      if (isStale()) {
+        return;
+      }
+      setAWSStackSetOnboarding(null);
+    } finally {
+      if (!isStale()) {
+        setAWSStackSetOnboardingLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
 
   useEffect(() => {
     connectionRequestRef.current += 1;
@@ -21243,6 +21336,7 @@ export function ProductAWSConnectPage() {
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
+    awsStackSetOnboardingRequestRef.current += 1;
     setSuccessMessage('');
     setErrorMessage('');
     setAWSSetupMessage('');
@@ -21257,6 +21351,8 @@ export function ProductAWSConnectPage() {
     setAWSPermissionPreview([]);
     setAWSPermissionTiers([]);
     setAWSPreviewOpen(false);
+    setAWSStackSetOnboarding(null);
+    setAWSStackSetOnboardingLoading(false);
     setAWSForm((current) => ({
       ...current,
       roleARN: '',
@@ -21264,12 +21360,21 @@ export function ProductAWSConnectPage() {
       region: 'us-east-1',
       displayName: '',
       sessionName: 'identrail-connector-validation',
+      organizationRootID: '',
       targetRegions: 'us-east-1',
       targetOUIDs: '',
       targetAccountIDs: '',
       excludedAccountIDs: '',
       autoOnboardNewAccounts: true
     }));
+    awsScopeDirtyRef.current = {
+      organizationRootID: false,
+      targetRegions: false,
+      targetOUIDs: false,
+      targetAccountIDs: false,
+      excludedAccountIDs: false,
+      autoOnboardNewAccounts: false
+    };
     void refreshConnection('initial');
     void refreshBaseline();
     return () => {
@@ -21278,8 +21383,20 @@ export function ProductAWSConnectPage() {
       awsStartRequestRef.current += 1;
       awsPollRequestRef.current += 1;
       awsValidationRequestRef.current += 1;
+      awsStackSetOnboardingRequestRef.current += 1;
     };
   }, [refreshConnection, refreshBaseline]);
+
+  useEffect(() => {
+    const connectorScope = connection?.scope_type;
+    const isStackSetConnector =
+      connectorScope === 'organization' ||
+      connectorScope === 'selected_ous' ||
+      connectorScope === 'selected_accounts';
+    if (isStackSetConnector && connection?.connector_id) {
+      void refreshStackSetOnboarding();
+    }
+  }, [connection?.connector_id, connection?.scope_type, refreshStackSetOnboarding]);
 
   if (!scope) {
     return (
@@ -21361,12 +21478,17 @@ export function ProductAWSConnectPage() {
   };
 
   const chooseAWSSetupMode = (mode: AWSSetupMode) => {
+    const previousMode = awsSetupModeRef.current;
     awsSetupModeTouchedRef.current = true;
     awsSetupModeRef.current = mode;
     setAWSSetupMode(mode);
     const preparedScopeType = awsCloudFormationStart?.scope_type;
     const preparedMode: AWSSetupMode | null = preparedScopeType ? awsSetupModeFromResponse(preparedScopeType) : null;
     const switchingAcrossPreparedSetup = preparedMode !== null && preparedMode !== mode;
+    if (previousMode !== mode) {
+      awsStartRequestRef.current += 1;
+      setSubmitting(false);
+    }
     if (switchingAcrossPreparedSetup) {
       setAWSCloudFormationStart(null);
       setAWSPermissionPreview([]);
@@ -21519,6 +21641,7 @@ export function ProductAWSConnectPage() {
     }
   };
 
+  const parsedOrganizationRootID = normalizeValue(awsForm.organizationRootID);
   const parsedTargetRegions = uniqueTokens(splitScopeTokens(awsForm.targetRegions));
   const parsedTargetOUIDs = uniqueTokens(splitScopeTokens(awsForm.targetOUIDs));
   const parsedTargetAccountIDs = uniqueTokens(splitScopeTokens(awsForm.targetAccountIDs));
@@ -21533,13 +21656,24 @@ export function ProductAWSConnectPage() {
         return `Region "${region}" is not a valid AWS region. Use lowercase codes like us-east-1.`;
       }
     }
+    if (mode === 'organization') {
+      if (!parsedOrganizationRootID) {
+        return 'Add your AWS Organizations root ID (starts with r-). Find it in the AWS Organizations console.';
+      }
+      if (!AWS_ORG_ROOT_ID_PATTERN.test(parsedOrganizationRootID)) {
+        return `Root ID "${parsedOrganizationRootID}" is not valid. It must start with r-, for example r-abcd.`;
+      }
+    }
     if (mode === 'selected_ous') {
       if (parsedTargetOUIDs.length === 0) {
         return 'Add at least one target OU ID, for example ou-1234-abcd5678.';
       }
       for (const ou of parsedTargetOUIDs) {
         if (!AWS_OU_ID_PATTERN.test(ou)) {
-          return `OU "${ou}" is not a valid Organizations OU or root ID.`;
+          if (AWS_ORG_ROOT_ID_PATTERN.test(ou)) {
+            return `Root ID "${ou}" is not accepted for Selected OUs. Pick the AWS Organization path for whole-organization coverage.`;
+          }
+          return `OU "${ou}" is not a valid Organizations OU ID (expected ou-...).`;
         }
       }
     }
@@ -21552,10 +21686,18 @@ export function ProductAWSConnectPage() {
           return `Account ID "${account}" must be exactly 12 digits.`;
         }
       }
+      if (!parsedOrganizationRootID) {
+        return 'Add your AWS Organizations root ID (starts with r-). Service-managed StackSet needs it to scope the account filter.';
+      }
+      if (!AWS_ORG_ROOT_ID_PATTERN.test(parsedOrganizationRootID)) {
+        return `Root ID "${parsedOrganizationRootID}" is not valid. It must start with r-, for example r-abcd.`;
+      }
     }
-    for (const account of parsedExcludedAccountIDs) {
-      if (!AWS_ACCOUNT_ID_PATTERN.test(account)) {
-        return `Excluded account "${account}" must be exactly 12 digits.`;
+    if (mode !== 'selected_accounts') {
+      for (const account of parsedExcludedAccountIDs) {
+        if (!AWS_ACCOUNT_ID_PATTERN.test(account)) {
+          return `Excluded account "${account}" must be exactly 12 digits.`;
+        }
       }
     }
     return '';
@@ -21590,9 +21732,19 @@ export function ProductAWSConnectPage() {
     try {
       const scopeType = awsScopeTypeFromMode(mode);
       const deploymentMethod: AWSConnectorDeploymentMethod = 'stackset_service_managed';
+      const targetOUIDs = (() => {
+        if (mode === 'selected_ous') {
+          return parsedTargetOUIDs;
+        }
+        if (mode === 'organization' || mode === 'selected_accounts') {
+          return parsedOrganizationRootID ? [parsedOrganizationRootID] : undefined;
+        }
+        return undefined;
+      })();
       const payload = {
         workspace_id: scope.workspaceID,
         project_id: requestEnvironmentID,
+        connector_id: activeConnectorID || undefined,
         display_name: normalizeValue(awsForm.displayName) || undefined,
         region,
         role_name: normalizeValue(awsForm.roleName) || undefined,
@@ -21600,9 +21752,12 @@ export function ProductAWSConnectPage() {
         scope_type: scopeType,
         deployment_method: deploymentMethod,
         target_regions: parsedTargetRegions,
-        target_ou_ids: mode === 'selected_ous' ? parsedTargetOUIDs : undefined,
+        target_ou_ids: targetOUIDs,
         target_account_ids: mode === 'selected_accounts' ? parsedTargetAccountIDs : undefined,
-        excluded_account_ids: parsedExcludedAccountIDs.length > 0 ? parsedExcludedAccountIDs : undefined,
+        excluded_account_ids:
+          mode !== 'selected_accounts' && parsedExcludedAccountIDs.length > 0
+            ? parsedExcludedAccountIDs
+            : undefined,
         auto_onboard_new_accounts:
           mode === 'organization' || mode === 'selected_ous' ? Boolean(awsForm.autoOnboardNewAccounts) : false
       };
@@ -21613,19 +21768,21 @@ export function ProductAWSConnectPage() {
       setAWSCloudFormationStart(response);
       setAWSPermissionPreview(response.permission_preview);
       setAWSPermissionTiers(response.permission_tiers ?? []);
+      const responseOUIDs = response.target_ou_ids ?? [];
+      const responseRoot = responseOUIDs.find((id) => AWS_ORG_ROOT_ID_PATTERN.test(id));
+      const responseOnlyOUs = responseOUIDs.filter((id) => AWS_OU_ID_PATTERN.test(id));
       setAWSForm((current) => ({
         ...current,
         externalID: response.external_id,
         region: current.region || response.connection.region || 'us-east-1',
         displayName: current.displayName || response.connection.display_name || '',
+        organizationRootID: responseRoot ?? current.organizationRootID,
         targetRegions:
           response.target_regions && response.target_regions.length > 0
             ? response.target_regions.join(', ')
             : current.targetRegions,
         targetOUIDs:
-          response.target_ou_ids && response.target_ou_ids.length > 0
-            ? response.target_ou_ids.join(', ')
-            : current.targetOUIDs,
+          responseOnlyOUs.length > 0 ? responseOnlyOUs.join(', ') : current.targetOUIDs,
         targetAccountIDs:
           response.target_account_ids && response.target_account_ids.length > 0
             ? response.target_account_ids.join(', ')
@@ -21644,6 +21801,11 @@ export function ProductAWSConnectPage() {
       awsSetupModeRef.current = mode;
       setAWSSetupMode(mode);
       setSuccessMessage('AWS StackSet setup is ready. Open the StackSet in AWS, then refresh status.');
+      if (response.stackset_onboarding) {
+        setAWSStackSetOnboarding(response.stackset_onboarding);
+      } else {
+        void refreshStackSetOnboarding();
+      }
       if (response.launch_url && typeof window !== 'undefined' && !/jsdom/i.test(window.navigator.userAgent)) {
         window.open(response.launch_url, '_blank', 'noopener,noreferrer');
       }
@@ -22022,20 +22184,36 @@ export function ProductAWSConnectPage() {
                 <AWSStackSetScopeStep
                   mode={awsSetupMode}
                   onChooseMode={chooseAWSSetupMode}
+                  organizationRootID={awsForm.organizationRootID}
                   targetRegions={awsForm.targetRegions}
                   targetOUIDs={awsForm.targetOUIDs}
                   targetAccountIDs={awsForm.targetAccountIDs}
                   excludedAccountIDs={awsForm.excludedAccountIDs}
                   autoOnboardNewAccounts={awsForm.autoOnboardNewAccounts}
-                  onChangeRegions={(value) => setAWSForm((current) => ({ ...current, targetRegions: value }))}
-                  onChangeOUIDs={(value) => setAWSForm((current) => ({ ...current, targetOUIDs: value }))}
-                  onChangeAccountIDs={(value) => setAWSForm((current) => ({ ...current, targetAccountIDs: value }))}
-                  onChangeExcludedAccountIDs={(value) =>
-                    setAWSForm((current) => ({ ...current, excludedAccountIDs: value }))
-                  }
-                  onToggleAutoOnboard={(value) =>
-                    setAWSForm((current) => ({ ...current, autoOnboardNewAccounts: value }))
-                  }
+                  onChangeOrganizationRootID={(value) => {
+                    awsScopeDirtyRef.current.organizationRootID = true;
+                    setAWSForm((current) => ({ ...current, organizationRootID: value }));
+                  }}
+                  onChangeRegions={(value) => {
+                    awsScopeDirtyRef.current.targetRegions = true;
+                    setAWSForm((current) => ({ ...current, targetRegions: value }));
+                  }}
+                  onChangeOUIDs={(value) => {
+                    awsScopeDirtyRef.current.targetOUIDs = true;
+                    setAWSForm((current) => ({ ...current, targetOUIDs: value }));
+                  }}
+                  onChangeAccountIDs={(value) => {
+                    awsScopeDirtyRef.current.targetAccountIDs = true;
+                    setAWSForm((current) => ({ ...current, targetAccountIDs: value }));
+                  }}
+                  onChangeExcludedAccountIDs={(value) => {
+                    awsScopeDirtyRef.current.excludedAccountIDs = true;
+                    setAWSForm((current) => ({ ...current, excludedAccountIDs: value }));
+                  }}
+                  onToggleAutoOnboard={(value) => {
+                    awsScopeDirtyRef.current.autoOnboardNewAccounts = true;
+                    setAWSForm((current) => ({ ...current, autoOnboardNewAccounts: value }));
+                  }}
                   onLaunch={handleAWSStackSetStart}
                   onPreviewPermissions={
                     awsPermissionPreview.length > 0 ? () => setAWSPreviewOpen(true) : undefined
@@ -22243,11 +22421,19 @@ export function ProductAWSConnectPage() {
                 </div>
               ) : null}
             </form>
-            {isStackSetSetup && stackSetAWSStart ? (
+            {isStackSetSetup && (stackSetAWSStart || awsStackSetOnboarding) ? (
               <AWSStackSetProgressPanel
                 start={stackSetAWSStart}
-                onRefresh={activeConnectorID ? () => void handleAWSPoll() : undefined}
-                refreshing={submitting}
+                persistedOnboarding={awsStackSetOnboarding}
+                onRefresh={
+                  activeConnectorID
+                    ? () => {
+                        void handleAWSPoll();
+                        void refreshStackSetOnboarding();
+                      }
+                    : undefined
+                }
+                refreshing={submitting || awsStackSetOnboardingLoading}
               />
             ) : null}
           </section>
