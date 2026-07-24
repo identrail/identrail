@@ -10114,13 +10114,14 @@ describe('Domain-first app routes', () => {
     await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
     expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({ connector_id: undefined });
 
-    // Edit a scope-target value after the connector has been prepared.
+    // Edit a scope-target value after the connector has been prepared. The
+    // edit clears the prepared response (so the button reverts to Launch), and
+    // the next click submits a fresh connector — not a resume of the old one.
     fireEvent.change(screen.getByLabelText(/Target regions/i), { target: { value: 'us-east-1, us-west-2' } });
-    fireEvent.click(screen.getByRole('button', { name: /Prepare StackSet again/i }));
+    expect(screen.queryByRole('button', { name: /Prepare StackSet again/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
     await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(2));
-    // Contract drift must not send the old connector_id — that would 400 on
-    // resumeAWSStackSetConnectorStart. A fresh connector must be minted.
     expect(startAWSConnector.mock.calls[1]?.[0]).toMatchObject({
       connector_id: undefined,
       target_regions: ['us-east-1', 'us-west-2']
@@ -10254,9 +10255,10 @@ describe('Domain-first app routes', () => {
     await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
 
     // Only swap region ordering — backend matcher is order-sensitive, and the
-    // first region becomes the StackSet home region.
+    // first region becomes the StackSet home region. The edit also invalidates
+    // the prepared launch, so the button label goes back to Launch.
     fireEvent.change(screen.getByLabelText(/Target regions/i), { target: { value: 'us-west-2, us-east-1' } });
-    fireEvent.click(screen.getByRole('button', { name: /Prepare StackSet again/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
     await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(2));
     expect(startAWSConnector.mock.calls[1]?.[0]).toMatchObject({
       connector_id: undefined,
@@ -10479,6 +10481,94 @@ describe('Domain-first app routes', () => {
       role_name: 'CustomerReadOnlyIdentrail',
       stack_set_name: 'CustomerNamedStackSet'
     });
+  });
+
+  it('preserves the last good StackSet onboarding when a refresh fails', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-org-refresh-err',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'connected',
+        target_regions: ['us-east-1'],
+        target_ou_ids: ['r-abcd']
+      }
+    });
+    vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-org-refresh-err',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'connected',
+        target_regions: ['us-east-1'],
+        target_ou_ids: ['r-abcd']
+      }
+    });
+    const persisted: AWSStackSetOnboardingResult = {
+      ...readyAWSStackSetOnboarding,
+      recovery_actions: [
+        {
+          id: 'preserve-recovery',
+          title: 'Preserved recovery action',
+          description: 'Should remain visible after a transient refresh failure.',
+          targets: []
+        }
+      ]
+    };
+    let onboardingCallCount = 0;
+    const getStackSetOnboarding = vi
+      .spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding')
+      .mockImplementation(() => {
+        onboardingCallCount += 1;
+        if (onboardingCallCount === 1) {
+          return Promise.resolve({ onboarding: persisted });
+        }
+        return Promise.reject(new Error('temporary network error'));
+      });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText(/Preserved recovery action/i)).toBeInTheDocument();
+    const priorCalls = getStackSetOnboarding.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: /Refresh StackSet status/i }));
+
+    // The refresh error surfaces, but the previous onboarding is retained so
+    // the panel keeps rendering with a retry action.
+    expect(await screen.findByText(/temporary network error/i)).toBeInTheDocument();
+    expect(screen.getByText(/Preserved recovery action/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText(/Retry StackSet status/i)).toBeInTheDocument()
+    );
+    expect(getStackSetOnboarding.mock.calls.length).toBeGreaterThan(priorCalls);
   });
 
   it('does not reuse an existing StackSet connector when the operator switches to a different scope', async () => {

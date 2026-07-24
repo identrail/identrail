@@ -599,19 +599,29 @@ function stackSetContractsMatch(a: AWSStackSetContractSnapshot, b: AWSStackSetCo
   if (a.stackSetName && b.stackSetName && a.stackSetName !== b.stackSetName) {
     return false;
   }
-  // Backend awsConnectorSetupContractsMatch uses order-sensitive slices.Equal;
-  // reordering regions in particular changes the StackSet home region.
-  const stringListsEqual = (left: string[], right: string[]) => {
+  const positionalListsEqual = (left: string[], right: string[]) => {
     if (left.length !== right.length) {
       return false;
     }
     return left.every((value, index) => value === right[index]);
   };
+  const unorderedListsEqual = (left: string[], right: string[]) => {
+    if (left.length !== right.length) {
+      return false;
+    }
+    const l = [...left].sort();
+    const r = [...right].sort();
+    return l.every((value, index) => value === r[index]);
+  };
   return (
-    stringListsEqual(a.targetRegions, b.targetRegions) &&
-    stringListsEqual(a.targetOUIDs, b.targetOUIDs) &&
-    stringListsEqual(a.targetAccountIDs, b.targetAccountIDs) &&
-    stringListsEqual(a.excludedAccountIDs, b.excludedAccountIDs)
+    // target_regions is order-sensitive: the first entry is the StackSet home
+    // region, matching the backend's derivation.
+    positionalListsEqual(a.targetRegions, b.targetRegions) &&
+    // Backend normalizeAWSOUIDs/normalizeAWSAccountIDs sort these lists before
+    // awsConnectorSetupContractsMatch, so ordering doesn't count as drift.
+    unorderedListsEqual(a.targetOUIDs, b.targetOUIDs) &&
+    unorderedListsEqual(a.targetAccountIDs, b.targetAccountIDs) &&
+    unorderedListsEqual(a.excludedAccountIDs, b.excludedAccountIDs)
   );
 }
 
@@ -21025,6 +21035,7 @@ function stackSetOnboardingStatusTone(status: string): 'success' | 'warning' | '
 type AWSStackSetProgressPanelProps = {
   start: AWSConnectorStartResponse | null;
   persistedOnboarding: AWSStackSetOnboardingResult | null;
+  refreshError?: string;
   onRefresh?: () => void;
   refreshing: boolean;
 };
@@ -21032,6 +21043,7 @@ type AWSStackSetProgressPanelProps = {
 function AWSStackSetProgressPanel({
   start,
   persistedOnboarding,
+  refreshError,
   onRefresh,
   refreshing
 }: AWSStackSetProgressPanelProps) {
@@ -21175,10 +21187,19 @@ function AWSStackSetProgressPanel({
           ))}
         </ul>
       ) : null}
+      {refreshError ? (
+        <p role="alert" className="idt-aws-setup-note">
+          {refreshError}
+        </p>
+      ) : null}
       {onRefresh ? (
         <div className="idt-source-actions">
           <button className="idt-btn idt-btn-secondary" type="button" onClick={onRefresh} disabled={refreshing}>
-            {refreshing ? 'Refreshing...' : 'Refresh StackSet status'}
+            {refreshing
+              ? 'Refreshing...'
+              : refreshError
+              ? 'Retry StackSet status'
+              : 'Refresh StackSet status'}
           </button>
         </div>
       ) : null}
@@ -21238,6 +21259,7 @@ export function ProductAWSConnectPage() {
   const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
   const [awsStackSetOnboarding, setAWSStackSetOnboarding] = useState<AWSStackSetOnboardingResult | null>(null);
   const [awsStackSetOnboardingLoading, setAWSStackSetOnboardingLoading] = useState(false);
+  const [awsStackSetOnboardingError, setAWSStackSetOnboardingError] = useState('');
   const connectionRequestRef = useRef(0);
   const baselineRequestRef = useRef(0);
   const awsStartRequestRef = useRef(0);
@@ -21451,6 +21473,7 @@ export function ProductAWSConnectPage() {
         scopeKeyRef.current !== requestScopeKey;
       const connectorID = normalizeValue(connectorIDOverride ?? activeConnectorIDRef.current);
       setAWSStackSetOnboardingLoading(true);
+      setAWSStackSetOnboardingError('');
       try {
         const response = await apiClient.getAWSProjectStackSetOnboarding(
           scope.workspaceID,
@@ -21464,11 +21487,13 @@ export function ProductAWSConnectPage() {
           return;
         }
         setAWSStackSetOnboarding(response.onboarding);
-      } catch {
+      } catch (error) {
         if (isStale()) {
           return;
         }
-        setAWSStackSetOnboarding(null);
+        // Preserve the last good payload so the panel keeps rendering; surface
+        // the failure inline so the operator can retry.
+        setAWSStackSetOnboardingError(formatAPIError(error, 'Unable to refresh StackSet onboarding.'));
       } finally {
         if (!isStale()) {
           setAWSStackSetOnboardingLoading(false);
@@ -21502,6 +21527,7 @@ export function ProductAWSConnectPage() {
     setAWSPreviewOpen(false);
     setAWSStackSetOnboarding(null);
     setAWSStackSetOnboardingLoading(false);
+    setAWSStackSetOnboardingError('');
     setAWSForm((current) => ({
       ...current,
       roleARN: '',
@@ -21685,6 +21711,27 @@ export function ProductAWSConnectPage() {
     setAWSCopiedField(field);
   };
 
+  const invalidatePreparedStackSet = () => {
+    // Once the operator edits any scope-contract field, the prepared start
+    // response no longer describes what the wizard would launch. Drop it so
+    // neither the launch button nor the sidebar can send them to the AWS
+    // console with the old targets baked into the launch URL.
+    setAWSCloudFormationStart((current) => {
+      if (
+        current &&
+        (current.deployment_method === 'stackset_service_managed' ||
+          current.deployment_method === 'stackset_self_managed')
+      ) {
+        return null;
+      }
+      return current;
+    });
+    setAWSStackSetOnboarding(null);
+    awsStackSetOnboardingRequestRef.current += 1;
+    setAWSStackSetOnboardingLoading(false);
+    setAWSStackSetOnboardingError('');
+  };
+
   const chooseAWSSetupMode = (mode: AWSSetupMode) => {
     const previousMode = awsSetupModeRef.current;
     awsSetupModeTouchedRef.current = true;
@@ -21720,6 +21767,7 @@ export function ProductAWSConnectPage() {
       awsStackSetOnboardingRequestRef.current += 1;
       setAWSStackSetOnboarding(null);
       setAWSStackSetOnboardingLoading(false);
+      setAWSStackSetOnboardingError('');
     }
     setAWSSetupMessage('');
     setErrorMessage('');
@@ -22435,26 +22483,32 @@ export function ProductAWSConnectPage() {
                   autoOnboardNewAccounts={awsForm.autoOnboardNewAccounts}
                   onChangeOrganizationRootID={(value) => {
                     awsScopeDirtyRef.current.organizationRootID = true;
+                    invalidatePreparedStackSet();
                     setAWSForm((current) => ({ ...current, organizationRootID: value }));
                   }}
                   onChangeRegions={(value) => {
                     awsScopeDirtyRef.current.targetRegions = true;
+                    invalidatePreparedStackSet();
                     setAWSForm((current) => ({ ...current, targetRegions: value }));
                   }}
                   onChangeOUIDs={(value) => {
                     awsScopeDirtyRef.current.targetOUIDs = true;
+                    invalidatePreparedStackSet();
                     setAWSForm((current) => ({ ...current, targetOUIDs: value }));
                   }}
                   onChangeAccountIDs={(value) => {
                     awsScopeDirtyRef.current.targetAccountIDs = true;
+                    invalidatePreparedStackSet();
                     setAWSForm((current) => ({ ...current, targetAccountIDs: value }));
                   }}
                   onChangeExcludedAccountIDs={(value) => {
                     awsScopeDirtyRef.current.excludedAccountIDs = true;
+                    invalidatePreparedStackSet();
                     setAWSForm((current) => ({ ...current, excludedAccountIDs: value }));
                   }}
                   onToggleAutoOnboard={(value) => {
                     awsScopeDirtyRef.current.autoOnboardNewAccounts = true;
+                    invalidatePreparedStackSet();
                     setAWSForm((current) => ({ ...current, autoOnboardNewAccounts: value }));
                   }}
                   onLaunch={handleAWSStackSetStart}
@@ -22668,6 +22722,7 @@ export function ProductAWSConnectPage() {
               <AWSStackSetProgressPanel
                 start={stackSetAWSStart}
                 persistedOnboarding={awsStackSetOnboarding}
+                refreshError={awsStackSetOnboardingError}
                 onRefresh={
                   activeConnectorID
                     ? () => {
