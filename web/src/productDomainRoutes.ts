@@ -21,6 +21,7 @@ export const DOMAIN_APP_ROUTE_MANIFEST = [
   '/app/:tenantID/:workspaceID/github',
   '/app/:tenantID/:workspaceID/github/connect',
   '/app/:tenantID/:workspaceID/github/repositories',
+  '/app/:tenantID/:workspaceID/github/repositories/detail',
   '/app/:tenantID/:workspaceID/github/actions',
   '/app/:tenantID/:workspaceID/github/findings',
   '/app/:tenantID/:workspaceID/github/remediation',

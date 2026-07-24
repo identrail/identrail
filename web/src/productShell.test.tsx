@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AuthConfigResponse,
   AWSAccountRegionCoverageResult,
@@ -3377,6 +3377,7 @@ describe('Domain-first app routes', () => {
       '/app/:tenantID/:workspaceID/github',
       '/app/:tenantID/:workspaceID/github/connect',
       '/app/:tenantID/:workspaceID/github/repositories',
+      '/app/:tenantID/:workspaceID/github/repositories/detail',
       '/app/:tenantID/:workspaceID/github/actions',
       '/app/:tenantID/:workspaceID/github/findings',
       '/app/:tenantID/:workspaceID/github/remediation',
@@ -16035,5 +16036,1789 @@ describe('AWS copy redundancy guard (#1582)', () => {
         expect(match[1]).toBe('');
       }
     }
+  });
+});
+
+// Repository intelligence drilldown (#1712) — unified scan state, posture
+// gaps, prioritized findings queue, top blast-radius paths, and remediation
+// actions for one repository, addressed by a ?repository= query param.
+describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
+  const targetRepository = 'identrail/identrail';
+
+  const completedScan: RepoScanRecord = {
+    id: 'repo-scan-detail-complete',
+    repository: targetRepository,
+    status: 'succeeded',
+    started_at: '2026-05-17T10:50:00Z',
+    finished_at: '2026-05-17T10:55:00Z',
+    commits_scanned: 12,
+    files_scanned: 340,
+    finding_count: 3,
+    truncated: false,
+    scan_mode: 'quick',
+    source_health: 'complete',
+    source_health_details: [
+      { source: 'github_posture', status: 'complete' },
+      { source: 'repo_git_history', status: 'complete' }
+    ]
+  };
+
+  const partialScan: RepoScanRecord = {
+    ...completedScan,
+    id: 'repo-scan-detail-partial',
+    source_health: 'partial',
+    source_health_details: [
+      { source: 'github_posture', status: 'complete' },
+      { source: 'repo_git_history', status: 'partial', message: 'Git history truncated at 500 commits.' }
+    ]
+  };
+
+  const postureFinding: Finding = {
+    id: 'finding-posture-branch-protection',
+    scan_id: 'repo-scan-detail-complete',
+    type: 'repo_misconfiguration',
+    severity: 'high',
+    title: 'Default branch protection is unprotected',
+    human_summary: 'Repository default branch does not require pull request reviews.',
+    repository: targetRepository,
+    detector: 'github_default_branch_unprotected',
+    evidence: {
+      adapter_source: 'github_posture',
+      github_posture_check_id: 'default_branch_protection',
+      github_posture_scope: 'repository'
+    },
+    remediation: 'Enable branch protection with required reviews.',
+    created_at: '2026-05-17T11:00:00Z'
+  };
+
+  const workflowFinding: Finding = {
+    id: 'finding-workflow-oidc',
+    scan_id: 'repo-scan-detail-complete',
+    type: 'repo_misconfiguration',
+    severity: 'medium',
+    title: 'Workflow OIDC trust is broad',
+    human_summary: 'A workflow can mint OIDC tokens against a broad AWS role trust condition.',
+    repository: targetRepository,
+    detector: 'workflow_oidc_broad_trust',
+    evidence: { file_path: '.github/workflows/deploy.yml' },
+    remediation: 'Restrict OIDC trust to a specific ref/job.',
+    created_at: '2026-05-17T11:05:00Z'
+  };
+
+  const emptyRiskGraph: RepoRiskGraph = {
+    repository: targetRepository,
+    nodes: [],
+    edges: [],
+    scores: [],
+    summary: {
+      finding_count: 0,
+      node_count: 0,
+      edge_count: 0,
+      unknown_node_count: 0,
+      unknown_edge_count: 0,
+      high_risk_findings: 0,
+      critical_findings: 0
+    }
+  };
+
+  const riskGraphWithScores: RepoRiskGraph = {
+    ...emptyRiskGraph,
+    scores: [
+      {
+        finding_id: postureFinding.id,
+        finding_node_id: 'node-posture',
+        score: 88,
+        severity: 'high',
+        confidence: 0.9,
+        factors: {
+          severity: 80,
+          confidence: 90,
+          exploitability: 60,
+          privilege: 40,
+          exposure: 55,
+          environment_criticality: 30,
+          freshness: 100,
+          posture_amplifier: 70
+        },
+        unknowns: []
+      },
+      {
+        finding_id: workflowFinding.id,
+        finding_node_id: 'node-workflow',
+        score: 62,
+        severity: 'medium',
+        confidence: 0.7,
+        factors: {
+          severity: 55,
+          confidence: 70,
+          exploitability: 50,
+          privilege: 30,
+          exposure: 40,
+          environment_criticality: 0,
+          freshness: 100,
+          posture_amplifier: 0
+        },
+        unknowns: ['identity_target']
+      }
+    ]
+  };
+
+  async function renderRepositoryDetail(options: {
+    initialRepository?: string;
+    scans?: RepoScanRecord[];
+    findings?: Finding[];
+    riskGraph?: RepoRiskGraph;
+    posture?: GitHubRepositoryPosture;
+    postureError?: { message: string; status: number };
+    listRepoFindingsError?: { message: string; status: number };
+    listRepoScansError?: { message: string; status: number };
+  } = {}) {
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    const scansSpy = vi.spyOn(api.apiClient, 'listRepoScans');
+    if (options.listRepoScansError) {
+      scansSpy.mockRejectedValue(new api.ApiError(options.listRepoScansError.message, options.listRepoScansError.status));
+    } else {
+      scansSpy.mockResolvedValue({ items: options.scans ?? [completedScan] });
+    }
+
+    const findingsSpy = vi.spyOn(api.apiClient, 'listRepoFindings');
+    if (options.listRepoFindingsError) {
+      findingsSpy.mockRejectedValue(new api.ApiError(options.listRepoFindingsError.message, options.listRepoFindingsError.status));
+    } else {
+      findingsSpy.mockResolvedValue({ items: options.findings ?? [postureFinding, workflowFinding] });
+    }
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(options.riskGraph ?? riskGraphWithScores);
+
+    const postureSpy = vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture');
+    if (options.postureError) {
+      postureSpy.mockRejectedValue(new api.ApiError(options.postureError.message, options.postureError.status));
+    } else {
+      postureSpy.mockResolvedValue({
+        connector_id: 'github-app',
+        provider: 'github_app',
+        posture: options.posture ?? {
+          repository: targetRepository,
+          installation_id: 12345,
+          collected_at: '2026-05-17T10:56:00Z',
+          checks: [
+            {
+              id: 'branch-protection', category: 'branch protection', state: 'insecure',
+              summary: 'Default branch is missing required pull request reviews.'
+            },
+            {
+              id: 'secret-scanning', category: 'security', state: 'secure',
+              summary: 'Secret scanning is enabled.'
+            }
+          ]
+        }
+      });
+    }
+    vi.spyOn(api.apiClient, 'previewRepoFindingRemediation').mockResolvedValue({
+      finding: postureFinding,
+      remediation: {
+        detector: 'github_default_branch_unprotected',
+        summary: 'Require pull-request reviews on the default branch',
+        risk_summary: 'Unrestricted merges bypass evidence review.',
+        steps: ['Enable branch protection', 'Require signed commits'],
+        safety_notes: [], validation: [],
+        secret_rotation: false, publishable: true,
+        evidence: { finding_id: postureFinding.id }
+      }
+    });
+
+    const repository = options.initialRepository ?? targetRepository;
+    const productShell = await import('./productShell');
+    const initialEntry = repository
+      ? `/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(repository)}`
+      : `/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform`;
+    render(
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    return { findingsSpy };
+  }
+
+  beforeEach(() => {
+    // Prior describe blocks in this file leave module-scoped mocks
+    // (mockConnectorFeatureFlags / mockBackendFeatures use vi.doMock) that can
+    // linger past their afterEach. Reset both the mock registry and the module
+    // cache so every drilldown test starts from a clean import graph.
+    vi.restoreAllMocks();
+    vi.doUnmock('./hooks/useBackendFeatures');
+    vi.doUnmock('./pages/onboarding/onboardingUtils');
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock('./hooks/useBackendFeatures');
+    vi.doUnmock('./pages/onboarding/onboardingUtils');
+    vi.resetModules();
+  });
+
+  it('renders unified scan state, posture gaps, and prioritized findings queue for a repository', async () => {
+    await renderRepositoryDetail();
+
+    // Header names the repository.
+    await screen.findByRole('heading', { level: 2, name: targetRepository });
+
+    // Scan strip shows the complete pill.
+    await screen.findByText(/Complete scan/i);
+
+    // Posture gap section surfaces the insecure check and hides the secure one.
+    expect(await screen.findByText(/missing required pull request reviews/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Secret scanning is enabled/i)).not.toBeInTheDocument();
+
+    // Queue shows both findings, posture score 88 comes before workflow score 62.
+    const queueList = (await screen.findByLabelText('Prioritized findings queue')).querySelector('ul');
+    expect(queueList).not.toBeNull();
+    const rows = (queueList as HTMLElement).querySelectorAll('li');
+    expect(rows[0].textContent).toContain('Default branch protection is unprotected');
+    expect(rows[0].textContent).toContain('score 88');
+    expect(rows[1].textContent).toContain('Workflow OIDC trust is broad');
+    expect(rows[1].textContent).toContain('score 62');
+  });
+
+  it('surfaces a partial-scan pill and per-source health details when the scan is partial', async () => {
+    await renderRepositoryDetail({ scans: [partialScan] });
+    await screen.findByRole('heading', { level: 2, name: targetRepository });
+    expect(await screen.findByText(/Partial scan/i)).toBeInTheDocument();
+    expect(screen.getByText(/Git history truncated at 500 commits/i)).toBeInTheDocument();
+  });
+
+  it('renders the no-findings empty state when the queue is empty', async () => {
+    await renderRepositoryDetail({ findings: [], riskGraph: emptyRiskGraph });
+    expect(await screen.findByText(/No findings for this repository/i)).toBeInTheDocument();
+  });
+
+  it('surfaces a truncated scan-history warning instead of "No scan yet" when the search hit its cap', async () => {
+    // ListRepoScans is workspace-wide, so a repository whose newest scan sits
+    // behind more than REPO_INTELLIGENCE_SCAN_MAX_PAGES * SCAN_PAGE_LIMIT
+    // newer workspace scans is never reached. Simulate that by returning
+    // pages that never match the target repository and always return a
+    // next_cursor so the fetcher exhausts its 20-page ceiling.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    const otherRepoScan: RepoScanRecord = {
+      ...completedScan,
+      id: 'repo-scan-other',
+      repository: 'someone-else/other-repo'
+    };
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({
+      items: [otherRepoScan],
+      next_cursor: 'never-exhausted'
+    });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(emptyRiskGraph);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Header reads "Scan history truncated", not "No scan yet". The banner
+    // steers the operator to filter by repository instead of assuming the
+    // repository has never been scanned.
+    expect(await screen.findByText(/Scan history truncated/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 3, name: /No scan yet/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Repository scan search hit its safety ceiling/i)).toBeInTheDocument();
+  });
+
+  it('counts publishable-patch detectors as fix-ready and guidance-only as preview-only', async () => {
+    // workflow_write_all_permissions → deterministic patch (Publishable:true).
+    // workflow_oidc_broad_trust → guidance-only (Publishable:false).
+    // Both are supported (Preview button), but only the first is fix-ready.
+    const fixReadyFinding: Finding = {
+      ...workflowFinding,
+      id: 'finding-workflow-write-all',
+      title: 'Workflow has write-all permissions',
+      detector: 'workflow_write_all_permissions'
+    };
+    await renderRepositoryDetail({ findings: [fixReadyFinding, workflowFinding] });
+    const queueList = await screen.findByLabelText('Prioritized findings queue');
+    expect(queueList.textContent).toContain('1 fix-ready');
+    expect(queueList.textContent).toContain('1 preview-only');
+  });
+
+  it('does not offer a Preview button for unrecognized terraform_ detectors', async () => {
+    // Frontend prefix set used to include terraform_/docker_/k8s_, but the
+    // backend switch only accepts a fixed list of exact detectors for these
+    // families. An unrecognized terraform_ detector would 422 on preview.
+    const unsupportedTerraformFinding: Finding = {
+      ...workflowFinding,
+      id: 'finding-terraform-unrecognized',
+      title: 'Unrecognized terraform misconfiguration',
+      detector: 'terraform_some_new_detector_backend_does_not_handle'
+    };
+    await renderRepositoryDetail({ findings: [unsupportedTerraformFinding] });
+    const queueList = await screen.findByLabelText('Prioritized findings queue');
+    // Row rendered for triage.
+    expect(queueList.textContent).toContain('Unrecognized terraform misconfiguration');
+    // No Preview button.
+    expect(screen.queryByRole('button', { name: /Preview remediation/i })).not.toBeInTheDocument();
+    expect(within(queueList).getByText(/Review in GitHub/i)).toBeInTheDocument();
+  });
+
+  it('shows an error banner when the repository query parameter is missing', async () => {
+    await renderRepositoryDetail({ initialRepository: '' });
+    expect(await screen.findByText(/Repository not selected/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Back to repositories/i })).toBeInTheDocument();
+  });
+
+  it('shows an inline findings error but keeps the scan strip and posture usable', async () => {
+    // Findings lane runs independently now, so a findings failure surfaces
+    // inline in the queue panel while the scan strip and posture panels
+    // still render their own successful state.
+    await renderRepositoryDetail({ listRepoFindingsError: { message: 'boom', status: 500 } });
+    // Scan strip commits its own success even though findings rejected.
+    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
+    // Findings queue panel surfaces its own error.
+    const queuePanel = await screen.findByLabelText('Prioritized findings queue');
+    expect(within(queuePanel).getByText(/boom/i)).toBeInTheDocument();
+    // No shared "Couldn't load repository intelligence" banner — that
+    // banner was misleading because it hid the successful scan panel.
+    expect(screen.queryByText(/Couldn't load repository intelligence/i)).not.toBeInTheDocument();
+  });
+
+  it('commits successful findings when the scan lookup rejects', async () => {
+    // Scan and findings lanes are independent, so a transient
+    // /v1/repo-scans failure must not discard a successfully fetched
+    // findings queue. Previously Promise.all rejected together, so the
+    // page misleadingly showed both "No scan yet" and "No findings"
+    // under a shared error banner even when findings was fine.
+    await renderRepositoryDetail({ listRepoScansError: { message: 'scans down', status: 502 } });
+    // Findings queue rendered from its own successful response.
+    const queuePanel = await screen.findByLabelText('Prioritized findings queue');
+    expect(within(queuePanel).getByText(/Default branch protection is unprotected/i)).toBeInTheDocument();
+    expect(within(queuePanel).getByText(/Workflow OIDC trust is broad/i)).toBeInTheDocument();
+    // Scan strip surfaces its own inline error, not the shared banner.
+    const scanPanel = await screen.findByLabelText('Latest scan');
+    expect(within(scanPanel).getByText(/scans down/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't load repository intelligence/i)).not.toBeInTheDocument();
+    // Not the misleading "No scan yet" fallback either — that would suggest
+    // the repository has never been scanned rather than a transient error.
+    expect(within(scanPanel).queryByRole('heading', { level: 3, name: /No scan yet/i })).not.toBeInTheDocument();
+  });
+
+  it('shows an inline posture error but keeps the rest of the drilldown usable', async () => {
+    await renderRepositoryDetail({ postureError: { message: 'posture rate limited', status: 429 } });
+    // Findings queue still rendered.
+    // Finding title appears in both the queue panel and the paths panel now
+    // that paths render the actual finding chain, so scope to the queue.
+    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
+    // Posture panel shows an inline alert without breaking the page. Wait for the
+    // async state update rather than reading synchronously: the posture request
+    // rejects on a separate promise from the scans/findings/graph fetch, and its
+    // catch handler runs after the queue's initial render.
+    expect(await screen.findByText(/posture rate limited/i)).toBeInTheDocument();
+  });
+
+  it('opens a remediation preview when the operator clicks Preview remediation on a fix-ready finding', async () => {
+    await renderRepositoryDetail();
+    const previewButtons = await screen.findAllByRole('button', { name: /Preview remediation/i });
+    fireEvent.click(previewButtons[0]);
+    expect(await screen.findByText(/Require pull-request reviews on the default branch/i)).toBeInTheDocument();
+    expect(screen.getByText(/Enable branch protection/i)).toBeInTheDocument();
+  });
+
+  it('commits scan and findings even when the risk graph request rejects', async () => {
+    // Risk graph runs on its own lane, so a graph failure must not block the
+    // scan and findings panels: the queue already falls back to severity
+    // ordering when riskGraph is null. Without the split, Promise.all would
+    // reject on the graph error and the operator would see the shared error
+    // banner over "No scan yet" / "No findings" even though the actual scan
+    // and findings requests completed successfully.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding, workflowFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockRejectedValue(
+      new api.ApiError('risk graph unavailable', 503)
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Scan strip and findings queue commit despite the graph failure.
+    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
+    const queueList = await screen.findByLabelText('Prioritized findings queue');
+    expect(within(queueList).getByText(/Default branch protection is unprotected/i)).toBeInTheDocument();
+    expect(within(queueList).getByText(/Workflow OIDC trust is broad/i)).toBeInTheDocument();
+
+    // Graph error surfaces inline in its own panel; shared error banner stays clear.
+    expect(await screen.findByText(/risk graph unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't load repository intelligence/i)).not.toBeInTheDocument();
+  });
+
+  it('does not preload workspace-wide recent scans through useGitHubDomainData', async () => {
+    // The drilldown reads scans through its own paginated
+    // findRepoIntelligenceLatestScan, not domainData.scans. Passing a non-zero
+    // scanLimit to useGitHubDomainData would paginate
+    // listRepoScansForSelectedRepositories with narrow pages before the
+    // drilldown effect can even start, since the effect waits for
+    // domainData.loading to clear. Assert the preload never runs.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Wait for the drilldown to finish its own scan lookup so we know the
+    // effect has run.
+    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
+
+    // Every listRepoScans call must be the drilldown's own paginator (which
+    // uses REPO_INTELLIGENCE_SCAN_PAGE_LIMIT=50), not the preload's narrow
+    // 5-record page. If useGitHubDomainData had been given a non-zero
+    // scanLimit, it would call listRepoScans with limit=5.
+    for (const call of listRepoScans.mock.calls) {
+      const filters = call[0];
+      expect(filters?.limit).not.toBe(5);
+    }
+  });
+
+  it('paginates listRepoScans until the target repository is found rather than reading only the first page', async () => {
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+
+    // First page holds a scan for another repository; the target repo's scan
+    // lives on the second page, keyed by the cursor. If pagination is not
+    // followed the drilldown falsely reports "No scan yet".
+    const otherRepoScan: RepoScanRecord = {
+      ...completedScan,
+      id: 'repo-scan-newer-other',
+      repository: 'identrail/other-repo'
+    };
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans');
+    listRepoScans.mockImplementation(async (filters) => {
+      if (!filters?.cursor) {
+        return { items: [otherRepoScan], next_cursor: 'cursor-page-2' };
+      }
+      if (filters.cursor === 'cursor-page-2') {
+        return { items: [completedScan] };
+      }
+      return { items: [] };
+    });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
+    // The connection-loading render triggers an initial no-connector effect run
+    // so listRepoScans is called more than twice; the meaningful assertion is
+    // that pagination followed the cursor to reach the target repository.
+    await waitFor(() =>
+      expect(listRepoScans.mock.calls.some(([filters]) => filters?.cursor === 'cursor-page-2')).toBe(true)
+    );
+  });
+
+  it('paginates listRepoFindings so an older higher-scoring finding is not dropped from the queue', async () => {
+    // Older finding is on page 2 but has the highest graph score. Queue must
+    // include it and rank it first.
+    const olderCriticalFinding: Finding = {
+      ...postureFinding,
+      id: 'finding-critical-older',
+      title: 'Critical historical finding',
+      severity: 'critical',
+      created_at: '2026-05-10T09:00:00Z'
+    };
+    const criticalScoredGraph: RepoRiskGraph = {
+      ...riskGraphWithScores,
+      scores: [
+        {
+          finding_id: olderCriticalFinding.id,
+          finding_node_id: 'node-critical',
+          score: 99,
+          severity: 'critical',
+          confidence: 0.99,
+          factors: {
+            severity: 100, confidence: 99, exploitability: 90, privilege: 80,
+            exposure: 70, environment_criticality: 60, freshness: 20, posture_amplifier: 80
+          },
+          unknowns: []
+        }
+      ]
+    };
+
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings');
+    listRepoFindings.mockImplementation(async (filters) => {
+      if (!filters?.cursor) {
+        return { items: [postureFinding], next_cursor: 'findings-cursor-2' };
+      }
+      if (filters.cursor === 'findings-cursor-2') {
+        return { items: [olderCriticalFinding] };
+      }
+      return { items: [] };
+    });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(criticalScoredGraph);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // The older critical finding must appear at the top of the queue.
+    const queueList = (await screen.findByLabelText('Prioritized findings queue')).querySelector('ul');
+    expect(queueList).not.toBeNull();
+    const rows = (queueList as HTMLElement).querySelectorAll('li');
+    expect(rows[0].textContent).toContain('Critical historical finding');
+    expect(rows[0].textContent).toContain('score 99');
+    await waitFor(() =>
+      expect(listRepoFindings.mock.calls.some(([filters]) => filters?.cursor === 'findings-cursor-2')).toBe(true)
+    );
+  });
+
+  it('does not fetch repository posture on a PAT connection where the endpoint is unsupported', async () => {
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    // PAT connection: connected with a connector_id, but provider is github_pat
+    // so the posture endpoint would return an unsupported error if we hit it.
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({
+      connection: {
+        ...connectedGitHub,
+        provider: 'github_pat',
+        connector_id: 'github-enterprise'
+      }
+    });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    const postureSpy = vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture');
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Finding title appears in both the queue panel and the paths panel now
+    // that paths render the actual finding chain, so scope to the queue.
+    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
+    // Posture panel shows the empty state, not an error banner.
+    expect(await screen.findByText(/No posture collected/i)).toBeInTheDocument();
+    // The posture endpoint was never called for a PAT connection.
+    expect(postureSpy).not.toHaveBeenCalled();
+  });
+
+  it('sorts risk graph scores before taking the top blast-radius slice', async () => {
+    // API returns scores in insertion order with the highest-scoring path
+    // buried in the middle. The "Top blast-radius paths" section must still
+    // rank it first — the drilldown sorts before slicing rather than relying
+    // on API-order equaling score-order.
+    const unsortedScoresGraph: RepoRiskGraph = {
+      repository: targetRepository,
+      nodes: [], edges: [],
+      summary: {
+        finding_count: 0, node_count: 0, edge_count: 0, unknown_node_count: 0,
+        unknown_edge_count: 0, high_risk_findings: 0, critical_findings: 0
+      },
+      scores: [
+        {
+          finding_id: 'lower-score', finding_node_id: 'node-a',
+          score: 40, severity: 'low', confidence: 0.6,
+          factors: {
+            severity: 40, confidence: 60, exploitability: 30, privilege: 20,
+            exposure: 15, environment_criticality: 0, freshness: 100, posture_amplifier: 0
+          },
+          unknowns: []
+        },
+        {
+          finding_id: 'highest-score', finding_node_id: 'node-b',
+          score: 95, severity: 'critical', confidence: 0.95,
+          factors: {
+            severity: 100, confidence: 95, exploitability: 90, privilege: 80,
+            exposure: 70, environment_criticality: 60, freshness: 100, posture_amplifier: 80
+          },
+          unknowns: []
+        },
+        {
+          finding_id: 'middle-score', finding_node_id: 'node-c',
+          score: 65, severity: 'medium', confidence: 0.75,
+          factors: {
+            severity: 55, confidence: 75, exploitability: 50, privilege: 40,
+            exposure: 30, environment_criticality: 10, freshness: 100, posture_amplifier: 0
+          },
+          unknowns: []
+        }
+      ]
+    };
+    // Provide open findings whose IDs match each score so the active-findings
+    // filter that the top-paths list applies does not remove them. Titles
+    // are set from the score name so the ordering assertions can look at
+    // the row header (which uses the finding title, not id).
+    const activeFindings: Finding[] = ['lower-score', 'highest-score', 'middle-score'].map((id) => ({
+      ...postureFinding,
+      id,
+      title: `Finding ranked ${id}`,
+      lifecycle_status: 'open'
+    }));
+    await renderRepositoryDetail({ findings: activeFindings, riskGraph: unsortedScoresGraph });
+    const pathsList = (await screen.findByLabelText('Top blast-radius paths')).querySelector('ol');
+    expect(pathsList).not.toBeNull();
+    const rows = (pathsList as HTMLElement).querySelectorAll('li');
+    expect(rows[0].textContent).toContain('Finding ranked highest-score');
+    expect(rows[0].textContent).toContain('score 95');
+    expect(rows[1].textContent).toContain('Finding ranked middle-score');
+    expect(rows[2].textContent).toContain('Finding ranked lower-score');
+  });
+
+  it('does not render the previous repository\'s data when a reload rejects on error', async () => {
+    // Start on repo A with data, then rerun the render pointing at repo B where
+    // listRepoFindings rejects. The header must swap to repo B and the
+    // findings panel must show its own inline error — the queue and scan
+    // panels must not carry repo A's leftover data.
+    await renderRepositoryDetail();
+    // Confirm repo A rendered fully.
+    await screen.findByRole('heading', { level: 2, name: targetRepository });
+    // Finding title appears in both the queue panel and the paths panel now
+    // that paths render the actual finding chain, so scope to the queue.
+    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
+    cleanup();
+    vi.restoreAllMocks();
+    vi.resetModules();
+
+    const otherRepository = 'identrail/other-repo';
+    await renderRepositoryDetail({
+      initialRepository: otherRepository,
+      listRepoFindingsError: { message: 'transient outage', status: 500 }
+    });
+    await screen.findByRole('heading', { level: 2, name: otherRepository });
+    // Findings panel surfaces its own error inline.
+    const queuePanel = await screen.findByLabelText('Prioritized findings queue');
+    expect(within(queuePanel).getByText(/transient outage/i)).toBeInTheDocument();
+    // Stale queue rows from repo A must not be present.
+    expect(screen.queryByText(/Default branch protection is unprotected/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Workflow OIDC trust is broad/i)).not.toBeInTheDocument();
+  });
+
+  it('matches scan records case-insensitively so mixed-case deep links do not report No scan yet', async () => {
+    // Deep link uses "Identrail/Identrail"; stored scan uses "identrail/identrail".
+    const mixedCaseRepository = 'Identrail/Identrail';
+    const lowercaseScan: RepoScanRecord = {
+      ...completedScan,
+      repository: 'identrail/identrail'
+    };
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [lowercaseScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: 'identrail/identrail', collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(mixedCaseRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // The case-mismatched deep link must resolve to the stored lowercase scan.
+    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No scan yet/i)).not.toBeInTheDocument();
+  });
+
+  it('invalidates a pending remediation preview when the operator closes the panel', async () => {
+    // Set up a preview endpoint whose promise resolves only when we release it,
+    // so the click on Close happens while the request is still in flight. If
+    // the close handler does not invalidate the request token, the late
+    // response would write into preview state.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    // Use a supported (workflow_*) detector so the Preview button renders.
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [workflowFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const previewDeferred = deferred<RepoFindingRemediationPreview>();
+    vi.spyOn(api.apiClient, 'previewRepoFindingRemediation').mockImplementation(() => previewDeferred.promise);
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Open the preview — request is now pending.
+    const previewButtons = await screen.findAllByRole('button', { name: /Preview remediation/i });
+    fireEvent.click(previewButtons[0]);
+    // Loading indicator confirms the request is in flight.
+    expect(await screen.findByText(/Loading remediation preview/i)).toBeInTheDocument();
+    // Close the panel before the request resolves.
+    fireEvent.click(screen.getByRole('button', { name: /Close/i }));
+
+    // Now release the late response.
+    await act(async () => {
+      previewDeferred.resolve({
+        finding: postureFinding,
+        remediation: {
+          detector: 'github_default_branch_unprotected',
+          summary: 'Late remediation should not commit',
+          risk_summary: '',
+          steps: ['Late step that should never render'],
+          safety_notes: [], validation: [],
+          secret_rotation: false, publishable: true,
+          evidence: { finding_id: postureFinding.id }
+        }
+      });
+      await previewDeferred.promise;
+    });
+
+    // The dismissed preview must not resurrect: no summary, no steps.
+    expect(screen.queryByText(/Late remediation should not commit/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Late step that should never render/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
+  });
+
+  it('does not restart scan, findings, and graph fetches when connection status settles', async () => {
+    // The core fetches must wait for connection status before firing. Without
+    // the gate, the effect would run once with connection=null, start the
+    // three fetches, get invalidated when domainData.loading flips to false,
+    // and start them again — doubling the pagination cost on deep repos.
+    // Assert each of the three drilldown-owned endpoints is called at most
+    // once for a given repository once the drilldown has settled.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    const getRepoRiskGraph = vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Wait until the drilldown has finished settling (the queue rendered).
+    // Finding title appears in both the queue panel and the paths panel now
+    // that paths render the actual finding chain, so scope to the queue.
+    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
+
+    // Only one call per repository — listRepoScans/Findings/getRepoRiskGraph
+    // each fired for the target once, not twice. useGitHubDomainData's own
+    // scan fetch is workspace-wide (no cursor argument), so filter to the
+    // drilldown's paginated call by matching the presence of cursor OR a
+    // request that returned the target repository record.
+    const scanCallsForRepository = listRepoScans.mock.calls.filter(
+      ([filters]) => filters?.limit === 50 // REPO_INTELLIGENCE_SCAN_PAGE_LIMIT
+    ).length;
+    expect(scanCallsForRepository).toBe(1);
+    expect(listRepoFindings).toHaveBeenCalledTimes(1);
+    expect(getRepoRiskGraph).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders organization posture gaps alongside repository posture on the drilldown', async () => {
+    // getGitHubConnectorRepositoryPosture returns both repository posture and
+    // organization_posture. The drilldown must render inherited org control
+    // gaps too — hiding them would leave inherited Actions policy / security
+    // configuration / runner posture invisible to the operator.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app',
+      provider: 'github_app',
+      posture: {
+        repository: targetRepository,
+        collected_at: '2026-05-17T10:56:00Z',
+        checks: [{
+          id: 'branch-protection', category: 'branch protection', state: 'insecure',
+          summary: 'Repository default branch is missing required reviews.'
+        }]
+      },
+      organization_posture: {
+        organization: 'identrail',
+        collected_at: '2026-05-17T10:56:00Z',
+        checks: [{
+          id: 'actions-policy', category: 'actions', state: 'insecure',
+          summary: 'Organization Actions policy allows write-all workflow tokens.'
+        }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Both repository and organization posture gaps render, and the org row
+    // carries the scope prefix so the operator can tell them apart.
+    expect(await screen.findByText(/Repository default branch is missing required reviews/i)).toBeInTheDocument();
+    expect(screen.getByText(/Organization Actions policy allows write-all workflow tokens/i)).toBeInTheDocument();
+    expect(screen.getByText(/Organization • /i)).toBeInTheDocument();
+  });
+
+  it('hides the Preview remediation button for detectors the backend cannot remediate', async () => {
+    // Mixed queue: workflow_ finding is supported, github_ posture finding is
+    // not. The queue must still render both (posture findings are worth
+    // triaging even if we cannot auto-remediate them), but only the workflow
+    // one carries a Preview button.
+    await renderRepositoryDetail({ findings: [postureFinding, workflowFinding] });
+
+    const queueList = await screen.findByLabelText('Prioritized findings queue');
+    // Both findings render.
+    expect(queueList.textContent).toContain('Default branch protection is unprotected');
+    expect(queueList.textContent).toContain('Workflow OIDC trust is broad');
+    // But only one Preview button — the posture finding shows the fallback.
+    const previewButtons = screen.getAllByRole('button', { name: /Preview remediation/i });
+    expect(previewButtons.length).toBe(1);
+    expect(within(queueList).getByText(/Review in GitHub/i)).toBeInTheDocument();
+
+    // Header splits the queue by remediation category: workflow_oidc_broad_trust
+    // is supported (Preview button) but backend returns publishable:false
+    // (guidance-only), so it counts as preview-only rather than fix-ready. This
+    // matches the accepted-detector semantics in
+    // internal/findings/standards/repo_remediation.go.
+    expect(queueList.textContent).not.toContain('fix-ready');
+    expect(queueList.textContent).toContain('1 preview-only');
+  });
+
+  it('reports truncation when it stopped because the active-findings target filled while pages remained', async () => {
+    // Backend keeps returning next_cursor. The fetcher must stop once the
+    // active target fills (500) AND report truncated:true so the operator
+    // sees the safety-ceiling warning banner rather than assuming the top
+    // of the queue is the highest-scoring finding.
+    const activePage: Finding[] = Array.from({ length: 100 }, (_, index) => ({
+      ...postureFinding,
+      id: `finding-active-${index}`,
+      lifecycle_status: 'open'
+    }));
+
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    // Every page returns 100 active findings + a next_cursor, so pagination
+    // reaches the 500-active target on page 5 with more pages still available.
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockImplementation(async () => ({
+      items: activePage,
+      next_cursor: 'always-another-page'
+    }));
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Truncation banner surfaces.
+    expect(await screen.findByText(/Findings pagination hit its safety ceiling/i)).toBeInTheDocument();
+  });
+
+  it('propagates a connection-status error instead of showing "Connect GitHub" when the status fetch fails', async () => {
+    // Connection fetch rejects. Without this fix, postureSupported would just
+    // evaluate to false and the drilldown would render as if the operator
+    // needed to connect GitHub, hiding the real error.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockRejectedValue(
+      new api.ApiError('github status unavailable', 503)
+    );
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // The connection-status error surfaces via the shared error banner.
+    expect(await screen.findByText(/github status unavailable/i)).toBeInTheDocument();
+  });
+
+  it('renders scan, findings, and blast-radius paths before slow posture resolves', async () => {
+    // Posture is a live GitHub call and can be slower than the rest of the
+    // drilldown. The scan/findings/graph must render as soon as their own
+    // promises settle; the posture panel gets its own loading indicator
+    // and does not gate anything else.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    const postureDeferred = deferred<{
+      connector_id: string;
+      provider: string;
+      posture: GitHubRepositoryPosture;
+    }>();
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockImplementation(() => postureDeferred.promise);
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Findings, scan, and blast-radius paths render before posture settles.
+    // Scope to the queue panel because the finding title also appears in
+    // the paths panel's node chain.
+    await within(await screen.findByLabelText('Prioritized findings queue'))
+      .findByText(/Default branch protection is unprotected/i);
+    expect(screen.getByText(/Complete scan/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Top blast-radius paths')).toBeInTheDocument();
+    // Posture panel shows its own loading indicator, not the drilldown\'s route loader.
+    // Wait for connection status to settle so the second-pass effect fires posture.
+    expect(await screen.findByText(/Loading repository posture/i)).toBeInTheDocument();
+
+    // Now let posture settle and check it renders.
+    await act(async () => {
+      postureDeferred.resolve({
+        connector_id: 'github-app',
+        provider: 'github_app',
+        posture: {
+          repository: targetRepository,
+          collected_at: '2026-05-17T10:56:00Z',
+          checks: [{
+            id: 'branch-protection', category: 'branch protection', state: 'insecure',
+            reason: 'weak_protection', summary: 'Default branch is missing required reviews.'
+          }]
+        }
+      });
+      await postureDeferred.promise;
+    });
+    expect(await screen.findByText(/Default branch is missing required reviews/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Loading repository posture/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps paginating past closed-finding pages so older active risks reach the queue', async () => {
+    // Page 1 is 100 closed (fixed) findings. Page 2 holds one active reopened
+    // finding. Previously the drilldown stopped at page 1 because it counted
+    // total items toward the cap; now it counts only ACTIVE items so it must
+    // fetch page 2 and surface the active one.
+    const closedPageOne: Finding[] = Array.from({ length: 100 }, (_, index) => ({
+      ...postureFinding,
+      id: `finding-closed-${index}`,
+      lifecycle_status: 'fixed'
+    }));
+    const activeOlder: Finding = {
+      ...postureFinding,
+      id: 'older-active-finding',
+      title: 'Older active finding hiding behind closed page',
+      lifecycle_status: 'reopened'
+    };
+
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings');
+    listRepoFindings.mockImplementation(async (filters) => {
+      if (!filters?.cursor) {
+        return { items: closedPageOne, next_cursor: 'closed-heavy-page-2' };
+      }
+      if (filters.cursor === 'closed-heavy-page-2') {
+        return { items: [activeOlder] };
+      }
+      return { items: [] };
+    });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // The older active finding must appear in the queue — the drilldown
+    // paginated past the closed-heavy page rather than stopping at page 1.
+    expect(await screen.findByText(/Older active finding hiding behind closed page/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(listRepoFindings.mock.calls.some(([filters]) => filters?.cursor === 'closed-heavy-page-2')).toBe(true)
+    );
+    // No fixed finding rendered in the queue.
+    expect(screen.queryByText(/finding-closed-0/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the actual blast-radius node chain from riskGraph.nodes and riskGraph.edges', async () => {
+    // Panel promises "Top blast-radius paths" — it must show the reachable
+    // workflow/identity/runner/environment/control chain the finding
+    // touches, not just the finding id and score. Walker starts at the
+    // finding's finding_node_id, follows outgoing edges, and prefers known
+    // edges over reachability_unknown.
+    const finding: Finding = {
+      ...postureFinding,
+      id: 'chain-finding',
+      title: 'Workflow reaches production cloud role',
+      lifecycle_status: 'open'
+    };
+    const chainGraph: RepoRiskGraph = {
+      repository: targetRepository,
+      nodes: [
+        { id: 'node-finding', kind: 'finding', label: 'chain-finding', evidence_state: 'known' },
+        { id: 'node-workflow', kind: 'workflow', label: 'deploy.yml', evidence_state: 'known' },
+        { id: 'node-secret', kind: 'secret', label: 'AWS_DEPLOY_KEY', evidence_state: 'known' },
+        { id: 'node-cloud-role', kind: 'cloud_role', label: 'prod-deploy-role', evidence_state: 'known' },
+        { id: 'node-speculative', kind: 'environment', label: 'speculative-env', evidence_state: 'unknown' }
+      ],
+      edges: [
+        {
+          id: 'e1', kind: 'finding_affects_workflow',
+          from_node_id: 'node-finding', to_node_id: 'node-workflow',
+          evidence_state: 'known'
+        },
+        {
+          id: 'e2', kind: 'job_uses_secret',
+          from_node_id: 'node-workflow', to_node_id: 'node-secret',
+          evidence_state: 'known'
+        },
+        {
+          id: 'e3', kind: 'oidc_subject_can_assume_role',
+          from_node_id: 'node-secret', to_node_id: 'node-cloud-role',
+          evidence_state: 'known'
+        },
+        // A reachability_unknown edge exists from the workflow, but the
+        // known-edge walk above should reach cloud_role first; the
+        // speculative node must not be preferred over the concrete chain.
+        {
+          id: 'e4-unknown', kind: 'reachability_unknown',
+          from_node_id: 'node-workflow', to_node_id: 'node-speculative',
+          evidence_state: 'unknown'
+        }
+      ],
+      scores: [
+        {
+          finding_id: finding.id, finding_node_id: 'node-finding',
+          score: 88, severity: 'high', confidence: 0.9,
+          factors: {
+            severity: 80, confidence: 90, exploitability: 60, privilege: 40,
+            exposure: 55, environment_criticality: 30, freshness: 100,
+            posture_amplifier: 70
+          },
+          unknowns: []
+        }
+      ],
+      summary: {
+        finding_count: 1, node_count: 5, edge_count: 4, unknown_node_count: 1,
+        unknown_edge_count: 1, high_risk_findings: 1, critical_findings: 0
+      }
+    };
+
+    await renderRepositoryDetail({ findings: [finding], riskGraph: chainGraph });
+
+    const pathsPanel = await screen.findByLabelText('Top blast-radius paths');
+    const pathsList = pathsPanel.querySelector('ol');
+    expect(pathsList).not.toBeNull();
+    const rows = (pathsList as HTMLElement).querySelectorAll('li');
+    expect(rows.length).toBe(1);
+
+    // The concrete workflow → secret → cloud_role chain renders in the row.
+    expect(rows[0].textContent).toContain('deploy.yml');
+    expect(rows[0].textContent).toContain('AWS_DEPLOY_KEY');
+    expect(rows[0].textContent).toContain('prod-deploy-role');
+    // Node kinds are labeled so the operator can tell workflow from role.
+    expect(rows[0].textContent).toContain('Workflow');
+    expect(rows[0].textContent).toContain('Cloud Role');
+  });
+
+  it('falls back to a "no reachability" hint when the graph has no nodes or edges', async () => {
+    // Some risk-graph responses carry only scores (older summaries or
+    // partial collection). The paths panel must still render with the
+    // finding title/score, but say explicitly no reachability chain
+    // is available — never claim a chain that isn't in the data.
+    const finding: Finding = {
+      ...postureFinding,
+      id: 'no-chain-finding',
+      title: 'Finding with no reachability data',
+      lifecycle_status: 'open'
+    };
+    const scoresOnlyGraph: RepoRiskGraph = {
+      repository: targetRepository,
+      nodes: [], edges: [],
+      scores: [
+        {
+          finding_id: finding.id, finding_node_id: 'node-x',
+          score: 72, severity: 'high', confidence: 0.8,
+          factors: {
+            severity: 70, confidence: 80, exploitability: 50, privilege: 30,
+            exposure: 40, environment_criticality: 10, freshness: 100, posture_amplifier: 0
+          },
+          unknowns: []
+        }
+      ],
+      summary: {
+        finding_count: 1, node_count: 0, edge_count: 0, unknown_node_count: 0,
+        unknown_edge_count: 0, high_risk_findings: 1, critical_findings: 0
+      }
+    };
+    await renderRepositoryDetail({ findings: [finding], riskGraph: scoresOnlyGraph });
+    const pathsPanel = await screen.findByLabelText('Top blast-radius paths');
+    expect(within(pathsPanel).getByText(/Finding with no reachability data/i)).toBeInTheDocument();
+    expect(within(pathsPanel).getByText(/No reachability graph collected/i)).toBeInTheDocument();
+  });
+
+  it('filters top blast-radius paths so a closed finding cannot displace active risks', async () => {
+    // A high-scoring path belongs to a fixed finding — it must not appear in
+    // the top-N list even though its raw score is the highest, because the
+    // finding itself is no longer active.
+    const activeOpen: Finding = { ...postureFinding, id: 'active-open', title: 'Active open finding', lifecycle_status: 'open' };
+    const closedFixed: Finding = { ...postureFinding, id: 'closed-fixed', title: 'Closed fixed finding', lifecycle_status: 'fixed' };
+    const graphWithClosedTopScore: RepoRiskGraph = {
+      repository: targetRepository,
+      nodes: [], edges: [],
+      summary: {
+        finding_count: 0, node_count: 0, edge_count: 0, unknown_node_count: 0,
+        unknown_edge_count: 0, high_risk_findings: 0, critical_findings: 0
+      },
+      scores: [
+        {
+          finding_id: closedFixed.id, finding_node_id: 'node-closed',
+          score: 99, severity: 'critical', confidence: 0.99,
+          factors: {
+            severity: 100, confidence: 99, exploitability: 90, privilege: 80,
+            exposure: 70, environment_criticality: 60, freshness: 100, posture_amplifier: 80
+          },
+          unknowns: []
+        },
+        {
+          finding_id: activeOpen.id, finding_node_id: 'node-open',
+          score: 55, severity: 'medium', confidence: 0.7,
+          factors: {
+            severity: 55, confidence: 70, exploitability: 40, privilege: 30,
+            exposure: 20, environment_criticality: 0, freshness: 100, posture_amplifier: 0
+          },
+          unknowns: []
+        }
+      ]
+    };
+
+    await renderRepositoryDetail({
+      findings: [activeOpen, closedFixed],
+      riskGraph: graphWithClosedTopScore
+    });
+
+    const pathsList = (await screen.findByLabelText('Top blast-radius paths')).querySelector('ol');
+    expect(pathsList).not.toBeNull();
+    const rows = (pathsList as HTMLElement).querySelectorAll('li');
+    // Only the active finding appears — the closed-but-highest-scoring one is filtered.
+    expect(rows.length).toBe(1);
+    expect(rows[0].textContent).toContain('Active open finding');
+    expect(rows[0].textContent).not.toContain('Closed fixed finding');
+  });
+
+  it('renders the API-provided posture check reason on permission-limited and unavailable checks', async () => {
+    // A permission_limited posture check carries a reason string that
+    // diagnoses the collection gap; the drilldown must render it so
+    // operators can act on it, matching the repositories inventory view.
+    await renderRepositoryDetail({
+      posture: {
+        repository: targetRepository,
+        collected_at: '2026-05-17T10:56:00Z',
+        checks: [
+          {
+            id: 'org-runner-groups',
+            category: 'runners',
+            state: 'permission_limited',
+            reason: 'missing_organization_permission',
+            summary: 'Self-hosted runner posture could not be collected.'
+          }
+        ]
+      }
+    });
+
+    // Both the summary and the reason must appear alongside the check.
+    expect(await screen.findByText(/Self-hosted runner posture could not be collected/i)).toBeInTheDocument();
+    expect(screen.getByText(/Missing Organization Permission/i)).toBeInTheDocument();
+  });
+
+  it('does not expose the drilldown detail route in the GitHub domain flyout', async () => {
+    // ProductDomainFlyout renders every entry in PRODUCT_DOMAIN_CONFIGS.github.routes
+    // as a plain link, so registering the parameterized detail route would
+    // open it with no ?repository= param and immediately show "Repository not
+    // selected." The drilldown must therefore stay out of PRODUCT_DOMAIN_CONFIGS.
+    const productShell = await import('./productShell');
+    const config = productShell.PRODUCT_DOMAIN_CONFIGS.github;
+    const routeIDs = config.routes.map((route) => route.id);
+    expect(routeIDs).not.toContain('repositories-detail');
+    // The Repositories entry is still there so operators reach the drilldown
+    // via a row click on the inventory page instead.
+    expect(routeIDs).toContain('repositories');
+  });
+
+  it('excludes fixed, suppressed, risk-accepted, and false-positive findings from the queue and Preview count', async () => {
+    // Mix active and closed findings — the queue must show only open/reopened.
+    const closedFinding: Finding = {
+      ...postureFinding,
+      id: 'finding-closed-fixed',
+      title: 'Already fixed finding must not rank',
+      lifecycle_status: 'fixed'
+    };
+    const suppressedFinding: Finding = {
+      ...postureFinding,
+      id: 'finding-suppressed',
+      title: 'Suppressed finding must not rank',
+      lifecycle_status: 'suppressed'
+    };
+    const reopenedFinding: Finding = {
+      ...workflowFinding,
+      id: 'finding-reopened',
+      title: 'Reopened finding must appear',
+      lifecycle_status: 'reopened'
+    };
+    const activeOpen: Finding = { ...postureFinding, lifecycle_status: 'open' };
+    await renderRepositoryDetail({
+      findings: [activeOpen, closedFinding, reopenedFinding, suppressedFinding]
+    });
+
+    const queueList = (await screen.findByLabelText('Prioritized findings queue')).querySelector('ul');
+    expect(queueList).not.toBeNull();
+    const rows = (queueList as HTMLElement).querySelectorAll('li');
+    // 2 findings survived (open + reopened), 2 closed dropped.
+    expect(rows.length).toBe(2);
+    expect(queueList!.textContent).toContain('Default branch protection is unprotected');
+    expect(queueList!.textContent).toContain('Reopened finding must appear');
+    expect(queueList!.textContent).not.toContain('Already fixed finding must not rank');
+    expect(queueList!.textContent).not.toContain('Suppressed finding must not rank');
+    // Preview button only appears on findings the backend can actually
+    // remediate: the reopened finding uses a `workflow_` detector (supported),
+    // the active open uses a `github_` posture detector (not supported). So
+    // the button count should be 1, matching the fix-ready subset — not the
+    // full active count of 2.
+    const previewButtons = screen.getAllByRole('button', { name: /Preview remediation/i });
+    expect(previewButtons.length).toBe(1);
+  });
+
+  it('sends the finding\'s own scan_id when previewing remediation for a retained older finding', async () => {
+    // The drilldown\'s latest scan is a newer partial scan; the finding was
+    // retained from an older scan. Preview must call with the finding\'s
+    // scan_id (older), not the drilldown\'s latest scan.id.
+    const olderScanID = 'repo-scan-older-detail';
+    // Use workflowFinding as the base so the detector (`workflow_oidc_broad_trust`)
+    // is in the SuggestRepoExposureRemediation supported set; posture-detector
+    // findings do not render a Preview button by design.
+    const retainedFinding: Finding = {
+      ...workflowFinding,
+      id: 'finding-retained-from-older-scan',
+      scan_id: olderScanID,
+      lifecycle_status: 'open'
+    };
+    const newerScan: RepoScanRecord = {
+      ...completedScan,
+      id: 'repo-scan-newest-detail'
+    };
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [newerScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [retainedFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+    const previewSpy = vi.spyOn(api.apiClient, 'previewRepoFindingRemediation').mockResolvedValue({
+      finding: retainedFinding,
+      remediation: {
+        detector: 'x', summary: 'ok', risk_summary: '', steps: [], safety_notes: [], validation: [],
+        secret_rotation: false, publishable: true, evidence: { finding_id: retainedFinding.id }
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const previewButton = await screen.findByRole('button', { name: /Preview remediation/i });
+    fireEvent.click(previewButton);
+    await waitFor(() => expect(previewSpy).toHaveBeenCalled());
+    // Preview endpoint received the finding\'s own scan id, not the latest scan.
+    expect(previewSpy.mock.calls[0]?.[0]).toBe(retainedFinding.id);
+    expect(previewSpy.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ repo_scan_id: olderScanID }));
+  });
+
+  it('renders the loading shell when GitHub availability is still resolving', async () => {
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    // loading: true — availability is still resolving.
+    mockBackendFeatures({ github: true }, { loading: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    const getRepoRiskGraph = vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // The loading shell renders instead of the normal drilldown shell.
+    // Both the DomainPageShell description and the DomainLoadingState label
+    // carry the phrase, so allow multiple matches.
+    await waitFor(() =>
+      expect(screen.getAllByText(/Loading GitHub availability/i).length).toBeGreaterThan(0)
+    );
+    // The prioritized queue and the drilldown-specific fetches must never run
+    // while availability is still resolving. listRepoScans is orthogonally
+    // exercised by the shared useGitHubDomainData hook, so only assert on the
+    // drilldown-specific findings/graph fetches here.
+    expect(screen.queryByLabelText('Prioritized findings queue')).not.toBeInTheDocument();
+    expect(listRepoFindings).not.toHaveBeenCalled();
+    expect(getRepoRiskGraph).not.toHaveBeenCalled();
   });
 });

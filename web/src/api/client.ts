@@ -10519,7 +10519,7 @@ export const apiClient = {
     } = {},
     auth?: RequestAuthContext
   ) {
-    return request<{ items: RepoScanRecord[] }>(
+    return request<{ items: RepoScanRecord[]; next_cursor?: string }>(
       `/v1/repo-scans${buildQuery({ sort_by: 'started_at', sort_order: 'desc', ...filters })}`,
       auth
     );

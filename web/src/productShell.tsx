@@ -199,7 +199,11 @@ import {
   type RepoFindingsSummary,
   type RepoFindingLifecycleStatus,
   type RepoRiskGraph,
+  type RepoRiskGraphEdge,
+  type RepoRiskGraphEdgeKind,
   type RepoRiskGraphFindingScore,
+  type RepoRiskGraphNode,
+  type RepoRiskGraphNodeKind,
   type RepoScanRequest,
   type RepoScanRecord,
   type TrendPoint,
@@ -611,6 +615,7 @@ type ProductDomainRouteID =
   | 'outcomes'
   | 'governance'
   | 'repositories'
+  | 'repositories-detail'
   | 'actions'
   | 'agentic-risk'
   | 'agentic-risk-configs'
@@ -687,7 +692,9 @@ function productDomainRoute(
   };
 }
 
-const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
+// Exported for tests that assert nav-configuration invariants (e.g. the
+// #1712 drilldown detail route intentionally not appearing in the flyout).
+export const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
   aws: {
     key: 'aws',
     label: 'AWS',
@@ -724,6 +731,12 @@ const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
       productDomainRoute('overview', 'Control center', '', 'GitHub Control Center', 'Repository identity', 'Operate repository, workflow, OIDC, code, and agentic risk coverage from the GitHub section.'),
       productDomainRoute('connect', 'Connect GitHub', 'connect', 'Connect GitHub', 'GitHub App onboarding', 'Prepare the GitHub-owned connection route while existing installation and selected-repository internals stay intact.'),
       productDomainRoute('repositories', 'Repositories', 'repositories', 'GitHub repositories', 'Repository inventory', 'Route repository posture, selected installation scope, exposure signals, and scan health into a domain-owned page.'),
+      // 'repositories-detail' is intentionally NOT registered in the domain
+      // config: ProductDomainFlyout classifies every entry here as inventory
+      // navigation and renders it with just its `domainRoutePath`, but the
+      // drilldown requires a ?repository= query param to render anything
+      // other than the "Repository not selected" error. Reach it by clicking
+      // a specific repository row on the Repositories page instead.
       productDomainRoute('actions', 'Actions / OIDC', 'actions', 'GitHub Actions / OIDC', 'Workflow trust', 'Reserve the workflow identity page for OIDC roles, deploy trust paths, Actions permissions, and runner posture.'),
       productDomainRoute('findings', 'Findings', 'findings', 'GitHub findings', 'Domain-scoped findings', 'Keep repository findings in the GitHub section instead of a global queue.'),
       productDomainRoute('remediation', 'Remediation', 'remediation', 'GitHub remediation', 'Repository fixes', 'Stage remediation PR planning, review workflow, lifecycle state, and verification from the GitHub section.'),
@@ -3628,6 +3641,28 @@ function awsAgentIdentityDetailLink(
   }
   const search = params.toString();
   return `${buildScopedPath(scope, 'aws/agents/detail')}${search ? `?${search}` : ''}`;
+}
+
+// githubRepositoryDetailLink returns the drilldown URL for one repository. It
+// mirrors the AWS identity/agent detail-link convention: environment carried on
+// the environment query param, subject (here: repository slug) as its own param
+// so tests and browser deep-links can address a specific repository review.
+function githubRepositoryDetailLink(
+  scope: ProductSession,
+  environmentID: string,
+  repository: string
+): string {
+  const params = new URLSearchParams();
+  const normalizedEnvironmentID = normalizeValue(environmentID);
+  const normalizedRepository = canonicalGitHubRepositoryDisplay(repository);
+  if (normalizedEnvironmentID) {
+    params.set(ENVIRONMENT_QUERY_PARAM, normalizedEnvironmentID);
+  }
+  if (normalizedRepository) {
+    params.set('repository', normalizedRepository);
+  }
+  const search = params.toString();
+  return `${buildScopedPath(scope, 'github/repositories/detail')}${search ? `?${search}` : ''}`;
 }
 
 function AWSConnectionDiagnostics({
@@ -25573,6 +25608,13 @@ export function ProductGitHubRepositoriesPage() {
                     <span className="idt-github-repository-row-status">{statusText}</span>
                   </div>
                   <div className="idt-github-repository-row-actions">
+                    <Link
+                      className="idt-btn idt-btn-ghost"
+                      to={githubRepositoryDetailLink(scope, selectedEnvironmentID, row.repository)}
+                      aria-label={`Open repository intelligence for ${row.repository}`}
+                    >
+                      Open intelligence
+                    </Link>
                     {canCancel && row.activeScan ? (
                       <button
                         type="button"
@@ -25775,6 +25817,1175 @@ export function ProductGitHubRepositoriesPage() {
           )}
         </section>
       ) : null}
+    </DomainPageShell>
+  );
+}
+
+// GitHub repository intelligence drilldown
+// ----------------------------------------
+//
+// One page that brings together every GitHub-scoped signal Identrail already
+// collects for a single repository so security reviewers do not have to walk
+// across five tabs. Data is composed from existing API methods only — the
+// drilldown never introduces new backend surface. Sections:
+//   1. Latest scan strip with a complete/partial pill from source_health
+//   2. Posture gaps from getGitHubConnectorRepositoryPosture
+//   3. Prioritized findings queue sorted by graph score + posture amplifier
+//   4. Top blast-radius paths from the risk graph
+//   5. Fix-ready findings with a remediation preview action
+//
+// Repository selection lives in the ?repository= query param so deep-links
+// (and tests) address one repository directly, matching the AWS identity /
+// agent detail-page convention.
+
+const REPO_INTELLIGENCE_FINDINGS_LIMIT = 100;
+const REPO_INTELLIGENCE_TOP_PATHS_LIMIT = 5;
+// listRepoScans returns workspace-wide scans ordered by started_at desc and
+// has no repository filter, so the drilldown paginates until it finds the
+// target repository or reaches this safety cap (per-page × pages) — enough to
+// cover realistic scan histories without unbounded fetches.
+const REPO_INTELLIGENCE_SCAN_PAGE_LIMIT = 50;
+const REPO_INTELLIGENCE_SCAN_MAX_PAGES = 20;
+// listRepoFindings returns per-page results sorted by created_at desc and
+// exposes next_cursor. Blast-radius sorting happens in the browser, and the
+// active-only filter runs client-side, so the drilldown must not stop as soon
+// as it has fetched 500 total records: if a repo has 500 closed findings on
+// pages 1–5, the older active risks would never reach the queue. Track two
+// caps: an active-findings target (stop once we have enough active items to
+// present a full queue) and a total-pages hard ceiling (bound the fetch cost
+// even for pathological repositories dominated by closed findings). Surface
+// truncation to the operator when the hard ceiling ends the search early.
+const REPO_INTELLIGENCE_FINDINGS_ACTIVE_TARGET = 500;
+const REPO_INTELLIGENCE_FINDINGS_MAX_PAGES = 20;
+
+type RepoIntelligenceFindingCategory = 'posture' | 'ai_mcp' | 'workflow' | 'secret' | 'other';
+
+const REPO_INTELLIGENCE_CATEGORY_LABELS: Record<RepoIntelligenceFindingCategory, string> = {
+  posture: 'GitHub posture',
+  ai_mcp: 'AI / MCP',
+  workflow: 'Workflow attack paths',
+  secret: 'Secret exposure',
+  other: 'Other'
+};
+
+// Group findings into the queue buckets the issue calls for. Classification is
+// derived from evidence keys and detector names the collectors already write,
+// so no backend contract change is needed. The order of the branches matches
+// the collectors' authority: posture evidence wins over ai/mcp evidence over
+// workflow paths over secrets over "other".
+function classifyRepoIntelligenceFinding(finding: ApiFinding): RepoIntelligenceFindingCategory {
+  const evidence = finding.evidence ?? {};
+  const detector = (finding.detector ?? '').toLowerCase();
+  const adapterSource = String(evidence.adapter_source ?? evidence.adapter_source_type ?? '').toLowerCase();
+  if (
+    typeof evidence.github_posture_check_id === 'string' ||
+    detector.startsWith('github_posture_') ||
+    adapterSource.includes('github_posture') ||
+    adapterSource.includes('github_org_posture')
+  ) {
+    return 'posture';
+  }
+  if (
+    typeof evidence.mcp_server === 'string' ||
+    typeof evidence.mcp_tool === 'string' ||
+    typeof evidence.ai_agent_config === 'string' ||
+    detector.includes('mcp') ||
+    detector.includes('agent')
+  ) {
+    return 'ai_mcp';
+  }
+  if (finding.type === 'secret_exposure') {
+    return 'secret';
+  }
+  if (
+    detector.startsWith('workflow_') ||
+    detector.includes('oidc') ||
+    (typeof evidence.file_path === 'string' && evidence.file_path.toLowerCase().includes('.github/workflows/'))
+  ) {
+    return 'workflow';
+  }
+  return 'other';
+}
+
+// Only open and reopened findings should reach the queue: fixed, suppressed,
+// risk-accepted, and false-positive findings are already resolved from an
+// operator's point of view, but /v1/repo-findings has no active-only default,
+// so an unfiltered fetch mixes them in. That mislabels the "open" summary
+// count, ranks closed findings in the queue, offers Preview remediation on
+// findings that no longer need one, and — worst — lets a paginated response
+// spend its cap on closed findings while dropping older active risks.
+// Filter defensively client-side.
+const REPO_INTELLIGENCE_ACTIVE_LIFECYCLE_STATUSES: readonly RepoFindingLifecycleStatus[] = ['open', 'reopened'];
+
+// Detectors whose findings the backend's SuggestRepoExposureRemediation
+// helper knows how to fix. Findings outside this set (notably GitHub posture
+// findings like github_default_branch_unprotected) are still worth showing in
+// the queue for triage, but requesting a preview would 422 back — the button
+// needs to reflect the actual accepted set.
+// See internal/findings/standards/repo_remediation.go for the authoritative
+// list; keep this predicate in sync. Backend accepts any workflow_/ai_agent_
+// prefix (falls through to workflowGenericRemediation / aiAgentGeneric-
+// Remediation), but only the exact terraform_/docker_/k8s_ detectors listed
+// in repoMisconfigRemediation's switch — an unrecognized terraform_/docker_/
+// k8s_ prefix hits the switch's default and returns unsupported.
+const REPO_INTELLIGENCE_REMEDIATION_DETECTOR_PREFIXES = ['workflow_', 'ai_agent_'];
+const REPO_INTELLIGENCE_REMEDIATION_EXACT_DETECTORS = new Set<string>([
+  'k8s_privileged_true',
+  'terraform_public_s3_acl',
+  'terraform_open_ssh_rdp',
+  'docker_latest_tag'
+]);
+// The subset of supported detectors whose backend remediation returns
+// `Publishable: true` (deterministic patch templates, not guidance-only or
+// placeholder templates). Secret exposures and all guidance/placeholder
+// remediations return `Publishable: false`, so counting the whole supported
+// set as "fix-ready" would over-advertise. See deterministicRepoRemediation
+// call sites in internal/findings/standards/repo_remediation.go.
+const REPO_INTELLIGENCE_PUBLISHABLE_DETECTORS = new Set<string>([
+  'workflow_write_all_permissions',
+  'workflow_pull_request_target',
+  'k8s_privileged_true',
+  'terraform_public_s3_acl'
+]);
+
+function isRemediationSupportedFinding(finding: ApiFinding): boolean {
+  if (finding.type === 'secret_exposure') return true;
+  const detector = (finding.detector ?? '').toLowerCase();
+  if (!detector) return false;
+  if (REPO_INTELLIGENCE_REMEDIATION_EXACT_DETECTORS.has(detector)) return true;
+  return REPO_INTELLIGENCE_REMEDIATION_DETECTOR_PREFIXES.some((prefix) => detector.startsWith(prefix));
+}
+
+function isPublishableRemediationFinding(finding: ApiFinding): boolean {
+  const detector = (finding.detector ?? '').toLowerCase();
+  if (!detector) return false;
+  return REPO_INTELLIGENCE_PUBLISHABLE_DETECTORS.has(detector);
+}
+
+function isActiveRepoIntelligenceFinding(finding: ApiFinding): boolean {
+  const status = finding.lifecycle_status;
+  // Findings that never received a lifecycle status default to "active" in
+  // display terms: dropping them would silently hide legitimate open findings
+  // whose adapter has not yet started emitting lifecycle metadata.
+  if (!status) return true;
+  return (REPO_INTELLIGENCE_ACTIVE_LIFECYCLE_STATUSES as readonly string[]).includes(status);
+}
+
+// Cap how many nodes a blast-radius chain shows. GitHub finding graphs can
+// reach ~10 hops (finding → workflow → job → secret → token → oidc_subject
+// → cloud_role → environment → …), but past 4 hops the chain stops helping
+// an operator scan the panel — they're better off opening the risk-graph
+// detail view for that finding.
+const REPO_INTELLIGENCE_PATH_MAX_HOPS = 4;
+
+// Node kinds the operator wants to see on a blast-radius chain. Repository/
+// default_branch and "finding" itself add no information to the path
+// summary (the operator already knows they're viewing a finding in this
+// repository), so they're skipped when the walker picks the next hop.
+const REPO_INTELLIGENCE_PATH_UNINFORMATIVE_KINDS = new Set<RepoRiskGraphNodeKind>([
+  'repository',
+  'default_branch',
+  'finding'
+]);
+
+type RepoIntelligencePathHop = {
+  node_id: string;
+  kind: RepoRiskGraphNodeKind;
+  label: string;
+  edge_kind: RepoRiskGraphEdgeKind | null;
+  evidence_state: 'known' | 'unknown';
+};
+
+// Derive the blast-radius chain from the risk graph by walking outgoing
+// edges from the finding's node until either (a) the walker reaches
+// REPO_INTELLIGENCE_PATH_MAX_HOPS informative hops or (b) the current node
+// has no outgoing edge to an unvisited informative node. The returned
+// chain excludes the finding node itself — that's already labeled in the
+// row header — so the panel shows the reachable surface.
+//
+// Prefers "known" edges over "unknown" ones so a concrete
+// finding → workflow → cloud_role chain wins over a reachability_unknown
+// projection, matching how the risk graph flags speculative edges.
+function deriveRepoIntelligenceBlastRadiusPath(
+  graph: RepoRiskGraph,
+  startNodeID: string
+): RepoIntelligencePathHop[] {
+  if (!startNodeID) return [];
+  const nodesByID = new Map<string, RepoRiskGraphNode>();
+  graph.nodes.forEach((node) => nodesByID.set(node.id, node));
+  const edgesByFrom = new Map<string, RepoRiskGraphEdge[]>();
+  graph.edges.forEach((edge) => {
+    const list = edgesByFrom.get(edge.from_node_id);
+    if (list) {
+      list.push(edge);
+    } else {
+      edgesByFrom.set(edge.from_node_id, [edge]);
+    }
+  });
+  const visited = new Set<string>([startNodeID]);
+  const chain: RepoIntelligencePathHop[] = [];
+  let currentID = startNodeID;
+  while (chain.length < REPO_INTELLIGENCE_PATH_MAX_HOPS) {
+    const outgoing = edgesByFrom.get(currentID) ?? [];
+    // Rank candidates so a "known" outgoing edge to an informative node
+    // wins over both unknown edges and edges leading back to a boring
+    // node (repository / default_branch / another finding).
+    const candidates = outgoing
+      .map((edge) => ({ edge, target: nodesByID.get(edge.to_node_id) ?? null }))
+      .filter(({ edge, target }) => target !== null && !visited.has(edge.to_node_id));
+    if (candidates.length === 0) break;
+    candidates.sort((left, right) => {
+      const leftKnown = left.edge.evidence_state === 'known' ? 0 : 1;
+      const rightKnown = right.edge.evidence_state === 'known' ? 0 : 1;
+      if (leftKnown !== rightKnown) return leftKnown - rightKnown;
+      const leftBoring = REPO_INTELLIGENCE_PATH_UNINFORMATIVE_KINDS.has(
+        (left.target as RepoRiskGraphNode).kind
+      )
+        ? 1
+        : 0;
+      const rightBoring = REPO_INTELLIGENCE_PATH_UNINFORMATIVE_KINDS.has(
+        (right.target as RepoRiskGraphNode).kind
+      )
+        ? 1
+        : 0;
+      return leftBoring - rightBoring;
+    });
+    const next = candidates[0];
+    const nextTarget = next.target as RepoRiskGraphNode;
+    visited.add(next.edge.to_node_id);
+    // Uninformative next hops still consume a slot for cycle-avoidance,
+    // but don't get pushed to the visible chain — the operator does not
+    // benefit from seeing "→ repository" in the summary.
+    if (!REPO_INTELLIGENCE_PATH_UNINFORMATIVE_KINDS.has(nextTarget.kind)) {
+      chain.push({
+        node_id: nextTarget.id,
+        kind: nextTarget.kind,
+        label: nextTarget.label || formatTokenLabel(nextTarget.kind),
+        edge_kind: next.edge.kind,
+        evidence_state: next.edge.evidence_state
+      });
+    }
+    currentID = next.edge.to_node_id;
+  }
+  return chain;
+}
+
+// Merge graph.scores into findings by finding_id so the queue can sort by
+// graph-aware blast-radius score rather than just severity. Findings that
+// have no matching score (e.g. an older finding without a fresh risk graph)
+// fall back to severity rank so they still appear in a stable order.
+function buildRepoIntelligenceQueue(
+  findings: ApiFinding[],
+  graph: RepoRiskGraph | null
+): Array<{ finding: ApiFinding; score: RepoRiskGraphFindingScore | null; category: RepoIntelligenceFindingCategory }> {
+  const scoresByFindingID = new Map<string, RepoRiskGraphFindingScore>();
+  graph?.scores?.forEach((score) => {
+    if (score.finding_id) {
+      scoresByFindingID.set(score.finding_id, score);
+    }
+  });
+  const enriched = findings.filter(isActiveRepoIntelligenceFinding).map((finding) => ({
+    finding,
+    score: scoresByFindingID.get(finding.id) ?? null,
+    category: classifyRepoIntelligenceFinding(finding)
+  }));
+  return enriched.sort((left, right) => {
+    const leftScore = left.score?.score ?? -1;
+    const rightScore = right.score?.score ?? -1;
+    if (leftScore !== rightScore) {
+      return rightScore - leftScore;
+    }
+    return severityRank(right.finding.severity ?? '') - severityRank(left.finding.severity ?? '');
+  });
+}
+
+function repoIntelligenceScanCompleteness(scan: RepoScanRecord | null): {
+  label: string;
+  tone: 'success' | 'warning' | 'neutral' | 'danger';
+} {
+  if (!scan) {
+    return { label: 'No scan', tone: 'neutral' };
+  }
+  const status = scan.source_health ?? (scan.status === 'succeeded' ? 'complete' : 'unknown');
+  switch (status) {
+    case 'complete':
+      return { label: 'Complete scan', tone: 'success' };
+    case 'partial':
+      return { label: 'Partial scan', tone: 'warning' };
+    case 'permission_limited':
+      return { label: 'Permission limited', tone: 'warning' };
+    case 'rate_limited':
+      return { label: 'Rate limited', tone: 'warning' };
+    case 'unavailable':
+      return { label: 'Source unavailable', tone: 'warning' };
+    default:
+      return { label: 'Scan state unknown', tone: 'neutral' };
+  }
+}
+
+// GitHub repository slugs are case-insensitive: the findings store compares
+// them with LOWER(...), so a deep link that writes "Identrail/Repo" must match
+// a scan record written as "identrail/repo". Normalize both sides before
+// comparing so a case-mismatched deep link does not falsely report
+// "No scan yet" while findings and posture populate correctly.
+function repoIntelligenceSlugKey(value: string): string {
+  return canonicalGitHubRepositoryDisplay(value).toLowerCase();
+}
+
+type RepoIntelligenceScanLookup = {
+  scan: RepoScanRecord | null;
+  // True when the search hit its page ceiling with more workspace scans still
+  // available. A `null` scan with `truncated: true` means "the repository may
+  // have an older scan we did not reach" — the drilldown must say so instead
+  // of rendering "No scan yet", which would tell the operator the repository
+  // has never been scanned. The 20-page cap * 50-per-page limit means the
+  // repository's newest scan can be shadowed by 1,000 newer workspace scans.
+  truncated: boolean;
+};
+
+async function findRepoIntelligenceLatestScan(
+  repository: string,
+  auth: RequestAuthContext | undefined,
+  isCurrent: () => boolean
+): Promise<RepoIntelligenceScanLookup> {
+  const target = repoIntelligenceSlugKey(repository);
+  let cursor: string | undefined;
+  for (let page = 0; page < REPO_INTELLIGENCE_SCAN_MAX_PAGES; page += 1) {
+    if (!isCurrent()) return { scan: null, truncated: false };
+    const response = await apiClient.listRepoScans(
+      { limit: REPO_INTELLIGENCE_SCAN_PAGE_LIMIT, cursor },
+      auth
+    );
+    const match = response.items.find(
+      (item) => repoIntelligenceSlugKey(item.repository) === target
+    );
+    if (match) return { scan: match, truncated: false };
+    if (!response.next_cursor) return { scan: null, truncated: false };
+    cursor = response.next_cursor;
+  }
+  return { scan: null, truncated: true };
+}
+
+type RepoIntelligenceFindingsResult = {
+  items: ApiFinding[];
+  summary: RepoFindingsSummary | null;
+  truncated: boolean;
+};
+
+async function fetchRepoIntelligenceFindings(
+  repository: string,
+  auth: RequestAuthContext | undefined,
+  isCurrent: () => boolean
+): Promise<RepoIntelligenceFindingsResult> {
+  const items: ApiFinding[] = [];
+  let summary: RepoFindingsSummary | null = null;
+  let cursor: string | undefined;
+  let activeCount = 0;
+  for (let page = 0; page < REPO_INTELLIGENCE_FINDINGS_MAX_PAGES; page += 1) {
+    if (!isCurrent()) return { items, summary, truncated: false };
+    const response = await apiClient.listRepoFindings(
+      { repository, limit: REPO_INTELLIGENCE_FINDINGS_LIMIT, cursor },
+      auth
+    );
+    items.push(...response.items);
+    activeCount += response.items.reduce(
+      (count, finding) => count + (isActiveRepoIntelligenceFinding(finding) ? 1 : 0),
+      0
+    );
+    if (page === 0 && response.summary) {
+      summary = response.summary;
+    }
+    if (!response.next_cursor) {
+      return { items, summary, truncated: false };
+    }
+    // Stop once we have enough ACTIVE findings to fill the queue: a repo
+    // dominated by closed findings would otherwise waste its page budget and
+    // report "No findings" while active risks paginated further back never
+    // reach the queue. Hitting this target while more pages remain still
+    // counts as truncation so the operator sees the warning banner rather
+    // than assuming the top of the queue is the highest-scoring finding.
+    if (activeCount >= REPO_INTELLIGENCE_FINDINGS_ACTIVE_TARGET) {
+      return { items, summary, truncated: true };
+    }
+    cursor = response.next_cursor;
+  }
+  return { items, summary, truncated: true };
+}
+
+export function ProductGitHubRepositoryDetailPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
+  const availability = useGitHubAvailability();
+  // scanLimit=0 skips useGitHubDomainData's recent-scan preload: the drilldown
+  // reads scans through findRepoIntelligenceLatestScan (its own paginator)
+  // rather than domainData.scans. Passing 5 here would paginate
+  // listRepoScansForSelectedRepositories with 5-record pages for up to
+  // GITHUB_MAX_SCAN_PAGE_FETCHES sequential requests before the drilldown
+  // effect can even start, since the effect waits for domainData.loading to
+  // clear. The drilldown only needs connection status from useGitHubDomainData.
+  const domainData = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, 0);
+  const location = useLocation();
+
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const requestedRepository = useMemo(
+    () => canonicalGitHubRepositoryDisplay(searchParams.get('repository') ?? ''),
+    [searchParams]
+  );
+
+  const [scan, setScan] = useState<RepoScanRecord | null>(null);
+  const [scanLookupTruncated, setScanLookupTruncated] = useState(false);
+  const [findings, setFindings] = useState<ApiFinding[]>([]);
+  const [findingsSummary, setFindingsSummary] = useState<RepoFindingsSummary | null>(null);
+  const [findingsTruncated, setFindingsTruncated] = useState(false);
+  const [riskGraph, setRiskGraph] = useState<RepoRiskGraph | null>(null);
+  const [posture, setPosture] = useState<GitHubRepositoryPosture | null>(null);
+  const [organizationPosture, setOrganizationPosture] = useState<GitHubOrganizationPosture | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [findingsLoading, setFindingsLoading] = useState(false);
+  const [postureLoading, setPostureLoading] = useState(false);
+  const [riskGraphLoading, setRiskGraphLoading] = useState(false);
+  // Shared error banner only surfaces effect-level failures the panels
+  // cannot express on their own (e.g. an adopted connection-status error).
+  // Per-lane errors surface in their own panels so a scan failure does not
+  // hide a successful findings queue and vice versa.
+  const [error, setError] = useState('');
+  const [scanError, setScanError] = useState('');
+  const [findingsError, setFindingsError] = useState('');
+  const [postureError, setPostureError] = useState('');
+  const [riskGraphError, setRiskGraphError] = useState('');
+  const loading = scanLoading || findingsLoading;
+  const [previewFindingID, setPreviewFindingID] = useState('');
+  const [preview, setPreview] = useState<RepoFindingRemediationPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+
+  const requestRef = useRef(0);
+  const previewRequestRef = useRef(0);
+
+  const resetRepositoryState = useCallback(() => {
+    setScan(null);
+    setScanLookupTruncated(false);
+    setScanError('');
+    setScanLoading(false);
+    setFindings([]);
+    setFindingsSummary(null);
+    setFindingsTruncated(false);
+    setFindingsError('');
+    setFindingsLoading(false);
+    setRiskGraph(null);
+    setRiskGraphError('');
+    setRiskGraphLoading(false);
+    setPosture(null);
+    setOrganizationPosture(null);
+    setPostureError('');
+    setPostureLoading(false);
+    // Any pending remediation preview belongs to the previous scope, so drop
+    // its display state and invalidate its request token so a late completion
+    // cannot overwrite the new scope's state.
+    previewRequestRef.current += 1;
+    setPreviewFindingID('');
+    setPreview(null);
+    setPreviewLoading(false);
+    setPreviewError('');
+  }, []);
+
+  useEffect(() => {
+    // availability.loading has to gate the fetch here even though the JSX
+    // shows the loading shell too: the JSX runs after this hook, so without
+    // the guard the drilldown-specific listRepoFindings/getRepoRiskGraph
+    // calls would fire before the operator ever sees the loading shell.
+    // domainData.loading gates the same fetches: without it, scan/findings/
+    // graph fire on the initial render with connection=null, then the effect
+    // cleanup invalidates them and refires them once connection settles.
+    // Paying double the pagination cost is especially wasteful on repos with
+    // deep scan histories. Posture already waits for connection because it
+    // needs the connector_id and provider, so gating the others here just
+    // aligns the three lanes to the same "connection ready" trigger.
+    if (
+      availability.loading ||
+      !scope ||
+      !availability.available ||
+      !selectedEnvironmentID ||
+      !requestedRepository ||
+      domainData.loading
+    ) {
+      requestRef.current += 1;
+      resetRepositoryState();
+      // Keep both lanes marked loading while the connection is still
+      // resolving so the outer DomainLoadingState renders instead of
+      // empty-state panels that would flash "No scan yet" / "No findings"
+      // in the intermediate frame.
+      setScanLoading(domainData.loading);
+      setFindingsLoading(domainData.loading);
+      setError('');
+      return undefined;
+    }
+    const requestID = ++requestRef.current;
+    // Reset repository-bound state before the fetch runs. Without this a
+    // failing request would leave the previous repository's scan, findings,
+    // graph, and posture rendered under the new repository heading once
+    // loading flipped back to false.
+    resetRepositoryState();
+    setScanLoading(true);
+    setFindingsLoading(true);
+    setError('');
+
+    const auth = buildProductAuthContext(scope);
+    const connection = domainData.connection;
+    const connectorID = connection?.connector_id ?? '';
+    // Wait for the connection status fetch to settle before deciding whether
+    // posture is supported. Reading `provider` while `domainData.loading` is
+    // true would treat an in-flight github_app response as if it were an
+    // unsupported provider and quietly skip posture; a rejected connection
+    // fetch would leave the drilldown claiming "Connect GitHub" while the
+    // real error was hidden. Surface the fetched error explicitly and gate
+    // posture on both loading and connected state.
+    if (domainData.error) {
+      // Preserve the existing error if the drilldown's own fetch already
+      // failed; otherwise adopt the connection-status error so the operator
+      // sees the real cause instead of the "Connect GitHub" empty state.
+      setError((current) => current || domainData.error);
+    }
+    const postureSupported = Boolean(
+      !domainData.loading &&
+        connectorID &&
+        connection?.connected &&
+        connection.provider === 'github_app'
+    );
+    const isCurrent = () => requestID === requestRef.current;
+
+    // Known limitation: ListRepoScans, ListRepoFindings, and GetRepoRiskGraph
+    // all scope by workspace via the auth context but do not accept a
+    // project/environment filter, so a repository scanned through two
+    // environments in the same workspace can mix the other environment's
+    // records into this drilldown even though the environment selector
+    // suggests otherwise. This is not drilldown-specific — every existing
+    // GitHub-domain page that uses these endpoints inherits the same
+    // behavior — and fixing it requires backend filters (see follow-up
+    // task). Posture is already environment-scoped because it uses the
+    // connector endpoint that carries the project_id.
+    // Scan lookup and findings pagination each run on their own promise
+    // lane so a transient failure on one endpoint cannot discard a
+    // successful response from the other. Holding findings behind a
+    // rejected /v1/repo-scans call would render "No findings" alongside
+    // a shared error banner even though the findings request completed
+    // successfully — and vice versa.
+    findRepoIntelligenceLatestScan(requestedRepository, auth, isCurrent)
+      .then((scanResult) => {
+        if (requestID !== requestRef.current) return;
+        setScan(scanResult.scan);
+        setScanLookupTruncated(scanResult.truncated);
+      })
+      .catch((scanFetchError: unknown) => {
+        if (requestID !== requestRef.current) return;
+        setScanError(formatAPIError(scanFetchError, 'Unable to load latest scan for this repository.'));
+      })
+      .finally(() => {
+        if (requestID === requestRef.current) {
+          setScanLoading(false);
+        }
+      });
+
+    fetchRepoIntelligenceFindings(requestedRepository, auth, isCurrent)
+      .then((findingsResult) => {
+        if (requestID !== requestRef.current) return;
+        setFindings(findingsResult.items);
+        setFindingsSummary(findingsResult.summary);
+        setFindingsTruncated(findingsResult.truncated);
+      })
+      .catch((findingsFetchError: unknown) => {
+        if (requestID !== requestRef.current) return;
+        setFindingsError(formatAPIError(findingsFetchError, 'Unable to load findings for this repository.'));
+      })
+      .finally(() => {
+        if (requestID === requestRef.current) {
+          setFindingsLoading(false);
+        }
+      });
+
+    // Risk graph runs on its own lane too. It's optional enrichment (the
+    // queue already falls back to severity ordering when riskGraph is
+    // null) and its endpoint can be slow or unavailable independent of
+    // scans and findings.
+    setRiskGraphLoading(true);
+    apiClient
+      .getRepoRiskGraph({ repository: requestedRepository }, auth)
+      .then((graph) => {
+        if (requestID !== requestRef.current) return;
+        setRiskGraph(graph);
+      })
+      .catch((graphFetchError: unknown) => {
+        if (requestID !== requestRef.current) return;
+        setRiskGraphError(formatAPIError(graphFetchError, 'Unable to load repository risk graph.'));
+      })
+      .finally(() => {
+        if (requestID === requestRef.current) {
+          setRiskGraphLoading(false);
+        }
+      });
+
+    // Posture runs on its own lane, separate from the main Promise.all. The
+    // GitHub App posture endpoint performs live repository and organization
+    // collection against the GitHub API, so its latency is bounded by GitHub
+    // rather than by Identrail. Holding the entire drilldown behind it would
+    // withhold already-completed scan, findings, and risk-graph results
+    // while a rate-limited or slow posture call finished. The posture panel
+    // has its own loading and error state so operators still see progress
+    // for it without gating the rest of the page.
+    if (postureSupported) {
+      setPostureLoading(true);
+      apiClient
+        .getGitHubConnectorRepositoryPosture(connectorID, scope.workspaceID, selectedEnvironmentID, requestedRepository, auth)
+        .then((response) => {
+          if (requestID !== requestRef.current) return;
+          setPosture(response.posture);
+          // Organization posture surfaces inherited control gaps (Actions
+          // policy, security configuration, runner policy) that would
+          // otherwise be invisible on the drilldown even though they govern
+          // the repository. Store it separately from repository posture so
+          // both sets render with their own scope label.
+          setOrganizationPosture(response.organization_posture ?? null);
+        })
+        .catch((postureFetchError: unknown) => {
+          if (requestID !== requestRef.current) return;
+          setPostureError(formatAPIError(postureFetchError, 'Unable to load repository posture.'));
+        })
+        .finally(() => {
+          if (requestID === requestRef.current) {
+            setPostureLoading(false);
+          }
+        });
+    }
+
+    return () => {
+      if (requestID === requestRef.current) {
+        requestRef.current += 1;
+      }
+    };
+  }, [
+    scope?.tenantID,
+    scope?.workspaceID,
+    availability.available,
+    availability.loading,
+    selectedEnvironmentID,
+    requestedRepository,
+    domainData.connection?.connected,
+    domainData.connection?.connector_id,
+    domainData.connection?.provider,
+    domainData.loading,
+    domainData.error,
+    resetRepositoryState
+  ]);
+
+  const queue = useMemo(() => buildRepoIntelligenceQueue(findings, riskGraph), [findings, riskGraph]);
+  // Top blast-radius paths must reflect only ACTIVE findings. The risk graph
+  // builds scores directly from ListRepoFindings without applying lifecycle
+  // filtering, so a fixed / suppressed / risk-accepted / false-positive
+  // finding can still carry a high score and displace an open one from the
+  // top-5. Intersect the sorted scores with the queue's active finding IDs
+  // before slicing so the list only shows risks the operator still needs to
+  // act on. Sort first so the API's insertion order can never determine
+  // final rank.
+  const topPaths = useMemo(() => {
+    const activeFindingIDs = new Set(queue.map(({ finding }) => finding.id));
+    const findingTitleByID = new Map(queue.map(({ finding }) => [finding.id, finding.title || finding.detector || finding.type]));
+    return sortRepoRiskGraphScores(riskGraph?.scores ?? [])
+      .filter((score) => activeFindingIDs.has(score.finding_id))
+      .slice(0, REPO_INTELLIGENCE_TOP_PATHS_LIMIT)
+      // Enrich each score with the actual node chain it reaches through the
+      // graph's outgoing edges so the panel shows the workflow/identity/
+      // runner/environment/control relationships that constitute a blast
+      // radius, not just the finding score. Falls back to an empty chain
+      // when the graph has no nodes/edges (older summaries without
+      // reachability data) — the row still renders with the finding header
+      // and score in that case.
+      .map((score) => ({
+        score,
+        title: findingTitleByID.get(score.finding_id) ?? score.finding_id,
+        chain: riskGraph
+          ? deriveRepoIntelligenceBlastRadiusPath(riskGraph, score.finding_node_id)
+          : []
+      }));
+  }, [queue, riskGraph]);
+  // Present repository and organization posture together, tagged by scope so
+  // operators can tell inherited org policy gaps from repository ones. Secure
+  // and unsupported checks are hidden at both scopes.
+  const insecurePostureChecks = useMemo(
+    () => [
+      ...(posture?.checks ?? [])
+        .filter((check) => check.state !== 'secure' && check.state !== 'unsupported')
+        .map((check) => ({ scope: 'repository' as const, check })),
+      ...(organizationPosture?.checks ?? [])
+        .filter((check) => check.state !== 'secure' && check.state !== 'unsupported')
+        .map((check) => ({ scope: 'organization' as const, check }))
+    ],
+    [posture, organizationPosture]
+  );
+  const completeness = repoIntelligenceScanCompleteness(scan);
+  // Derive fix-ready count from the deterministic-patch subset of supported
+  // detectors — the ones whose backend remediation returns publishable:true.
+  // Reading finding.evidence.publishable would report zero on first render
+  // and grow only when the operator manually previewed each finding, and
+  // counting the full supported set would over-advertise since secret
+  // exposures and guidance-only workflow/ai_agent detectors return
+  // publishable:false even though a preview is available.
+  const publishableCount = queue.filter(({ finding }) => isPublishableRemediationFinding(finding)).length;
+  const previewReadyCount = queue.filter(({ finding }) => isRemediationSupportedFinding(finding)).length;
+
+  const closePreview = useCallback(() => {
+    // Bumping the request token here matters even when no request is in flight
+    // — if the operator dismissed the panel while a preview was still loading,
+    // the late response would pass the previous token guard, write into
+    // `preview`, and change `publishableCount` for a finding the operator
+    // explicitly closed. Clearing every preview-related state (including
+    // previewLoading, which the earlier close handler left in the loading
+    // position) keeps the UI and the token in sync.
+    previewRequestRef.current += 1;
+    setPreviewFindingID('');
+    setPreview(null);
+    setPreviewError('');
+    setPreviewLoading(false);
+  }, []);
+
+  const openPreview = useCallback(
+    async (finding: ApiFinding) => {
+      if (!scope) return;
+      // Every openPreview invocation claims a new token: a repository or
+      // environment change bumps previewRequestRef in resetRepositoryState,
+      // and a second click before the first request resolves bumps it again
+      // here. Late completions whose token no longer matches never touch
+      // preview state, so they cannot render the previous scope's or a
+      // superseded finding's remediation under the current heading.
+      const previewID = ++previewRequestRef.current;
+      setPreviewFindingID(finding.id);
+      setPreview(null);
+      setPreviewError('');
+      setPreviewLoading(true);
+      try {
+        const auth = buildProductAuthContext(scope);
+        // The remediation preview endpoint looks the finding up by both id
+        // AND scan id. A retained older finding whose newer scan is now the
+        // repository's latest still lives on its own scan, so passing the
+        // drilldown's `scan.id` would 404. Prefer the finding's own scan id
+        // and only fall back to the latest scan when the finding does not
+        // carry one (e.g. adapters that have not yet started emitting it).
+        const previewScanID = finding.scan_id || scan?.id || '';
+        const response = await apiClient.previewRepoFindingRemediation(
+          finding.id,
+          { repo_scan_id: previewScanID },
+          auth
+        );
+        if (previewID !== previewRequestRef.current) return;
+        setPreview(response);
+      } catch (previewFetchError: unknown) {
+        if (previewID !== previewRequestRef.current) return;
+        setPreviewError(formatAPIError(previewFetchError, 'Unable to preview remediation for this finding.'));
+      } finally {
+        if (previewID === previewRequestRef.current) {
+          setPreviewLoading(false);
+        }
+      }
+    },
+    [scope, scan?.id]
+  );
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">GitHub repository intelligence</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before opening a repository drilldown.</p>
+      </section>
+    );
+  }
+
+  // Feature discovery, GitHub availability, and environment selection must be
+  // resolved before the drilldown renders its normal shell. Without these
+  // guards a loading or unavailable build would fall through to the same
+  // panels and show "No scan yet" / "No findings" / "Connect GitHub" even
+  // though the backend never gave the drilldown a chance to fetch anything.
+  // Matches the pattern the repositories inventory page uses.
+  if (availability.loading) {
+    return (
+      <DomainPageShell
+        domain="github"
+        eyebrow="Repository intelligence"
+        title="GitHub repository intelligence"
+        description="Loading GitHub availability for this build."
+        scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      >
+        <DomainLoadingState label="Loading GitHub availability" />
+      </DomainPageShell>
+    );
+  }
+
+  if (!availability.available) {
+    return (
+      <GitHubUnavailableShell
+        title="GitHub repository intelligence"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+        unavailableMessage={availability.unavailableMessage}
+      />
+    );
+  }
+
+  if (!selectedEnvironmentID) {
+    return (
+      <GitHubMissingEnvironmentShell
+        title="GitHub repository intelligence"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+      />
+    );
+  }
+
+  // Guards above already returned when selectedEnvironmentID is empty via
+  // GitHubMissingEnvironmentShell, so this always appends a real environment.
+  const repositoriesPath = `${buildScopedPath(scope, 'github/repositories')}?${ENVIRONMENT_QUERY_PARAM}=${encodeURIComponent(selectedEnvironmentID)}`;
+
+  if (!requestedRepository) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">GitHub repository intelligence</p>
+        <h2>Repository not selected</h2>
+        <p>Add a <code>?repository=owner/name</code> query parameter or open a repository from the inventory.</p>
+        <Link className="idt-app-empty-state-action" to={repositoriesPath}>
+          Back to repositories
+        </Link>
+      </section>
+    );
+  }
+
+  const statusTone = loading ? 'neutral' : error || scanError || findingsError ? 'danger' : completeness.tone;
+
+  return (
+    <DomainPageShell
+      domain="github"
+      eyebrow="Repository intelligence"
+      hideLogo
+      title={requestedRepository}
+      description="Unified scan state, posture gaps, findings queue, blast-radius paths, and remediation actions for one repository."
+      scope={
+        <ProductEnvironmentSelector
+          state={environmentScope}
+          onChange={onChangeEnvironment}
+        />
+      }
+      statusTone={statusTone}
+      primaryAction={{ label: 'Back to repositories', to: repositoriesPath, variant: 'secondary' }}
+    >
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load repository intelligence"
+          body={error}
+        />
+      ) : null}
+
+      {loading && !scan && !findings.length && !scanError && !findingsError ? (
+        // Show the outer loading shell only on a cold cache when neither
+        // lane has committed anything yet. As soon as either lane settles
+        // (success or error) we render the individual panels so a
+        // successful lane is not held behind the other's in-flight request.
+        <DomainLoadingState label="Loading repository intelligence" />
+      ) : (
+        <>
+          <section
+            className="idt-github-intelligence-panel idt-github-intelligence-scan"
+            aria-label="Latest scan"
+          >
+            <header className="idt-github-intelligence-panel-head">
+              <p className="idt-app-kicker">Latest scan</p>
+              <h3>
+                {scanLoading
+                  ? 'Loading latest scan…'
+                  : scanError
+                    ? 'Latest scan unavailable'
+                    : scan
+                      ? formatTokenLabel(scan.status)
+                      : scanLookupTruncated
+                        ? 'Scan history truncated'
+                        : 'No scan yet'}
+              </h3>
+              {!scanLoading && !scanError && !scan && scanLookupTruncated ? (
+                <p role="alert" className="idt-app-alert idt-app-alert-warning">
+                  Repository scan search hit its safety ceiling before finding a match. The repository may have an older scan behind more recent workspace scans; open the scans page and filter by repository to confirm.
+                </p>
+              ) : null}
+            </header>
+            {scanLoading ? (
+              <DomainLoadingState label="Loading latest scan" />
+            ) : scanError ? (
+              // Scan lane failed independently. Findings and posture still
+              // render below with their own state, so this panel only
+              // reports its own error.
+              <p role="alert" className="idt-app-alert idt-app-alert-error">{scanError}</p>
+            ) : (
+              <>
+                <DomainStatusBadge
+                  variant={
+                    completeness.tone === 'success'
+                      ? 'connected'
+                      : completeness.tone === 'warning'
+                        ? 'degraded'
+                        : completeness.tone === 'danger'
+                          ? 'missing-permissions'
+                          : 'disconnected'
+                  }
+                  label={completeness.label}
+                  detail={scan?.finished_at ? formatDateLabel(scan.finished_at) : scan?.started_at ? formatDateLabel(scan.started_at) : undefined}
+                />
+                {scan ? (
+                  <dl className="idt-github-intelligence-stats">
+                    <div><dt>Findings</dt><dd>{scan.finding_count}</dd></div>
+                    <div><dt>Files scanned</dt><dd>{scan.files_scanned}</dd></div>
+                    <div><dt>Commits scanned</dt><dd>{scan.commits_scanned}</dd></div>
+                    {scan.scan_mode ? <div><dt>Scan mode</dt><dd>{formatTokenLabel(scan.scan_mode)}</dd></div> : null}
+                  </dl>
+                ) : null}
+                {scan?.source_health_details && scan.source_health_details.length > 0 ? (
+                  <ul className="idt-github-intelligence-source-health" aria-label="Source health details">
+                    {scan.source_health_details.map((source) => (
+                      <li key={source.source}>
+                        <strong>{formatTokenLabel(source.source)}</strong>
+                        <span className={`idt-source-status-pill is-${source.status === 'complete' ? 'success' : source.status === 'partial' || source.status === 'permission_limited' || source.status === 'rate_limited' ? 'warning' : 'neutral'}`}>
+                          {formatTokenLabel(source.status)}
+                        </span>
+                        {source.message ? <span>{source.message}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            )}
+          </section>
+
+          <section
+            className="idt-github-intelligence-panel idt-github-intelligence-posture"
+            aria-label="Posture gaps"
+          >
+            <header className="idt-github-intelligence-panel-head">
+              <p className="idt-app-kicker">GitHub control-plane posture</p>
+              <h3>Posture gaps</h3>
+            </header>
+            {postureError ? (
+              <p role="alert" className="idt-app-alert idt-app-alert-error">{postureError}</p>
+            ) : postureLoading ? (
+              // The posture endpoint performs live GitHub collection so it can
+              // be slower than the rest of the drilldown; render its own
+              // loading indicator so operators see progress here without
+              // gating scan/findings/graph rendering.
+              <DomainLoadingState label="Loading repository posture" />
+            ) : posture || organizationPosture ? (
+              insecurePostureChecks.length === 0 ? (
+                <DomainEmptyState
+                  title="No posture gaps"
+                  body="Every collected repository and organization posture check reports a secure or unsupported state."
+                />
+              ) : (
+                <ul className="idt-github-intelligence-list">
+                  {insecurePostureChecks.map(({ scope: postureScope, check }) => (
+                    <li key={`${postureScope}:${check.id}`} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown">
+                      <span className={`idt-source-status-pill is-${check.state === 'insecure' ? 'warning' : 'neutral'}`}>
+                        {formatTokenLabel(check.state)}
+                      </span>
+                      <div>
+                        <strong>
+                          {postureScope === 'organization' ? 'Organization • ' : ''}
+                          {formatTokenLabel(check.category)}: {formatTokenLabel(check.id)}
+                        </strong>
+                        <p>{check.summary}</p>
+                        {check.reason ? (
+                          <p className="idt-app-kicker">
+                            Reason: {formatTokenLabel(check.reason)}
+                          </p>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : (
+              <DomainEmptyState
+                title="No posture collected"
+                body={domainData.connection?.connected ? 'Posture is not available for this repository yet.' : 'Connect GitHub to collect repository posture.'}
+              />
+            )}
+          </section>
+
+          <section
+            className="idt-github-intelligence-panel idt-github-intelligence-queue"
+            aria-label="Prioritized findings queue"
+          >
+            <header className="idt-github-intelligence-panel-head">
+              <p className="idt-app-kicker">Prioritized queue</p>
+              <h3>Findings ordered by blast radius</h3>
+              {!findingsLoading && !findingsError && queue.length > 0 ? (
+                <p className="idt-app-kicker">
+                  {queue.length} finding{queue.length === 1 ? '' : 's'}
+                  {findingsSummary?.total_open != null ? ` • ${findingsSummary.total_open} open` : ''}
+                  {publishableCount > 0 ? ` • ${publishableCount} fix-ready` : ''}
+                  {previewReadyCount > publishableCount ? ` • ${previewReadyCount - publishableCount} preview-only` : ''}
+                </p>
+              ) : null}
+              {!findingsLoading && !findingsError && findingsTruncated ? (
+                <p role="alert" className="idt-app-alert idt-app-alert-warning">
+                  Findings pagination hit its safety ceiling before all pages returned. Refine filters in the GitHub findings page to review the rest.
+                </p>
+              ) : null}
+            </header>
+            {findingsLoading ? (
+              <DomainLoadingState label="Loading findings" />
+            ) : findingsError ? (
+              // Findings lane failed independently. Scan strip, posture, and
+              // graph still render with their own state.
+              <p role="alert" className="idt-app-alert idt-app-alert-error">{findingsError}</p>
+            ) : queue.length === 0 ? (
+              <DomainEmptyState
+                title="No findings for this repository"
+                body="Neither posture, AI/MCP, workflow, nor secret detectors reported an open finding for this repository."
+              />
+            ) : (
+              <ul className="idt-github-intelligence-list">
+                {queue.map(({ finding, score, category }) => (
+                  <li key={finding.id} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown" data-category={category}>
+                    <span className={`idt-source-status-pill is-${finding.severity === 'critical' || finding.severity === 'high' ? 'warning' : 'neutral'}`}>
+                      {formatTokenLabel(finding.severity ?? 'unknown')}
+                    </span>
+                    <div>
+                      <strong>{finding.title || finding.detector || finding.type}</strong>
+                      <p className="idt-app-kicker">
+                        {REPO_INTELLIGENCE_CATEGORY_LABELS[category]}
+                        {score ? ` • score ${score.score}` : ''}
+                        {score?.unknowns?.length ? ` • unknown: ${score.unknowns.join(', ')}` : ''}
+                      </p>
+                      {finding.human_summary ? <p>{finding.human_summary}</p> : null}
+                    </div>
+                    {isRemediationSupportedFinding(finding) ? (
+                      <button
+                        type="button"
+                        className="idt-app-secondary-button"
+                        onClick={() => openPreview(finding)}
+                        disabled={previewLoading && previewFindingID === finding.id}
+                      >
+                        {previewLoading && previewFindingID === finding.id ? 'Loading…' : 'Preview remediation'}
+                      </button>
+                    ) : (
+                      // Findings whose detector is not in the SuggestRepoExposureRemediation
+                      // supported set (notably GitHub posture findings) would 422 on preview.
+                      // Show operator-actionable guidance instead of an action button that
+                      // would fail.
+                      <span className="idt-app-kicker">Review in GitHub</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {topPaths.length > 0 || riskGraphLoading || riskGraphError ? (
+            <section
+              className="idt-github-intelligence-panel idt-github-intelligence-paths"
+              aria-label="Top blast-radius paths"
+            >
+              <header className="idt-github-intelligence-panel-head">
+                <p className="idt-app-kicker">Risk graph</p>
+                <h3>Top blast-radius paths</h3>
+              </header>
+              {riskGraphLoading ? (
+                <DomainLoadingState label="Loading repository risk graph" />
+              ) : riskGraphError ? (
+                // Risk graph is optional enrichment: the queue above still
+                // renders sorted by severity when the graph is unavailable.
+                // Surface the graph error inline so operators know the top
+                // paths panel is degraded, not silently hiding data.
+                <p role="alert" className="idt-app-alert idt-app-alert-warning">
+                  {riskGraphError}
+                </p>
+              ) : (
+                <ol className="idt-github-intelligence-list">
+                  {topPaths.map(({ score, title, chain }) => (
+                    <li key={score.finding_node_id || score.finding_id} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown">
+                      <span className="idt-source-status-pill is-warning">score {score.score}</span>
+                      <div>
+                        <strong>{title}</strong>
+                        <p className="idt-app-kicker">
+                          severity {score.severity} • confidence {(score.confidence * 100).toFixed(0)}%
+                          {score.factors.posture_amplifier ? ` • posture amplifier ${score.factors.posture_amplifier}` : ''}
+                        </p>
+                        {chain.length > 0 ? (
+                          // Render the node chain the finding reaches through
+                          // the graph. "Unknown" edges are visually marked
+                          // (dashed arrow) so the operator can tell a concrete
+                          // reachability path from a speculative one.
+                          <p className="idt-github-intelligence-blast-radius" aria-label={`Blast radius: ${chain.map((hop) => hop.label).join(' -> ')}`}>
+                            {chain.map((hop, index) => (
+                              <span key={hop.node_id} className={`idt-github-intelligence-blast-radius-hop is-${hop.evidence_state}`}>
+                                <span aria-hidden="true">{index === 0 ? '→ ' : hop.evidence_state === 'unknown' ? ' ⇢ ' : ' → '}</span>
+                                <span className={`idt-source-status-pill is-neutral`}>{formatTokenLabel(hop.kind)}</span>
+                                <span> {hop.label}</span>
+                              </span>
+                            ))}
+                          </p>
+                        ) : (
+                          <p className="idt-app-kicker">
+                            No reachability graph collected for this finding.
+                          </p>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          ) : null}
+
+          {previewFindingID ? (
+            <section
+              className="idt-github-intelligence-panel idt-github-intelligence-preview"
+              aria-label="Remediation preview"
+              role="region"
+            >
+              <header className="idt-github-intelligence-panel-head">
+                <p className="idt-app-kicker">Remediation preview</p>
+                <h3>Finding {previewFindingID}</h3>
+                <button
+                  type="button"
+                  className="idt-app-tertiary-button"
+                  onClick={closePreview}
+                >
+                  Close
+                </button>
+              </header>
+              {previewLoading ? <DomainLoadingState label="Loading remediation preview" /> : null}
+              {previewError ? (
+                <p role="alert" className="idt-app-alert idt-app-alert-error">{previewError}</p>
+              ) : null}
+              {preview ? (
+                <div>
+                  <p><strong>{preview.remediation.summary}</strong></p>
+                  {preview.remediation.risk_summary ? <p>{preview.remediation.risk_summary}</p> : null}
+                  {preview.remediation.publish_blocked_reason ? (
+                    <p role="alert" className="idt-app-alert idt-app-alert-error">
+                      Publish blocked: {preview.remediation.publish_blocked_reason}
+                    </p>
+                  ) : null}
+                  {preview.remediation.steps.length > 0 ? (
+                    <ol>
+                      {preview.remediation.steps.map((step, index) => (
+                        <li key={index}>{step}</li>
+                      ))}
+                    </ol>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+        </>
+      )}
     </DomainPageShell>
   );
 }

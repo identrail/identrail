@@ -5697,6 +5697,106 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   margin: 0;
 }
 
+/* Repository intelligence drilldown (#1712) additions */
+.idt-github-intelligence-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.idt-github-intelligence-stats > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.idt-github-intelligence-stats dt {
+  color: var(--app-dim);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/*
+ * The intelligence panel background follows the app theme, so scan-statistic
+ * values must use the theme text token instead of a hard-coded near-white
+ * (which was invisible on the light theme's white panel).
+ */
+.idt-github-intelligence-stats dd {
+  color: var(--app-text);
+  font-size: 1.1rem;
+  font-weight: 800;
+  margin: 0;
+}
+
+.idt-github-intelligence-source-health {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+/*
+ * Source-health diagnostic labels sit inside the theme-aware panel, so their
+ * text color must follow the theme too. A hard-coded muted-blue disappears on
+ * the light theme's white panel.
+ */
+.idt-github-intelligence-source-health li {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--app-dim);
+  font-size: 0.86rem;
+}
+
+/*
+ * .idt-github-intelligence-row is shared with the existing Control Center
+ * priority list (see productShell.tsx), so a global three-column grid on
+ * it compressed those rows. The drilldown's rows opt in via an extra
+ * modifier class instead.
+ */
+.idt-github-intelligence-row-drilldown {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.7rem;
+  align-items: start;
+}
+
+.idt-github-intelligence-row-drilldown > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+/*
+ * Blast-radius chain rendered inside the paths panel. Each hop shows the
+ * node kind as a small pill followed by the node label; unknown-edge hops
+ * use a dashed arrow so a speculative reachability chain visually differs
+ * from a concrete one. Uses --app-dim so both light and dark themes stay
+ * readable against the panel background.
+ */
+.idt-github-intelligence-blast-radius {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  color: var(--app-dim);
+  font-size: 0.86rem;
+  margin: 0.3rem 0 0;
+}
+
+.idt-github-intelligence-blast-radius-hop {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.idt-github-intelligence-blast-radius-hop.is-unknown {
+  opacity: 0.75;
+  font-style: italic;
+}
+
 .idt-github-intelligence-trend article {
   border: 1px solid rgba(126, 157, 211, 0.18);
   border-radius: 8px;
