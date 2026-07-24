@@ -207,6 +207,53 @@ operator can re-run a focused recovery.
    per-instance state, cursors, and recovery actions reflect the latest
    checkpoints.
 
+## Connect AWS wizard: organization and selected paths
+
+The scope-first **Connect AWS** wizard exposes the organization and
+selected-scope paths so operators can drive the flow without hand-editing API
+calls. The wizard is available at `AWS → Connect` inside a workspace and
+supports:
+
+- **AWS Organization** — Recommended for teams. Uses a service-managed
+  StackSet across the whole organization; exclusions and auto-onboard for new
+  accounts are exposed as first-class controls. Identrail never claims
+  organization-wide coverage while exclusions or missing trusted access are
+  present.
+- **Selected OUs** — Comma or space separated Organizations OU IDs
+  (`ou-1234-abcd5678`). Root IDs (`r-...`) are also accepted for whole-org
+  intent. Auto-onboard applies to accounts moved into the covered OUs later.
+- **Selected accounts** — Comma or space separated 12-digit AWS account IDs.
+  Auto-onboard is disabled by design for selected-account deployments.
+- **Excluded accounts** — Optional 12-digit exclusion list. Coverage claims
+  never include excluded accounts, even when the organization path is chosen.
+- **Target regions** — Region codes for StackSet instance deployment. The role
+  itself is deployed to a single home region even when multiple scan regions
+  are selected.
+
+The wizard blocks launch when target inputs are missing or malformed
+(unknown region code, non-12-digit account ID, invalid OU ID) and surfaces
+blocking prerequisites returned by the backend before enabling the launch
+button. The StackSet progress panel renders pending / active / degraded /
+failed / permission-denied / resumable counts, per-instance state, and any
+recovery actions produced by the planner.
+
+## Troubleshooting
+
+- **Trusted access is not enabled**: the launch button stays disabled with a
+  blocking prerequisite. Enable trusted access for CloudFormation in the
+  Organizations console, then reload the wizard.
+- **Delegated admin required**: register the delegated admin account for
+  CloudFormation StackSets in Organizations; the prerequisite clears on the
+  next reload.
+- **Missing targets**: the wizard rejects submissions that have no target
+  region, no OU IDs (selected OUs path), or no account IDs (selected accounts
+  path). The rejection is client-side and never sends the request.
+- **Partial StackSet failure**: the progress panel lists failed instances with
+  the reason and next action provided by the planner. Rerun the StackSet from
+  the AWS console using the recovery targets shown, then refresh status.
+- **Auto-onboard for selected accounts**: the toggle is intentionally hidden
+  because AWS blocks auto-deploy on selected-account deployments.
+
 ## Out of scope (next-wave issues)
 
 - Live execution of the StackSet operation from Identrail.

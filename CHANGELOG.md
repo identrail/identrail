@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- Add **organization and selected-scope onboarding UI** to the Connect AWS
+  wizard (#1753). Operators can now pick `AWS Organization`, `Selected OUs`,
+  or `Selected accounts` alongside the existing single-account and manual
+  paths. Target region, OU, account, and exclusion inputs feed the
+  service-managed StackSet backend from #1752, and an auto-onboard toggle is
+  exposed for organization and selected-OU deployments. Client-side validation
+  blocks empty or malformed targets before the API call is made. A new
+  StackSet progress panel renders pending / active / degraded / failed /
+  permission-denied / resumable counts, per-instance state, coverage
+  expectation, and recovery actions returned by the backend. Blocking
+  prerequisites disable the launch button, and stale in-flight starts are
+  dropped after an environment switch.
 - Remove the GitHub stars pill from the marketing homepage hero. The remaining
   Docker pulls pill now sits where the pair used to, so the hero no longer
   advertises a low star count. Also drops the GitHub REST call the pill made on
