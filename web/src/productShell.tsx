@@ -484,6 +484,141 @@ function awsScopeTypeFromMode(mode: AWSSetupMode): AWSConnectorScopeType {
   }
 }
 
+type AWSStackSetContractSnapshot = {
+  scopeType: AWSConnectorScopeType;
+  targetRegions: string[];
+  targetOUIDs: string[];
+  targetAccountIDs: string[];
+  excludedAccountIDs: string[];
+  autoOnboardNewAccounts: boolean;
+  stackSetName: string;
+};
+
+function buildStackSetContractSnapshot(
+  mode: AWSSetupMode,
+  values: {
+    organizationRootID: string;
+    targetRegions: string[];
+    targetOUIDs: string[];
+    targetAccountIDs: string[];
+    excludedAccountIDs: string[];
+    autoOnboardNewAccounts: boolean;
+    stackSetName: string;
+  }
+): AWSStackSetContractSnapshot {
+  const targetOUIDs = (() => {
+    if (mode === 'selected_ous') {
+      return values.targetOUIDs;
+    }
+    if (mode === 'organization' || mode === 'selected_accounts') {
+      return values.organizationRootID ? [values.organizationRootID] : [];
+    }
+    return [];
+  })();
+  const targetAccountIDs = mode === 'selected_accounts' ? values.targetAccountIDs : [];
+  const excludedAccountIDs = mode !== 'selected_accounts' ? values.excludedAccountIDs : [];
+  const autoOnboard = mode === 'organization' || mode === 'selected_ous' ? values.autoOnboardNewAccounts : false;
+  return {
+    scopeType: awsScopeTypeFromMode(mode),
+    targetRegions: [...values.targetRegions],
+    targetOUIDs: [...targetOUIDs],
+    targetAccountIDs: [...targetAccountIDs],
+    excludedAccountIDs: [...excludedAccountIDs],
+    autoOnboardNewAccounts: autoOnboard,
+    stackSetName: values.stackSetName
+  };
+}
+
+function normalizeContractForScope(
+  scopeType: AWSConnectorScopeType,
+  raw: {
+    targetRegions?: string[];
+    targetOUIDs?: string[];
+    targetAccountIDs?: string[];
+    excludedAccountIDs?: string[];
+    autoOnboardNewAccounts?: boolean;
+    stackSetName?: string;
+  }
+): AWSStackSetContractSnapshot {
+  const mode = awsSetupModeFromResponse(scopeType);
+  const rootIDs = (raw.targetOUIDs ?? []).filter((id) => AWS_ORG_ROOT_ID_PATTERN.test(id));
+  const ouIDs = (raw.targetOUIDs ?? []).filter((id) => AWS_OU_ID_PATTERN.test(id));
+  const targetOUIDs = (() => {
+    if (mode === 'selected_ous') {
+      return ouIDs;
+    }
+    if (mode === 'organization' || mode === 'selected_accounts') {
+      return rootIDs.length > 0 ? [rootIDs[0]] : [];
+    }
+    return [];
+  })();
+  const targetAccountIDs = mode === 'selected_accounts' ? [...(raw.targetAccountIDs ?? [])] : [];
+  const excludedAccountIDs = mode !== 'selected_accounts' ? [...(raw.excludedAccountIDs ?? [])] : [];
+  const autoOnboard =
+    mode === 'organization' || mode === 'selected_ous' ? Boolean(raw.autoOnboardNewAccounts) : false;
+  return {
+    scopeType,
+    targetRegions: [...(raw.targetRegions ?? [])],
+    targetOUIDs,
+    targetAccountIDs,
+    excludedAccountIDs,
+    autoOnboardNewAccounts: autoOnboard,
+    stackSetName: raw.stackSetName ?? ''
+  };
+}
+
+function contractFromStartResponse(start: AWSConnectorStartResponse): AWSStackSetContractSnapshot {
+  return normalizeContractForScope(start.scope_type, {
+    targetRegions: start.target_regions,
+    targetOUIDs: start.target_ou_ids,
+    targetAccountIDs: start.target_account_ids,
+    excludedAccountIDs: start.excluded_account_ids,
+    autoOnboardNewAccounts: start.auto_onboard_new_accounts,
+    stackSetName: start.stack_set_name
+  });
+}
+
+function contractFromConnection(connection: AWSConnectionStatus): AWSStackSetContractSnapshot {
+  return normalizeContractForScope(connection.scope_type ?? 'single_account', {
+    targetRegions: connection.target_regions,
+    targetOUIDs: connection.target_ou_ids,
+    targetAccountIDs: connection.target_account_ids,
+    excludedAccountIDs: connection.excluded_account_ids,
+    autoOnboardNewAccounts: connection.auto_onboard_new_accounts,
+    stackSetName: connection.stack_set_name
+  });
+}
+
+function sortedCopy(values: string[]): string[] {
+  return [...values].sort();
+}
+
+function stackSetContractsMatch(a: AWSStackSetContractSnapshot, b: AWSStackSetContractSnapshot): boolean {
+  if (a.scopeType !== b.scopeType) {
+    return false;
+  }
+  if (a.autoOnboardNewAccounts !== b.autoOnboardNewAccounts) {
+    return false;
+  }
+  if (a.stackSetName && b.stackSetName && a.stackSetName !== b.stackSetName) {
+    return false;
+  }
+  const stringSetsEqual = (left: string[], right: string[]) => {
+    if (left.length !== right.length) {
+      return false;
+    }
+    const l = sortedCopy(left);
+    const r = sortedCopy(right);
+    return l.every((value, index) => value === r[index]);
+  };
+  return (
+    stringSetsEqual(a.targetRegions, b.targetRegions) &&
+    stringSetsEqual(a.targetOUIDs, b.targetOUIDs) &&
+    stringSetsEqual(a.targetAccountIDs, b.targetAccountIDs) &&
+    stringSetsEqual(a.excludedAccountIDs, b.excludedAccountIDs)
+  );
+}
+
 const AWS_SCOPE_OPTION_LABELS: Record<AWSSetupMode, { title: string; kicker: string; blurb: string }> = {
   cloudformation: {
     kicker: 'Single account',
@@ -21462,6 +21597,23 @@ export function ProductAWSConnectPage() {
   const connectionScopeMode = connection?.scope_type
     ? awsSetupModeFromResponse(connection.scope_type)
     : null;
+  const parsedOrganizationRootID = normalizeValue(awsForm.organizationRootID);
+  const parsedTargetRegions = uniqueTokens(splitScopeTokens(awsForm.targetRegions));
+  const parsedTargetOUIDs = uniqueTokens(splitScopeTokens(awsForm.targetOUIDs));
+  const parsedTargetAccountIDs = uniqueTokens(splitScopeTokens(awsForm.targetAccountIDs));
+  const parsedExcludedAccountIDs = uniqueTokens(splitScopeTokens(awsForm.excludedAccountIDs));
+  const parsedStackSetName = normalizeValue(awsForm.stackSetName);
+  const desiredContract = isStackSetSetup
+    ? buildStackSetContractSnapshot(awsSetupMode, {
+        organizationRootID: parsedOrganizationRootID,
+        targetRegions: parsedTargetRegions,
+        targetOUIDs: parsedTargetOUIDs,
+        targetAccountIDs: parsedTargetAccountIDs,
+        excludedAccountIDs: parsedExcludedAccountIDs,
+        autoOnboardNewAccounts: awsForm.autoOnboardNewAccounts,
+        stackSetName: parsedStackSetName
+      })
+    : null;
   const activeConnectorID = (() => {
     if (isManualSetup) {
       return (
@@ -21470,17 +21622,19 @@ export function ProductAWSConnectPage() {
         ''
       );
     }
-    if (isStackSetSetup) {
+    if (isStackSetSetup && desiredContract) {
       if (
         stackSetAWSStart?.connector_id &&
-        awsSetupModeFromResponse(stackSetAWSStart.scope_type) === awsSetupMode
+        awsSetupModeFromResponse(stackSetAWSStart.scope_type) === awsSetupMode &&
+        stackSetContractsMatch(desiredContract, contractFromStartResponse(stackSetAWSStart))
       ) {
         return stackSetAWSStart.connector_id;
       }
       if (
         connection?.deployment_method?.startsWith('stackset_') &&
         connectionScopeMode === awsSetupMode &&
-        connection.connector_id
+        connection.connector_id &&
+        stackSetContractsMatch(desiredContract, contractFromConnection(connection))
       ) {
         return connection.connector_id;
       }
@@ -21519,7 +21673,14 @@ export function ProductAWSConnectPage() {
     setAWSSetupMode(mode);
     const preparedScopeType = awsCloudFormationStart?.scope_type;
     const preparedMode: AWSSetupMode | null = preparedScopeType ? awsSetupModeFromResponse(preparedScopeType) : null;
+    const connectionMode: AWSSetupMode | null = connection?.scope_type
+      ? awsSetupModeFromResponse(connection.scope_type)
+      : null;
     const switchingAcrossPreparedSetup = preparedMode !== null && preparedMode !== mode;
+    const switchingAcrossPersistedStackSet =
+      Boolean(connection?.deployment_method?.startsWith('stackset_')) &&
+      connectionMode !== null &&
+      connectionMode !== mode;
     if (previousMode !== mode) {
       awsStartRequestRef.current += 1;
       setSubmitting(false);
@@ -21529,13 +21690,17 @@ export function ProductAWSConnectPage() {
       setAWSPermissionPreview([]);
       setAWSPermissionTiers([]);
       setAWSPreviewOpen(false);
-      setAWSStackSetOnboarding(null);
       setAWSForm((current) => ({
         ...current,
         roleARN: '',
         externalID: '',
         sessionName: 'identrail-connector-validation'
       }));
+    }
+    if (switchingAcrossPreparedSetup || switchingAcrossPersistedStackSet) {
+      awsStackSetOnboardingRequestRef.current += 1;
+      setAWSStackSetOnboarding(null);
+      setAWSStackSetOnboardingLoading(false);
     }
     setAWSSetupMessage('');
     setErrorMessage('');
@@ -21676,12 +21841,6 @@ export function ProductAWSConnectPage() {
       }
     }
   };
-
-  const parsedOrganizationRootID = normalizeValue(awsForm.organizationRootID);
-  const parsedTargetRegions = uniqueTokens(splitScopeTokens(awsForm.targetRegions));
-  const parsedTargetOUIDs = uniqueTokens(splitScopeTokens(awsForm.targetOUIDs));
-  const parsedTargetAccountIDs = uniqueTokens(splitScopeTokens(awsForm.targetAccountIDs));
-  const parsedExcludedAccountIDs = uniqueTokens(splitScopeTokens(awsForm.excludedAccountIDs));
 
   const validateStackSetTargets = (mode: AWSSetupMode): string => {
     if (parsedTargetRegions.length === 0) {
