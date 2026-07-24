@@ -20900,7 +20900,7 @@ function AWSStackSetProgressPanel({
   refreshing
 }: AWSStackSetProgressPanelProps) {
   const onboarding: AWSStackSetOnboardingResult | undefined | null =
-    start?.stackset_onboarding ?? persistedOnboarding ?? null;
+    persistedOnboarding ?? start?.stackset_onboarding ?? null;
   const summary: AWSStackSetOnboardingSummary | undefined = onboarding?.summary;
   const coverage: AWSStackSetOnboardingCoverageExpectation | undefined = onboarding?.coverage_expectation;
   const recoveryActions: AWSStackSetOnboardingRecoveryAction[] = onboarding?.recovery_actions ?? [];
@@ -21092,7 +21092,8 @@ export function ProductAWSConnectPage() {
     targetOUIDs: false,
     targetAccountIDs: false,
     excludedAccountIDs: false,
-    autoOnboardNewAccounts: false
+    autoOnboardNewAccounts: false,
+    stackSetName: false
   });
   const [awsCloudFormationStart, setAWSCloudFormationStart] = useState<AWSConnectorStartResponse | null>(null);
   const [awsPermissionPreview, setAWSPermissionPreview] = useState<AWSPermissionPreviewItem[]>([]);
@@ -21195,7 +21196,10 @@ export function ProductAWSConnectPage() {
             : response.connection.connector_id &&
               typeof response.connection.auto_onboard_new_accounts === 'boolean'
             ? response.connection.auto_onboard_new_accounts
-            : current.autoOnboardNewAccounts
+            : current.autoOnboardNewAccounts,
+          stackSetName: dirty.stackSetName
+            ? current.stackSetName
+            : response.connection.stack_set_name || current.stackSetName
         }));
       } catch (error) {
         if (isStale()) {
@@ -21378,7 +21382,8 @@ export function ProductAWSConnectPage() {
       targetOUIDs: false,
       targetAccountIDs: false,
       excludedAccountIDs: false,
-      autoOnboardNewAccounts: false
+      autoOnboardNewAccounts: false,
+      stackSetName: false
     };
     void refreshConnection('initial');
     void refreshBaseline();
@@ -21755,7 +21760,11 @@ export function ProductAWSConnectPage() {
     const requestID = ++awsStartRequestRef.current;
     const requestEnvironmentID = selectedEnvironmentID;
     const requestScopeKey = scopeKeyRef.current;
-    const region = normalizeValue(awsForm.region) || parsedTargetRegions[0] || 'us-east-1';
+    // Backend derives the StackSet home region from the first target region
+    // (internal/api/aws_connect.go), so anchor `region` to that entry rather
+    // than the Home region field, which is only meaningful for CloudFormation
+    // single-account setup.
+    const region = parsedTargetRegions[0] || normalizeValue(awsForm.region) || 'us-east-1';
     const isStale = () =>
       requestID !== awsStartRequestRef.current ||
       selectedEnvironmentIDRef.current !== requestEnvironmentID ||
@@ -21807,6 +21816,7 @@ export function ProductAWSConnectPage() {
         externalID: response.external_id,
         region: current.region || response.connection.region || 'us-east-1',
         displayName: current.displayName || response.connection.display_name || '',
+        stackSetName: response.stack_set_name || current.stackSetName,
         organizationRootID: responseRoot ?? current.organizationRootID,
         targetRegions:
           response.target_regions && response.target_regions.length > 0
@@ -22198,15 +22208,19 @@ export function ProductAWSConnectPage() {
                         placeholder="Production AWS"
                       />
                     </label>
-                    <label>
-                      Home region
-                      <input
-                        value={awsForm.region}
-                        onChange={(event) => setAWSForm((current) => ({ ...current, region: event.target.value }))}
-                        placeholder="us-east-1"
-                        pattern="[a-z]{2}(-gov)?-[a-z]+-[0-9]"
-                      />
-                    </label>
+                    {!isStackSetSetup ? (
+                      <label>
+                        Home region
+                        <input
+                          value={awsForm.region}
+                          onChange={(event) =>
+                            setAWSForm((current) => ({ ...current, region: event.target.value }))
+                          }
+                          placeholder="us-east-1"
+                          pattern="[a-z]{2}(-gov)?-[a-z]+-[0-9]"
+                        />
+                      </label>
+                    ) : null}
                   </div>
                 </div>
               </div>
