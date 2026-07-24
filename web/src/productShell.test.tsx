@@ -9842,12 +9842,102 @@ describe('Domain-first app routes', () => {
     expect(getStackSetOnboarding).toHaveBeenCalledWith(
       'workspace-a',
       'production',
-      undefined,
+      'aws-org-existing',
       undefined,
       undefined,
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(screen.getByRole('table', { name: /StackSet instance status/i })).toBeInTheDocument();
+  });
+
+  it('does not reuse an existing StackSet connector when the operator switches to a different scope', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-org-existing',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'connected',
+        target_regions: ['us-east-1'],
+        target_ou_ids: ['r-abcd']
+      }
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
+      onboarding: readyAWSStackSetOnboarding
+    });
+    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-ou-new',
+        scope_type: 'selected_ous',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'launch_ready'
+      },
+      connector_id: 'aws-ou-new',
+      external_id: 'selected-ou-external',
+      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
+      template_url: 'https://example.com/template.yaml',
+      role_name: 'IdentrailReadOnly',
+      stack_name: 'identrail-readonly-connector',
+      stack_set_name: 'IdentrailReadOnlyCoverage',
+      policy_hash: 'sha256:example',
+      template_checksum: 'sha256:example',
+      scope_type: 'selected_ous',
+      deployment_method: 'stackset_service_managed',
+      onboarding_status: 'launch_ready',
+      target_regions: ['us-east-1'],
+      target_account_ids: [],
+      target_ou_ids: ['ou-1234-abcd5678'],
+      excluded_account_ids: [],
+      auto_onboard_new_accounts: true,
+      setup_summary: 'Selected OUs setup.',
+      next_actions: ['open_stackset', 'refresh_status'],
+      stackset_onboarding: readyAWSStackSetOnboarding,
+      permission_preview: [],
+      permission_tiers: []
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Wait for the existing organization connector to hydrate.
+    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /Selected scope/i }));
+    fireEvent.change(await screen.findByLabelText(/Target OU IDs/i), {
+      target: { value: 'ou-1234-abcd5678' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
+
+    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
+    const startPayload = startAWSConnector.mock.calls[0]?.[0] as { connector_id?: string; scope_type?: string };
+    expect(startPayload?.scope_type).toBe('selected_ous');
+    expect(startPayload?.connector_id).toBeUndefined();
   });
 
   it('shows AWS operational panels when connector health is warning', async () => {

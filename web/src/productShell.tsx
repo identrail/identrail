@@ -21108,6 +21108,7 @@ export function ProductAWSConnectPage() {
   const awsStackSetOnboardingRequestRef = useRef(0);
   const awsSetupModeTouchedRef = useRef(false);
   const awsSetupModeRef = useRef<AWSSetupMode>('cloudformation');
+  const activeConnectorIDRef = useRef('');
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
   const scopeKey = scope ? `${scope.tenantID}::${scope.workspaceID}` : '';
   const scopeKeyRef = useRef(scopeKey);
@@ -21290,44 +21291,48 @@ export function ProductAWSConnectPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, awsCloudFormationStart?.connector_id, connection?.connector_id]);
 
-  const refreshStackSetOnboarding = useCallback(async () => {
-    const requestID = ++awsStackSetOnboardingRequestRef.current;
-    const requestEnvironmentID = selectedEnvironmentID;
-    const requestScopeKey = scopeKeyRef.current;
-    if (!scope || !requestEnvironmentID) {
-      setAWSStackSetOnboarding(null);
-      setAWSStackSetOnboardingLoading(false);
-      return;
-    }
-    const isStale = () =>
-      requestID !== awsStackSetOnboardingRequestRef.current ||
-      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
-      scopeKeyRef.current !== requestScopeKey;
-    setAWSStackSetOnboardingLoading(true);
-    try {
-      const response = await apiClient.getAWSProjectStackSetOnboarding(
-        scope.workspaceID,
-        requestEnvironmentID,
-        undefined,
-        undefined,
-        undefined,
-        buildProductAuthContext(scope)
-      );
-      if (isStale()) {
-        return;
-      }
-      setAWSStackSetOnboarding(response.onboarding);
-    } catch {
-      if (isStale()) {
-        return;
-      }
-      setAWSStackSetOnboarding(null);
-    } finally {
-      if (!isStale()) {
+  const refreshStackSetOnboarding = useCallback(
+    async (connectorIDOverride?: string) => {
+      const requestID = ++awsStackSetOnboardingRequestRef.current;
+      const requestEnvironmentID = selectedEnvironmentID;
+      const requestScopeKey = scopeKeyRef.current;
+      if (!scope || !requestEnvironmentID) {
+        setAWSStackSetOnboarding(null);
         setAWSStackSetOnboardingLoading(false);
+        return;
       }
-    }
-  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+      const isStale = () =>
+        requestID !== awsStackSetOnboardingRequestRef.current ||
+        selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+        scopeKeyRef.current !== requestScopeKey;
+      const connectorID = normalizeValue(connectorIDOverride ?? activeConnectorIDRef.current);
+      setAWSStackSetOnboardingLoading(true);
+      try {
+        const response = await apiClient.getAWSProjectStackSetOnboarding(
+          scope.workspaceID,
+          requestEnvironmentID,
+          connectorID || undefined,
+          undefined,
+          undefined,
+          buildProductAuthContext(scope)
+        );
+        if (isStale()) {
+          return;
+        }
+        setAWSStackSetOnboarding(response.onboarding);
+      } catch {
+        if (isStale()) {
+          return;
+        }
+        setAWSStackSetOnboarding(null);
+      } finally {
+        if (!isStale()) {
+          setAWSStackSetOnboardingLoading(false);
+        }
+      }
+    },
+    [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]
+  );
 
 
   useEffect(() => {
@@ -21394,7 +21399,7 @@ export function ProductAWSConnectPage() {
       connectorScope === 'selected_ous' ||
       connectorScope === 'selected_accounts';
     if (isStackSetConnector && connection?.connector_id) {
-      void refreshStackSetOnboarding();
+      void refreshStackSetOnboarding(connection.connector_id);
     }
   }, [connection?.connector_id, connection?.scope_type, refreshStackSetOnboarding]);
 
@@ -21449,15 +21454,40 @@ export function ProductAWSConnectPage() {
     awsSetupMode === 'selected_ous' ||
     awsSetupMode === 'selected_accounts' ||
     Boolean(stackSetAWSStart);
-  const activeConnectorID = isManualSetup
-    ? manualAWSStart?.connector_id ?? (connection?.deployment_method === 'manual' ? connection.connector_id : '') ?? ''
-    : isStackSetSetup
-    ? stackSetAWSStart?.connector_id ??
-      (connection?.deployment_method?.startsWith('stackset_') ? connection.connector_id : '') ??
-      ''
-    : cloudFormationAWSStart?.connector_id ??
+  const connectionScopeMode = connection?.scope_type
+    ? awsSetupModeFromResponse(connection.scope_type)
+    : null;
+  const activeConnectorID = (() => {
+    if (isManualSetup) {
+      return (
+        manualAWSStart?.connector_id ??
+        (connection?.deployment_method === 'manual' ? connection.connector_id : '') ??
+        ''
+      );
+    }
+    if (isStackSetSetup) {
+      if (
+        stackSetAWSStart?.connector_id &&
+        awsSetupModeFromResponse(stackSetAWSStart.scope_type) === awsSetupMode
+      ) {
+        return stackSetAWSStart.connector_id;
+      }
+      if (
+        connection?.deployment_method?.startsWith('stackset_') &&
+        connectionScopeMode === awsSetupMode &&
+        connection.connector_id
+      ) {
+        return connection.connector_id;
+      }
+      return '';
+    }
+    return (
+      cloudFormationAWSStart?.connector_id ??
       (connection?.deployment_method === 'cloudformation' ? connection?.connector_id : '') ??
-      '';
+      ''
+    );
+  })();
+  activeConnectorIDRef.current = activeConnectorID;
   const canValidateRole = Boolean(normalizeValue(awsForm.roleARN)) && (!isManualSetup || Boolean(activeConnectorID));
   const selectedAWSRegion = normalizeValue(awsForm.region) || 'us-east-1';
   const manualExternalID = normalizeValue(awsForm.externalID);
@@ -21494,6 +21524,7 @@ export function ProductAWSConnectPage() {
       setAWSPermissionPreview([]);
       setAWSPermissionTiers([]);
       setAWSPreviewOpen(false);
+      setAWSStackSetOnboarding(null);
       setAWSForm((current) => ({
         ...current,
         roleARN: '',
@@ -21803,8 +21834,8 @@ export function ProductAWSConnectPage() {
       setSuccessMessage('AWS StackSet setup is ready. Open the StackSet in AWS, then refresh status.');
       if (response.stackset_onboarding) {
         setAWSStackSetOnboarding(response.stackset_onboarding);
-      } else {
-        void refreshStackSetOnboarding();
+      } else if (response.connector_id) {
+        void refreshStackSetOnboarding(response.connector_id);
       }
       if (response.launch_url && typeof window !== 'undefined' && !/jsdom/i.test(window.navigator.userAgent)) {
         window.open(response.launch_url, '_blank', 'noopener,noreferrer');
