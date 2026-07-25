@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
@@ -772,11 +773,14 @@ func awsStackSetRepairDiagnostics(plan awscontract.StackSetOnboardingPlan, diagn
 			code = "stackset_trusted_access_missing"
 		case "stackset.delegated_admin_registered":
 			code = "delegated_admin_recommended"
+		case "stackset.suspended_accounts_excluded":
+			code = "suspended_accounts_excluded"
 		}
 		out = append(out, enrichAWSStackSetDiagnostic(plan, AWSStackSetOnboardingDiagnostic{
 			Source:      "stackset_onboarding_prerequisite",
 			Scope:       prerequisite.ID,
 			Code:        code,
+			Severity:    string(prerequisite.Severity),
 			Message:     prerequisite.Reason,
 			Remediation: prerequisite.Remediation,
 			Retryable:   true,
@@ -802,6 +806,15 @@ func awsStackSetRepairDiagnostics(plan awscontract.StackSetOnboardingPlan, diagn
 				Remediation: "Re-run the failed StackSet instance, then refresh status.",
 				Retryable:   instance.Resumable,
 			}))
+		case awscontract.StackSetStateDegraded:
+			out = append(out, enrichAWSStackSetDiagnostic(plan, AWSStackSetOnboardingDiagnostic{
+				Source:      "stackset_instance",
+				Scope:       awsStackSetInstanceScope(instance.AccountID, instance.Region),
+				Code:        "partial_stackset_coverage",
+				Message:     firstNonEmptyAWSValue(strings.TrimSpace(instance.FailureReason), "A StackSet instance is degraded and coverage is partial."),
+				Remediation: "Revalidate the read-only role in this account, then refresh status.",
+				Retryable:   true,
+			}))
 		case awscontract.StackSetStatePermissionDenied:
 			out = append(out, enrichAWSStackSetDiagnostic(plan, AWSStackSetOnboardingDiagnostic{
 				Source:      "stackset_instance",
@@ -809,6 +822,15 @@ func awsStackSetRepairDiagnostics(plan awscontract.StackSetOnboardingPlan, diagn
 				Code:        "member_account_permission_denied",
 				Message:     firstNonEmptyAWSValue(strings.TrimSpace(instance.FailureReason), "AWS denied StackSet deployment in a member account."),
 				Remediation: "Confirm Organizations trusted access and member-account permissions, then retry this instance.",
+				Retryable:   true,
+			}))
+		case awscontract.StackSetStateBlocked:
+			out = append(out, enrichAWSStackSetDiagnostic(plan, AWSStackSetOnboardingDiagnostic{
+				Source:      "stackset_instance",
+				Scope:       awsStackSetInstanceScope(instance.AccountID, instance.Region),
+				Code:        "selected_target_missing_stackset_instance",
+				Message:     firstNonEmptyAWSValue(strings.TrimSpace(instance.FailureReason), "A StackSet target is blocked before deployment can complete."),
+				Remediation: "Resolve the blocking prerequisite for this target, then refresh status.",
 				Retryable:   true,
 			}))
 		case awscontract.StackSetStateUnsupported:
@@ -820,9 +842,18 @@ func awsStackSetRepairDiagnostics(plan awscontract.StackSetOnboardingPlan, diagn
 				Remediation: "Choose an opted-in AWS region or enable the region in the member account before redeploying.",
 				Retryable:   true,
 			}))
+		case awscontract.StackSetStateSuspended:
+			out = append(out, enrichAWSStackSetDiagnostic(plan, AWSStackSetOnboardingDiagnostic{
+				Source:      "stackset_instance",
+				Scope:       awsStackSetInstanceScope(instance.AccountID, instance.Region),
+				Code:        "suspended_accounts_excluded",
+				Message:     firstNonEmptyAWSValue(strings.TrimSpace(instance.FailureReason), "AWS account is suspended, so StackSet deployment is excluded for this target."),
+				Remediation: "Remove the suspended account from targets or reactivate it in AWS before expecting coverage.",
+				Retryable:   false,
+			}))
 		}
 	}
-	return dedupeAWSStackSetDiagnostics(out)
+	return sortAWSStackSetDiagnosticsBySeverity(dedupeAWSStackSetDiagnostics(out))
 }
 
 func enrichAWSStackSetDiagnostic(plan awscontract.StackSetOnboardingPlan, diagnostic AWSStackSetOnboardingDiagnostic) AWSStackSetOnboardingDiagnostic {
@@ -869,7 +900,7 @@ func normalizeAWSStackSetDiagnosticCode(code string) string {
 
 func awsStackSetDiagnosticSeverity(code string) string {
 	switch code {
-	case "delegated_admin_recommended", "partial_stackset_coverage", "region_unsupported_or_not_opted_in":
+	case "delegated_admin_recommended", "partial_stackset_coverage", "region_unsupported_or_not_opted_in", "suspended_accounts_excluded":
 		return "warning"
 	default:
 		return "blocking"
@@ -888,6 +919,8 @@ func awsStackSetDiagnosticAction(code string) string {
 		return "Use an opted-in region or enable the target region before relaunching StackSet coverage."
 	case "partial_stackset_coverage":
 		return "Retry failed StackSet instances, then refresh status before relying on coverage."
+	case "suspended_accounts_excluded":
+		return "Remove suspended accounts from targets or reactivate them before expecting StackSet coverage."
 	default:
 		return "Open the StackSet launch URL, complete deployment, then refresh status."
 	}
@@ -901,6 +934,8 @@ func awsStackSetDiagnosticTradeoff(code string) string {
 		return "Leaving failed instances unresolved keeps healthy accounts visible, but Identrail will not claim full organization coverage."
 	case "region_unsupported_or_not_opted_in":
 		return "Skipping unsupported regions avoids failed deployments, but coverage will exclude workloads in those regions."
+	case "suspended_accounts_excluded":
+		return "Excluding suspended accounts avoids failed deployments, but coverage will not include those accounts."
 	default:
 		return ""
 	}
@@ -914,8 +949,28 @@ func awsStackSetDiagnosticActions(code string) []AWSConnectorNextAction {
 		return []AWSConnectorNextAction{AWSConnectorNextActionRegisterDelegatedAdmin, AWSConnectorNextActionRefreshStatus, AWSConnectorNextActionOpenDocs}
 	case "selected_target_missing_stackset_instance", "cloudformation_stack_not_deployed":
 		return []AWSConnectorNextAction{AWSConnectorNextActionOpenStackSet, AWSConnectorNextActionRefreshStatus}
+	case "suspended_accounts_excluded":
+		return []AWSConnectorNextAction{AWSConnectorNextActionOpenDocs, AWSConnectorNextActionRefreshStatus}
 	default:
 		return []AWSConnectorNextAction{AWSConnectorNextActionOpenStackSet, AWSConnectorNextActionRefreshStatus, AWSConnectorNextActionOpenDocs}
+	}
+}
+
+func sortAWSStackSetDiagnosticsBySeverity(diagnostics []AWSStackSetOnboardingDiagnostic) []AWSStackSetOnboardingDiagnostic {
+	sort.SliceStable(diagnostics, func(i, j int) bool {
+		return awsStackSetDiagnosticRank(diagnostics[i].Severity) < awsStackSetDiagnosticRank(diagnostics[j].Severity)
+	})
+	return diagnostics
+}
+
+func awsStackSetDiagnosticRank(severity string) int {
+	switch severity {
+	case "critical", "blocking", "error":
+		return 0
+	case "warning", "advisory":
+		return 1
+	default:
+		return 2
 	}
 }
 

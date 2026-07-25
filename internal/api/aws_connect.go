@@ -1784,7 +1784,6 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 			Retryable:   true,
 		})
 	}
-	diagnostics = awsStackSetRepairDiagnostics(plan, diagnostics)
 	status, confidence, failures, remediations := summarizeAWSStackSetOnboarding("success", plan, diagnostics)
 	return AWSStackSetOnboardingResult{
 		TenantID:            scope.TenantID,
@@ -2909,16 +2908,22 @@ func awsDiagnosticFromPermissionCheck(setup awsConnectorSetupContract, roleARN s
 
 func normalizeAWSSetupDiagnosticCode(code string, text string) string {
 	normalized := strings.ToLower(strings.TrimSpace(code))
+	switch normalized {
+	case "assume_role_failed", "external_id_mismatch", "role_arn_malformed", "missing_read_only_permission_tier", "connector_config_missing":
+		return normalized
+	case "aws_access_denied", "access_denied":
+		return "assume_role_failed"
+	}
 	search := strings.ToLower(text + " " + normalized)
 	switch {
-	case strings.Contains(normalized, "external_id") || strings.Contains(search, "external id") || strings.Contains(search, "externalid"):
-		return "external_id_mismatch"
+	case strings.Contains(normalized, "access_denied") || strings.Contains(normalized, "assume") || strings.Contains(search, "assume"):
+		return "assume_role_failed"
 	case strings.Contains(normalized, "malformed") || (strings.Contains(search, "role arn") && strings.Contains(search, "valid")):
 		return "role_arn_malformed"
 	case strings.Contains(normalized, "capability") || strings.Contains(normalized, "permission") || strings.Contains(search, "permission"):
 		return "missing_read_only_permission_tier"
-	case strings.Contains(normalized, "access_denied") || strings.Contains(normalized, "assume") || strings.Contains(search, "assume"):
-		return "assume_role_failed"
+	case strings.Contains(normalized, "external_id") || strings.Contains(search, "external id") || strings.Contains(search, "externalid"):
+		return "external_id_mismatch"
 	case normalized == "":
 		return "assume_role_failed"
 	default:
@@ -3043,6 +3048,7 @@ func scrubAWSConnectionDiagnostic(diagnostic AWSConnectionDiagnostic, externalID
 	diagnostic.Message = strings.ReplaceAll(diagnostic.Message, secret, "[redacted]")
 	diagnostic.OperatorAction = strings.ReplaceAll(diagnostic.OperatorAction, secret, "[redacted]")
 	diagnostic.Remediation = strings.ReplaceAll(diagnostic.Remediation, secret, "[redacted]")
+	diagnostic.EvidenceRef = strings.ReplaceAll(diagnostic.EvidenceRef, secret, "[redacted]")
 	diagnostic.Tradeoff = strings.ReplaceAll(diagnostic.Tradeoff, secret, "[redacted]")
 	return diagnostic
 }

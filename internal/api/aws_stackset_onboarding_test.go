@@ -9,6 +9,7 @@ import (
 
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers/awscontract"
 	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
@@ -124,6 +125,9 @@ func TestGetAWSStackSetOnboardingFixtureStates(t *testing.T) {
 	if degraded.Summary.SuspendedInstances == 0 {
 		t.Fatalf("expected suspended instances from the degraded fixture")
 	}
+	if !hasNonBlockingAWSStackSetDiagnostic(degraded.Diagnostics, "suspended_accounts_excluded") {
+		t.Fatalf("expected suspended accounts to stay advisory, got %+v", degraded.Diagnostics)
+	}
 
 	partial, err := svc.GetAWSStackSetOnboarding(ctx, "default", "project-a", AWSStackSetOnboardingRequest{ConnectorID: "aws-prod", FixtureState: "partial_failure"})
 	if err != nil {
@@ -138,6 +142,9 @@ func TestGetAWSStackSetOnboardingFixtureStates(t *testing.T) {
 	if len(partial.RecoveryActions) == 0 {
 		t.Fatalf("expected recovery actions in partial fixture")
 	}
+	if len(partial.Diagnostics) < 2 || partial.Diagnostics[0].Code != "member_account_permission_denied" || partial.Diagnostics[0].Severity != "blocking" {
+		t.Fatalf("expected blocking member-account permission diagnostic before warnings, got %+v", partial.Diagnostics)
+	}
 
 	denied, err := svc.GetAWSStackSetOnboarding(ctx, "default", "project-a", AWSStackSetOnboardingRequest{ConnectorID: "aws-prod", FixtureState: "permission_denied"})
 	if err != nil {
@@ -149,6 +156,67 @@ func TestGetAWSStackSetOnboardingFixtureStates(t *testing.T) {
 	if denied.Validation.BlockingCount == 0 {
 		t.Fatalf("expected blocking prereqs when trusted access unavailable, got %+v", denied.Validation)
 	}
+}
+
+func TestAWSStackSetRepairDiagnosticsCoversDegradedAndOrdersBlockers(t *testing.T) {
+	plan := awscontract.StackSetOnboardingPlan{
+		StackSetName:   "identrail-readonly",
+		OrganizationID: "o-example",
+		Instances: []awscontract.StackSetOnboardingInstance{
+			{
+				AccountID:     "111111111111",
+				Region:        "us-east-1",
+				State:         awscontract.StackSetStateDegraded,
+				FailureReason: "Role validation drifted after deployment.",
+				Resumable:     true,
+			},
+			{
+				AccountID:     "222222222222",
+				Region:        "us-east-1",
+				State:         awscontract.StackSetStatePermissionDenied,
+				FailureReason: "AccessDenied during StackSet operation.",
+				Resumable:     true,
+			},
+			{
+				AccountID:     "333333333333",
+				Region:        "us-east-1",
+				State:         awscontract.StackSetStateSuspended,
+				FailureReason: "Account is suspended.",
+			},
+		},
+	}
+
+	diagnostics := awsStackSetRepairDiagnostics(plan, nil)
+	if len(diagnostics) != 3 {
+		t.Fatalf("expected three diagnostics, got %+v", diagnostics)
+	}
+	if diagnostics[0].Code != "member_account_permission_denied" || diagnostics[0].Severity != "blocking" {
+		t.Fatalf("expected permission blocker first, got %+v", diagnostics)
+	}
+	if !hasAWSStackSetDiagnostic(diagnostics, "partial_stackset_coverage", "warning") {
+		t.Fatalf("expected degraded instance to produce partial-coverage warning, got %+v", diagnostics)
+	}
+	if !hasNonBlockingAWSStackSetDiagnostic(diagnostics, "suspended_accounts_excluded") {
+		t.Fatalf("expected suspended instance to produce advisory diagnostic, got %+v", diagnostics)
+	}
+}
+
+func hasNonBlockingAWSStackSetDiagnostic(diagnostics []AWSStackSetOnboardingDiagnostic, code string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code && awsStackSetDiagnosticRank(diagnostic.Severity) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAWSStackSetDiagnostic(diagnostics []AWSStackSetOnboardingDiagnostic, code string, severity string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code && diagnostic.Severity == severity {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGetAWSStackSetOnboardingRejectsInvalidInputs(t *testing.T) {

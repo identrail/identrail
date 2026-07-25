@@ -3937,23 +3937,25 @@ function awsGuidedRepairItems(connection: AWSConnectionStatus | null, stackSetOn
   for (const diagnostic of connection?.diagnostics ?? []) {
     items.push(awsRepairItemFromConnectionDiagnostic(diagnostic, connection));
   }
-  for (const check of connection?.permission_checks ?? []) {
-    if (check.passed) {
-      continue;
+  if ((connection?.diagnostics ?? []).length === 0) {
+    for (const check of connection?.permission_checks ?? []) {
+      if (check.passed) {
+        continue;
+      }
+      const code = /assumerole/i.test(check.name) ? 'assume_role_failed' : 'missing_read_only_permission_tier';
+      items.push({
+        id: `check-${check.name}`,
+        code,
+        severity: 'blocking',
+        scope: awsAccountRegionLabel(connection),
+        message: check.message,
+        operatorAction: check.remediation || (code === 'assume_role_failed' ? 'Update the trust policy, then revalidate the role.' : 'Refresh the expected policy, update the role, then revalidate.'),
+        evidenceRef: `aws-permission-check:${check.name}`,
+        tradeoff: code === 'missing_read_only_permission_tier' ? 'Identrail will not claim coverage for services it cannot read.' : '',
+        retryable: true,
+        actions: code === 'assume_role_failed' ? ['copy_trust_policy', 'validate_role', 'refresh_status'] : ['refresh_policy', 'validate_role', 'refresh_status']
+      });
     }
-    const code = /assumerole/i.test(check.name) ? 'assume_role_failed' : 'missing_read_only_permission_tier';
-    items.push({
-      id: `check-${check.name}`,
-      code,
-      severity: 'blocking',
-      scope: awsAccountRegionLabel(connection),
-      message: check.message,
-      operatorAction: check.remediation || (code === 'assume_role_failed' ? 'Update the trust policy, then revalidate the role.' : 'Refresh the expected policy, update the role, then revalidate.'),
-      evidenceRef: `aws-permission-check:${check.name}`,
-      tradeoff: code === 'missing_read_only_permission_tier' ? 'Identrail will not claim coverage for services it cannot read.' : '',
-      retryable: true,
-      actions: code === 'assume_role_failed' ? ['copy_trust_policy', 'validate_role', 'refresh_status'] : ['refresh_policy', 'validate_role', 'refresh_status']
-    });
   }
   for (const prereq of stackSetOnboarding?.validation.prerequisites ?? connection?.prerequisites ?? []) {
     if (prereq.satisfied) {
@@ -4062,6 +4064,13 @@ function awsRepairActionLabel(action: AWSConnectorNextAction): string {
   }
 }
 
+function awsGuidedRepairPriorityLabel(item: AWSGuidedRepairItem, index: number): string {
+  if (index !== 0) {
+    return formatTokenLabel(item.severity);
+  }
+  return awsRepairSeverityRank(item.severity) === 0 ? 'Primary blocker' : `Primary ${formatTokenLabel(item.severity).toLowerCase()}`;
+}
+
 function AWSGuidedRepairList({
   items,
   actionsForItem
@@ -4082,7 +4091,7 @@ function AWSGuidedRepairList({
       {items.map((item, index) => (
         <article key={item.id} className={`idt-aws-repair-card is-${awsRepairSeverityRank(item.severity) === 0 ? 'blocking' : 'warning'}`}>
           <header>
-            <span>{index === 0 ? 'Primary blocker' : formatTokenLabel(item.severity)}</span>
+            <span>{awsGuidedRepairPriorityLabel(item, index)}</span>
             <strong>{formatTokenLabel(item.code)}</strong>
           </header>
           <p>{item.message}</p>
@@ -21343,13 +21352,10 @@ function AWSStackSetProgressPanel({
   onRefresh,
   refreshing
 }: AWSStackSetProgressPanelProps) {
-  // Prefer the start-response snapshot: it is derived from the connector's
-  // own targets and checkpoints. getAWSProjectStackSetOnboarding today uses
-  // a synthetic fixture that does not reflect this connector's OUs, accounts,
-  // or instances, so we only fall back to it when no start is available (an
-  // existing persisted connector on page load).
+  // Refresh responses reflect the latest AWS reconciliation, while the start
+  // response is only the launch snapshot.
   const onboarding: AWSStackSetOnboardingResult | undefined | null =
-    start?.stackset_onboarding ?? persistedOnboarding ?? null;
+    persistedOnboarding ?? start?.stackset_onboarding ?? null;
   const summary: AWSStackSetOnboardingSummary | undefined = onboarding?.summary;
   const coverage: AWSStackSetOnboardingCoverageExpectation | undefined = onboarding?.coverage_expectation;
   const recoveryActions: AWSStackSetOnboardingRecoveryAction[] = onboarding?.recovery_actions ?? [];
@@ -22668,6 +22674,9 @@ export function ProductAWSConnectPage() {
   const launchURL =
     cloudFormationAWSStart?.launch_url ??
     (persistedLaunchURLMatchesMode ? connection?.launch_url ?? '' : '');
+  const stackSetLaunchURL =
+    stackSetAWSStart?.launch_url ??
+    (persistedLaunchURLMatchesMode && isStackSetSetup ? connection?.launch_url ?? '' : '');
   const hasConnectorSetup = Boolean(awsCloudFormationStart || connection?.connector_id);
   const hasRoleOnlyConnection = Boolean(connection?.role_arn && !connection?.connector_id && !awsCloudFormationStart);
   const showOperationalPanels = Boolean(
@@ -22677,7 +22686,7 @@ export function ProductAWSConnectPage() {
       connection?.health_status === 'error'
   );
   const activeStackSetOnboarding =
-    stackSetAWSStart?.stackset_onboarding ?? awsStackSetOnboarding ?? null;
+    awsStackSetOnboarding ?? stackSetAWSStart?.stackset_onboarding ?? null;
   const guidedRepairItems = awsGuidedRepairItems(connection, activeStackSetOnboarding);
   const guidedRepairActionsForItem = (item: AWSGuidedRepairItem): DomainAction[] =>
     item.actions.slice(0, 3).map((action, index) => {
@@ -22696,11 +22705,11 @@ export function ProductAWSConnectPage() {
         case 'open_stackset':
           return {
             label,
-            href: stackSetAWSStart?.launch_url || connection?.launch_url || undefined,
+            href: stackSetLaunchURL || undefined,
             target: '_blank',
             icon: <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />,
             variant,
-            disabled: !(stackSetAWSStart?.launch_url || connection?.launch_url)
+            disabled: !stackSetLaunchURL
           };
         case 'refresh_status':
           return {
@@ -22747,7 +22756,7 @@ export function ProductAWSConnectPage() {
         case 'open_docs':
           return {
             label,
-            href: '/docs/aws-connect-troubleshooting',
+            href: '/docs',
             icon: <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />,
             variant,
             target: '_blank'

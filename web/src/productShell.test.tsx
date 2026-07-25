@@ -9056,6 +9056,26 @@ describe('Domain-first app routes', () => {
             evidence_ref: 'aws-permission-check:iam:ListRoles',
             tradeoff: 'Identrail will not claim coverage for services it cannot read.',
             actions: ['refresh_policy', 'validate_role', 'refresh_status']
+          },
+          {
+            code: 'delegated_admin_recommended',
+            severity: 'warning',
+            affected_scope: 'organization',
+            message: 'Delegated administration is recommended for StackSets.',
+            operator_action: 'Open the runbook and register a delegated admin.',
+            remediation: 'Open the runbook and register a delegated admin.',
+            retryable: true,
+            evidence_ref: 'aws-stackset:delegated-admin',
+            tradeoff: 'Delegated administration narrows the management-account blast radius.',
+            actions: ['open_docs']
+          }
+        ],
+        permission_checks: [
+          {
+            name: 'iam:ListRoles',
+            passed: false,
+            message: 'IAM read-only permissions are missing for the connector role.',
+            remediation: 'Refresh the expected policy, update the role, then revalidate.'
           }
         ]
       }
@@ -9081,7 +9101,9 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { name: /Next setup action/i })).toBeInTheDocument();
     expect(screen.getByText(/Primary blocker/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Missing Read Only Permission Tier/i).length).toBeGreaterThanOrEqual(1);
+    const repairList = screen.getByLabelText('AWS guided repair actions');
+    expect(within(repairList).getAllByText(/Missing Read Only Permission Tier/i)).toHaveLength(1);
+    expect(screen.getByRole('link', { name: /Open runbook/i })).toHaveAttribute('href', '/docs');
     expect(screen.getByText(/Identrail will not claim coverage/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Refresh policy/i }));
@@ -9093,6 +9115,62 @@ describe('Domain-first app routes', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
+  });
+
+  it('labels warning-only AWS guided repair items as warnings', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        status: 'degraded',
+        health_status: 'warning',
+        diagnostics: [
+          {
+            code: 'partial_stackset_coverage',
+            severity: 'warning',
+            affected_scope: 'organization',
+            message: 'One StackSet instance is degraded.',
+            operator_action: 'Retry failed StackSet instances, then refresh status.',
+            remediation: 'Retry failed StackSet instances, then refresh status.',
+            retryable: true,
+            evidence_ref: 'aws-stackset:partial',
+            actions: ['refresh_status']
+          }
+        ],
+        permission_checks: []
+      }
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const repairList = await screen.findByLabelText('AWS guided repair actions');
+    expect(within(repairList).getByText(/Primary warning/i)).toBeInTheDocument();
+    expect(within(repairList).queryByText(/Primary blocker/i)).not.toBeInTheDocument();
   });
 
   it('preserves AWS connector 404 details for stale environments', async () => {
@@ -10263,11 +10341,10 @@ describe('Domain-first app routes', () => {
     fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
-    // The panel prefers the connector-specific launch-response snapshot over
-    // the synthetic refresh endpoint, so the connector-tied recovery action
-    // wins even after refresh fetches the fixture payload.
-    expect(await screen.findByText(/Connector-specific recovery action/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Fixture recovery action/i)).not.toBeInTheDocument();
+    // Refresh results supersede the launch snapshot so operators see the
+    // latest reconciled StackSet state after status polling completes.
+    expect(await screen.findByText(/Fixture recovery action/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Connector-specific recovery action/i)).not.toBeInTheDocument();
   });
 
   it('hydrates the StackSet name from the existing connection so resume matches stored setup', async () => {
@@ -11056,7 +11133,7 @@ describe('Domain-first app routes', () => {
     fireEvent.click(screen.getByRole('button', { name: /This AWS account/i }));
 
     // Under Single account, the persisted StackSet launch URL must not surface.
-    const links = screen.queryAllByRole('link', { name: /Open AWS stack|Open StackSet in AWS/i });
+    const links = screen.queryAllByRole('link', { name: /Open AWS stack|Open StackSet(?: in AWS)?/i });
     for (const link of links) {
       expect(link.getAttribute('href') ?? '').not.toContain('stacksets/persisted');
     }
@@ -11112,7 +11189,7 @@ describe('Domain-first app routes', () => {
 
     // Selected OUs shares the stackset_ deployment method with organization,
     // but the scope type differs — the persisted URL must not leak through.
-    const links = screen.queryAllByRole('link', { name: /Open AWS stack|Open StackSet in AWS/i });
+    const links = screen.queryAllByRole('link', { name: /Open AWS stack|Open StackSet(?: in AWS)?/i });
     for (const link of links) {
       expect(link.getAttribute('href') ?? '').not.toContain('stacksets/org-persisted');
     }
