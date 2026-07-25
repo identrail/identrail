@@ -486,6 +486,7 @@ function awsScopeTypeFromMode(mode: AWSSetupMode): AWSConnectorScopeType {
 
 type AWSStackSetContractSnapshot = {
   scopeType: AWSConnectorScopeType;
+  deploymentMethod: AWSConnectorDeploymentMethod;
   targetRegions: string[];
   targetOUIDs: string[];
   targetAccountIDs: string[];
@@ -520,6 +521,8 @@ function buildStackSetContractSnapshot(
   const autoOnboard = mode === 'organization' || mode === 'selected_ous' ? values.autoOnboardNewAccounts : false;
   return {
     scopeType: awsScopeTypeFromMode(mode),
+    // The wizard only issues service-managed StackSet starts today.
+    deploymentMethod: 'stackset_service_managed',
     targetRegions: [...values.targetRegions],
     targetOUIDs: [...targetOUIDs],
     targetAccountIDs: [...targetAccountIDs],
@@ -531,6 +534,7 @@ function buildStackSetContractSnapshot(
 
 function normalizeContractForScope(
   scopeType: AWSConnectorScopeType,
+  deploymentMethod: AWSConnectorDeploymentMethod,
   raw: {
     targetRegions?: string[];
     targetOUIDs?: string[];
@@ -558,6 +562,7 @@ function normalizeContractForScope(
     mode === 'organization' || mode === 'selected_ous' ? Boolean(raw.autoOnboardNewAccounts) : false;
   return {
     scopeType,
+    deploymentMethod,
     targetRegions: [...(raw.targetRegions ?? [])],
     targetOUIDs,
     targetAccountIDs,
@@ -568,7 +573,7 @@ function normalizeContractForScope(
 }
 
 function contractFromStartResponse(start: AWSConnectorStartResponse): AWSStackSetContractSnapshot {
-  return normalizeContractForScope(start.scope_type, {
+  return normalizeContractForScope(start.scope_type, start.deployment_method, {
     targetRegions: start.target_regions,
     targetOUIDs: start.target_ou_ids,
     targetAccountIDs: start.target_account_ids,
@@ -579,18 +584,28 @@ function contractFromStartResponse(start: AWSConnectorStartResponse): AWSStackSe
 }
 
 function contractFromConnection(connection: AWSConnectionStatus): AWSStackSetContractSnapshot {
-  return normalizeContractForScope(connection.scope_type ?? 'single_account', {
-    targetRegions: connection.target_regions,
-    targetOUIDs: connection.target_ou_ids,
-    targetAccountIDs: connection.target_account_ids,
-    excludedAccountIDs: connection.excluded_account_ids,
-    autoOnboardNewAccounts: connection.auto_onboard_new_accounts,
-    stackSetName: connection.stack_set_name
-  });
+  return normalizeContractForScope(
+    connection.scope_type ?? 'single_account',
+    connection.deployment_method ?? 'cloudformation',
+    {
+      targetRegions: connection.target_regions,
+      targetOUIDs: connection.target_ou_ids,
+      targetAccountIDs: connection.target_account_ids,
+      excludedAccountIDs: connection.excluded_account_ids,
+      autoOnboardNewAccounts: connection.auto_onboard_new_accounts,
+      stackSetName: connection.stack_set_name
+    }
+  );
 }
 
 function stackSetContractsMatch(a: AWSStackSetContractSnapshot, b: AWSStackSetContractSnapshot): boolean {
   if (a.scopeType !== b.scopeType) {
+    return false;
+  }
+  if (a.deploymentMethod !== b.deploymentMethod) {
+    // resumeAWSStackSetConnectorStart compares deployment_method exactly, so
+    // a self-managed persisted connector is not resumable from a
+    // service-managed wizard start (or vice versa).
     return false;
   }
   if (a.autoOnboardNewAccounts !== b.autoOnboardNewAccounts) {
@@ -20754,6 +20769,7 @@ type AWSStackSetScopeStepProps = {
   parsedAccounts: string[];
   parsedExcludedAccounts: string[];
   setupMessage: string;
+  persistedSelfManagedUnsupported: boolean;
 };
 
 function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
@@ -20781,7 +20797,8 @@ function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
     parsedOUs,
     parsedAccounts,
     parsedExcludedAccounts,
-    setupMessage
+    setupMessage,
+    persistedSelfManagedUnsupported
   } = props;
   const isOrganization = mode === 'organization';
   const isSelectedOUs = mode === 'selected_ous';
@@ -20993,16 +21010,26 @@ function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
           </p>
         ) : null}
 
+        {persistedSelfManagedUnsupported ? (
+          <p role="alert" className="idt-aws-setup-note">
+            This connector uses a self-managed StackSet, which the wizard does
+            not currently support relaunching. Update it through the API,
+            Terraform, or the AWS CloudFormation console. The wizard would
+            otherwise resubmit as service-managed and the backend would reject
+            the resume.
+          </p>
+        ) : null}
+
         <div className="idt-source-actions">
           <button
             className="idt-btn idt-btn-primary"
             type="button"
             onClick={onLaunch}
-            disabled={!canSubmit || blockingCount > 0}
+            disabled={!canSubmit || blockingCount > 0 || persistedSelfManagedUnsupported}
           >
             {launchLabel}
           </button>
-          {start?.launch_url && blockingCount === 0 ? (
+          {start?.launch_url && blockingCount === 0 && !persistedSelfManagedUnsupported ? (
             <a className="idt-btn idt-btn-dark" href={start.launch_url} target="_blank" rel="noreferrer">
               <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
               <span>Open StackSet in AWS</span>
@@ -22314,6 +22341,16 @@ export function ProductAWSConnectPage() {
     const preferred = stackSetAWSStart?.prerequisites ?? connection?.prerequisites ?? [];
     return preferred.filter((prereq) => !prereq.satisfied && prereq.severity === 'blocking').length;
   })();
+  // The wizard only issues service-managed StackSet starts. A persisted
+  // self-managed connector (created via API/Terraform) whose scope maps into
+  // the same wizard mode would otherwise be resumed as service-managed, which
+  // resumeAWSStackSetConnectorStart rejects (deployment_method must match
+  // exactly). Detect it and block the launch surface with a clear message.
+  const isPersistedSelfManagedStackSet =
+    isStackSetSetup &&
+    connectionScopeMode === awsSetupMode &&
+    connection?.deployment_method === 'stackset_self_managed' &&
+    !stackSetAWSStart;
   // Only surface the persisted connection's launch URL when both the
   // deployment method and the scope type match the currently selected setup
   // mode. Otherwise a leftover StackSet console link can render under a
@@ -22374,6 +22411,9 @@ export function ProductAWSConnectPage() {
     }
     if (isManualSetup && manualExternalID && !connectedNow) {
       return 'Add the trust policy in AWS, paste the role ARN, then validate the role.';
+    }
+    if (isPersistedSelfManagedStackSet) {
+      return 'This connector uses a self-managed StackSet. Manage it through the API, Terraform, or the AWS console — the wizard cannot relaunch self-managed setups.';
     }
     if (isStackSetSetup && stackSetAWSStart?.launch_url && stackSetBlockingPrereqCount === 0) {
       return 'Open the StackSet in AWS to deploy the read-only role, then refresh status.';
@@ -22597,6 +22637,7 @@ export function ProductAWSConnectPage() {
                   parsedAccounts={parsedTargetAccountIDs}
                   parsedExcludedAccounts={parsedExcludedAccountIDs}
                   setupMessage={awsSetupMessage}
+                  persistedSelfManagedUnsupported={isPersistedSelfManagedStackSet}
                 />
               ) : !isManualSetup ? (
                 <div className="idt-aws-wizard-step">

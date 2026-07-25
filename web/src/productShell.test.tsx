@@ -10407,6 +10407,74 @@ describe('Domain-first app routes', () => {
     expect(stagingCall?.stack_set_name).not.toBe('ProdCustomStackSet');
   });
 
+  it('marks a persisted self-managed StackSet connector unsupported instead of resuming as service-managed', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-self-managed-1',
+        scope_type: 'selected_accounts',
+        deployment_method: 'stackset_self_managed',
+        onboarding_status: 'connected',
+        target_regions: ['us-east-1'],
+        target_account_ids: ['111111111111', '222222222222'],
+        target_ou_ids: [],
+        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/self-managed'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
+      onboarding: readyAWSStackSetOnboarding
+    });
+    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector');
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Wait for the connector's scope to hydrate the wizard.
+    await screen.findByRole('heading', { level: 4, name: /Set the coverage scope/i });
+
+    // The wizard exposes an alert that says this setup is not relaunchable and
+    // disables the Launch button so we never send service-managed to a
+    // self-managed connector (which resumeAWSStackSetConnectorStart rejects
+    // via exact deployment_method match).
+    expect(await screen.findByText(/self-managed StackSet, which the wizard does not currently support/i)).toBeInTheDocument();
+    const launchButton = screen.getByRole('button', { name: /Launch StackSet setup|Prepare StackSet again/i });
+    expect(launchButton).toBeDisabled();
+    fireEvent.click(launchButton);
+    expect(startAWSConnector).not.toHaveBeenCalled();
+
+    // The persisted self-managed launch URL must not surface anywhere on the
+    // wizard, since the wizard cannot describe what it would open.
+    const links = screen.queryAllByRole('link', { name: /Open StackSet in AWS|Open AWS stack/i });
+    for (const link of links) {
+      expect(link.getAttribute('href') ?? '').not.toContain('stacksets/self-managed');
+    }
+  });
+
   it('keeps a persisted Terraform single-account connector reachable from the wizard', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
