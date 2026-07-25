@@ -37,6 +37,8 @@ import {
   type AWSConnectorStartResponse,
   type AWSConnectorScopeType,
   type AWSConnectorDeploymentMethod,
+  type AWSConnectorNextAction,
+  type AWSConnectionDiagnostic,
   type AWSConnectionStatus,
   type AWSCodeBuildServiceRoleInventoryResult,
   type AWSCodeBuildServiceRoleRecord,
@@ -167,6 +169,7 @@ import {
   type AWSOrganizationsTopologyAccount,
   type AWSOrganizationsTopologyResult,
   type AWSStackSetOnboardingResult,
+  type AWSStackSetOnboardingDiagnostic,
   type AWSStackSetOnboardingInstance,
   type AWSStackSetOnboardingPrerequisite,
   type AWSStackSetOnboardingSummary,
@@ -238,6 +241,7 @@ import {
   DomainStatusPanel,
   DomainTimeline,
   type DomainDataTableColumn,
+  type DomainAction,
   type DomainTimelineEntry
 } from './components/app/DomainFoundation';
 import { getDomainAsset, type DomainAssetKey } from './design/domainAssets';
@@ -3878,6 +3882,252 @@ function AWSConnectionDiagnostics({
         </article>
       ))}
     </>
+  );
+}
+
+type AWSGuidedRepairItem = {
+  id: string;
+  code: string;
+  severity: string;
+  scope: string;
+  message: string;
+  operatorAction: string;
+  evidenceRef: string;
+  tradeoff: string;
+  retryable: boolean;
+  actions: AWSConnectorNextAction[];
+};
+
+function awsRepairSeverityRank(severity: string): number {
+  switch (severity) {
+    case 'critical':
+    case 'blocking':
+    case 'error':
+      return 0;
+    case 'warning':
+      return 1;
+    default:
+      return 2;
+  }
+}
+
+function awsRepairTone(items: AWSGuidedRepairItem[], connected: boolean): 'success' | 'warning' | 'danger' | 'neutral' {
+  if (items.some((item) => awsRepairSeverityRank(item.severity) === 0)) {
+    return 'danger';
+  }
+  if (items.length > 0) {
+    return 'warning';
+  }
+  return connected ? 'success' : 'neutral';
+}
+
+function awsRepairStatus(items: AWSGuidedRepairItem[], connected: boolean): string {
+  if (items.length === 0) {
+    return connected ? 'Healthy' : 'Pending';
+  }
+  const blockers = items.filter((item) => awsRepairSeverityRank(item.severity) === 0).length;
+  if (blockers > 0) {
+    return `${blockers} blocker${blockers === 1 ? '' : 's'}`;
+  }
+  return `${items.length} warning${items.length === 1 ? '' : 's'}`;
+}
+
+function awsGuidedRepairItems(connection: AWSConnectionStatus | null, stackSetOnboarding: AWSStackSetOnboardingResult | null): AWSGuidedRepairItem[] {
+  const items: AWSGuidedRepairItem[] = [];
+  for (const diagnostic of connection?.diagnostics ?? []) {
+    items.push(awsRepairItemFromConnectionDiagnostic(diagnostic, connection));
+  }
+  for (const check of connection?.permission_checks ?? []) {
+    if (check.passed) {
+      continue;
+    }
+    const code = /assumerole/i.test(check.name) ? 'assume_role_failed' : 'missing_read_only_permission_tier';
+    items.push({
+      id: `check-${check.name}`,
+      code,
+      severity: 'blocking',
+      scope: awsAccountRegionLabel(connection),
+      message: check.message,
+      operatorAction: check.remediation || (code === 'assume_role_failed' ? 'Update the trust policy, then revalidate the role.' : 'Refresh the expected policy, update the role, then revalidate.'),
+      evidenceRef: `aws-permission-check:${check.name}`,
+      tradeoff: code === 'missing_read_only_permission_tier' ? 'Identrail will not claim coverage for services it cannot read.' : '',
+      retryable: true,
+      actions: code === 'assume_role_failed' ? ['copy_trust_policy', 'validate_role', 'refresh_status'] : ['refresh_policy', 'validate_role', 'refresh_status']
+    });
+  }
+  for (const prereq of stackSetOnboarding?.validation.prerequisites ?? connection?.prerequisites ?? []) {
+    if (prereq.satisfied) {
+      continue;
+    }
+    const code = prereq.id === 'stackset.trusted_access_enabled'
+      ? 'stackset_trusted_access_missing'
+      : prereq.id === 'stackset.delegated_admin_registered'
+        ? 'delegated_admin_recommended'
+        : 'selected_target_missing_stackset_instance';
+    items.push({
+      id: `prereq-${prereq.id}`,
+      code,
+      severity: prereq.severity,
+      scope: prereq.id,
+      message: prereq.reason,
+      operatorAction: prereq.remediation || 'Resolve this prerequisite, then refresh status.',
+      evidenceRef: `aws-stackset-prerequisite:${prereq.id}`,
+      tradeoff: code === 'delegated_admin_recommended' ? 'Delegated administration narrows the management-account blast radius.' : '',
+      retryable: true,
+      actions: code === 'stackset_trusted_access_missing'
+        ? ['open_docs', 'refresh_status']
+        : code === 'delegated_admin_recommended'
+          ? ['open_docs', 'refresh_status']
+          : ['open_stackset', 'refresh_status']
+    });
+  }
+  for (const diagnostic of stackSetOnboarding?.diagnostics ?? []) {
+    items.push(awsRepairItemFromStackSetDiagnostic(diagnostic));
+  }
+  return dedupeAWSGuidedRepairItems(items)
+    .sort((left, right) => awsRepairSeverityRank(left.severity) - awsRepairSeverityRank(right.severity))
+    .slice(0, 6);
+}
+
+function awsRepairItemFromConnectionDiagnostic(diagnostic: AWSConnectionDiagnostic, connection: AWSConnectionStatus | null): AWSGuidedRepairItem {
+  return {
+    id: `diagnostic-${diagnostic.code}-${diagnostic.affected_scope ?? diagnostic.evidence_ref ?? diagnostic.message}`,
+    code: diagnostic.code,
+    severity: diagnostic.severity ?? (connection?.connected ? 'warning' : 'blocking'),
+    scope: diagnostic.affected_scope ?? awsAccountRegionLabel(connection),
+    message: diagnostic.message,
+    operatorAction: diagnostic.operator_action ?? diagnostic.remediation ?? 'Resolve this diagnostic, then revalidate the role.',
+    evidenceRef: diagnostic.evidence_ref ?? `aws-connector:${diagnostic.code}`,
+    tradeoff: diagnostic.tradeoff ?? '',
+    retryable: diagnostic.retryable ?? true,
+    actions: diagnostic.actions ?? ['validate_role', 'refresh_status']
+  };
+}
+
+function awsRepairItemFromStackSetDiagnostic(diagnostic: AWSStackSetOnboardingDiagnostic): AWSGuidedRepairItem {
+  return {
+    id: `stackset-${diagnostic.code}-${diagnostic.affected_scope ?? diagnostic.scope ?? diagnostic.evidence_ref ?? diagnostic.message}`,
+    code: diagnostic.code,
+    severity: diagnostic.severity ?? 'warning',
+    scope: diagnostic.affected_scope ?? diagnostic.scope ?? diagnostic.source,
+    message: diagnostic.message,
+    operatorAction: diagnostic.operator_action ?? diagnostic.remediation ?? 'Resolve this StackSet diagnostic, then refresh status.',
+    evidenceRef: diagnostic.evidence_ref ?? `aws-stackset:${diagnostic.code}`,
+    tradeoff: diagnostic.tradeoff ?? '',
+    retryable: diagnostic.retryable,
+    actions: diagnostic.actions ?? ['open_stackset', 'refresh_status']
+  };
+}
+
+function dedupeAWSGuidedRepairItems(items: AWSGuidedRepairItem[]): AWSGuidedRepairItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.code}\0${item.scope}\0${item.evidenceRef}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function awsRepairActionLabel(action: AWSConnectorNextAction): string {
+  switch (action) {
+    case 'launch_stack':
+      return 'Open AWS stack';
+    case 'open_stackset':
+      return 'Open StackSet';
+    case 'enable_trusted_access':
+      return 'Trusted access guide';
+    case 'register_delegated_admin':
+      return 'Delegated admin guide';
+    case 'select_targets':
+      return 'Review targets';
+    case 'validate_role':
+      return 'Revalidate role';
+    case 'refresh_status':
+      return 'Refresh status';
+    case 'repair_permissions':
+      return 'Repair permissions';
+    case 'refresh_policy':
+      return 'Refresh policy';
+    case 'copy_trust_policy':
+      return 'Copy trust policy';
+    case 'open_docs':
+      return 'Open runbook';
+    case 'start_intelligence':
+      return 'Start discovery';
+    default:
+      return formatTokenLabel(action);
+  }
+}
+
+function AWSGuidedRepairList({
+  items,
+  actionsForItem
+}: {
+  items: AWSGuidedRepairItem[];
+  actionsForItem: (item: AWSGuidedRepairItem) => DomainAction[];
+}) {
+  if (items.length === 0) {
+    return (
+      <article className="idt-aws-repair-card is-clear">
+        <strong>All checks passing</strong>
+        <p>Connector diagnostics are clear for this environment.</p>
+      </article>
+    );
+  }
+  return (
+    <div className="idt-aws-repair-list" aria-label="AWS guided repair actions">
+      {items.map((item, index) => (
+        <article key={item.id} className={`idt-aws-repair-card is-${awsRepairSeverityRank(item.severity) === 0 ? 'blocking' : 'warning'}`}>
+          <header>
+            <span>{index === 0 ? 'Primary blocker' : formatTokenLabel(item.severity)}</span>
+            <strong>{formatTokenLabel(item.code)}</strong>
+          </header>
+          <p>{item.message}</p>
+          <p><strong>Next:</strong> {item.operatorAction}</p>
+          {item.tradeoff ? <small>{item.tradeoff}</small> : null}
+          <dl>
+            <div>
+              <dt>Scope</dt>
+              <dd>{item.scope || 'Current connector'}</dd>
+            </div>
+            <div>
+              <dt>Evidence</dt>
+              <dd>{item.evidenceRef}</dd>
+            </div>
+          </dl>
+          <div className="idt-source-actions">
+            {actionsForItem(item).map((action, actionIndex) =>
+              action.href ? (
+                <a
+                  key={`${item.id}-${action.label}-${actionIndex}`}
+                  className={`idt-btn ${action.variant === 'primary' ? 'idt-btn-primary' : action.variant === 'secondary' ? 'idt-btn-dark' : 'idt-btn-ghost'}`}
+                  href={action.href}
+                  target={action.target}
+                  rel={action.rel ?? (action.target === '_blank' ? 'noreferrer' : undefined)}
+                >
+                  {action.icon}
+                  <span>{action.label}</span>
+                </a>
+              ) : (
+                <button
+                  key={`${item.id}-${action.label}-${actionIndex}`}
+                  className={`idt-btn ${action.variant === 'primary' ? 'idt-btn-primary' : action.variant === 'secondary' ? 'idt-btn-dark' : 'idt-btn-ghost'}`}
+                  type="button"
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                >
+                  {action.icon}
+                  <span>{action.label}</span>
+                </button>
+              )
+            )}
+          </div>
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -22228,6 +22478,49 @@ export function ProductAWSConnectPage() {
     }
   };
 
+  const handleAWSRefreshPolicy = async () => {
+    if (!selectedEnvironmentID || !activeConnectorID) {
+      setErrorMessage('Prepare or select an AWS connector before refreshing the expected policy.');
+      return;
+    }
+    setSubmitting(true);
+    setErrorMessage('');
+    setAWSSetupMessage('');
+    const requestID = ++awsPollRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    const isStale = () =>
+      requestID !== awsPollRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    try {
+      const response = await apiClient.refreshAWSConnectorPolicy(
+        activeConnectorID,
+        {
+          workspace_id: scope.workspaceID,
+          project_id: requestEnvironmentID
+        },
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setAWSPermissionPreview(response.permission_preview);
+      setAWSPermissionTiers(response.permission_tiers ?? []);
+      setAWSPreviewOpen(true);
+      setSuccessMessage('Expected AWS read-only policy refreshed.');
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setErrorMessage(formatAWSConnectorSetupError(error));
+    } finally {
+      if (!isStale()) {
+        setSubmitting(false);
+      }
+    }
+  };
+
   const handleAWSSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedEnvironmentID) {
@@ -22383,6 +22676,98 @@ export function ProductAWSConnectPage() {
       connection?.health_status === 'warning' ||
       connection?.health_status === 'error'
   );
+  const activeStackSetOnboarding =
+    stackSetAWSStart?.stackset_onboarding ?? awsStackSetOnboarding ?? null;
+  const guidedRepairItems = awsGuidedRepairItems(connection, activeStackSetOnboarding);
+  const guidedRepairActionsForItem = (item: AWSGuidedRepairItem): DomainAction[] =>
+    item.actions.slice(0, 3).map((action, index) => {
+      const label = awsRepairActionLabel(action);
+      const variant = index === 0 ? 'primary' : 'ghost';
+      switch (action) {
+        case 'launch_stack':
+          return {
+            label,
+            href: launchURL || undefined,
+            target: '_blank',
+            icon: <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />,
+            variant,
+            disabled: !launchURL
+          };
+        case 'open_stackset':
+          return {
+            label,
+            href: stackSetAWSStart?.launch_url || connection?.launch_url || undefined,
+            target: '_blank',
+            icon: <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />,
+            variant,
+            disabled: !(stackSetAWSStart?.launch_url || connection?.launch_url)
+          };
+        case 'refresh_status':
+          return {
+            label,
+            onClick: () => {
+              if (activeConnectorID) {
+                void handleAWSPoll();
+                if (isStackSetSetup) {
+                  void refreshStackSetOnboarding();
+                }
+              } else {
+                void refreshConnection('manual');
+              }
+            },
+            variant,
+            disabled: refreshingConnection || submitting
+          };
+        case 'validate_role':
+          return {
+            label,
+            onClick: () => {
+              document.querySelector<HTMLButtonElement>('[data-aws-validate-action="true"]')?.click();
+            },
+            variant,
+            disabled: !canValidateRole || submitting
+          };
+        case 'refresh_policy':
+          return {
+            label,
+            onClick: () => void handleAWSRefreshPolicy(),
+            variant,
+            disabled: !activeConnectorID || submitting
+          };
+        case 'copy_trust_policy':
+          return {
+            label,
+            onClick: () => void copyAWSManualValue('trust-policy', manualTrustPolicy),
+            variant,
+            disabled: !manualTrustPolicy
+          };
+        case 'enable_trusted_access':
+        case 'register_delegated_admin':
+        case 'repair_permissions':
+        case 'open_docs':
+          return {
+            label,
+            href: '/docs/aws-connect-troubleshooting',
+            icon: <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />,
+            variant,
+            target: '_blank'
+          };
+        case 'select_targets':
+          return {
+            label,
+            onClick: () => document.querySelector<HTMLInputElement>('[aria-describedby="idt-aws-scope-regions-hint"]')?.focus(),
+            variant
+          };
+        case 'start_intelligence':
+          return {
+            label,
+            href: controlPath,
+            variant
+          };
+        default:
+          return { label, onClick: () => undefined, variant };
+      }
+    });
   const onboardingStatus = connection?.onboarding_status ?? awsCloudFormationStart?.onboarding_status ?? (connectedNow ? 'connected' : 'draft');
   const setupSummaryTitle = (() => {
     if (connectedNow) {
@@ -22780,7 +23165,7 @@ export function ProductAWSConnectPage() {
                           {submitting ? 'Refreshing...' : 'Refresh status'}
                         </button>
                       ) : null}
-                      <button className="idt-btn idt-btn-primary" type="submit" disabled={!canSubmit || !canValidateRole}>
+                      <button className="idt-btn idt-btn-primary" type="submit" disabled={!canSubmit || !canValidateRole} data-aws-validate-action="true">
                         {submitting ? 'Validating...' : 'Validate connection'}
                       </button>
                     </div>
@@ -22825,7 +23210,7 @@ export function ProductAWSConnectPage() {
                           {submitting ? 'Refreshing...' : 'Refresh status'}
                         </button>
                       ) : null}
-                      <button className="idt-btn idt-btn-primary" type="submit" disabled={!canSubmit || !canValidateRole}>
+                      <button className="idt-btn idt-btn-primary" type="submit" disabled={!canSubmit || !canValidateRole} data-aws-validate-action="true">
                         {submitting ? 'Validating...' : 'Validate role'}
                       </button>
                     </div>
@@ -22889,6 +23274,17 @@ export function ProductAWSConnectPage() {
                 ) : null}
               </div>
             </section>
+
+            {(hasConnectorSetup || guidedRepairItems.length > 0 || connectedNow) ? (
+              <DomainStatusPanel
+                eyebrow="Guided repair"
+                title={guidedRepairItems.length > 0 ? 'Next setup action' : 'Connector health summary'}
+                status={awsRepairStatus(guidedRepairItems, connectedNow)}
+                tone={awsRepairTone(guidedRepairItems, connectedNow)}
+              >
+                <AWSGuidedRepairList items={guidedRepairItems} actionsForItem={guidedRepairActionsForItem} />
+              </DomainStatusPanel>
+            ) : null}
 
             {showOperationalPanels ? (
               <>

@@ -151,6 +151,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AWS session policy recommendation path: `aws-session-policy-recommendation.md`
 - AWS SQS/SNS reachability: `aws-sqs-sns-reachability.md`
 - AWS SSM parameter metadata: `aws-ssm-parameter-metadata.md`
+- AWS Connect troubleshooting: `aws-connect-troubleshooting.md`
 - AWS StackSet onboarding: `aws-stackset-onboarding.md`
 - AWS Step Functions state machine roles: `aws-stepfunctions-state-machine-roles.md`
 - AWS approved trust-policy hardening executor: `aws-trust-policy-hardening-executor.md`

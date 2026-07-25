@@ -109,7 +109,8 @@ func TestUpsertAWSConnectionReportsUnavailableWriteCapability(t *testing.T) {
 
 	var capabilityDiagnostic *AWSConnectionDiagnostic
 	for i := range status.Diagnostics {
-		if status.Diagnostics[i].Code == "aws_capability_unavailable_approved_remediation" {
+		if status.Diagnostics[i].Code == "missing_read_only_permission_tier" &&
+			status.Diagnostics[i].AffectedScope == string(domain.ConnectorCapabilityApprovedRemediation) {
 			capabilityDiagnostic = &status.Diagnostics[i]
 			break
 		}

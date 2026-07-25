@@ -165,12 +165,18 @@ type AWSStackSetOnboardingSummary struct {
 
 // AWSStackSetOnboardingDiagnostic is one planning/execution diagnostic.
 type AWSStackSetOnboardingDiagnostic struct {
-	Source      string `json:"source"`
-	Scope       string `json:"scope,omitempty"`
-	Code        string `json:"code"`
-	Message     string `json:"message"`
-	Remediation string `json:"remediation,omitempty"`
-	Retryable   bool   `json:"retryable"`
+	Source         string                   `json:"source"`
+	Scope          string                   `json:"scope,omitempty"`
+	Code           string                   `json:"code"`
+	Severity       string                   `json:"severity,omitempty"`
+	AffectedScope  string                   `json:"affected_scope,omitempty"`
+	Message        string                   `json:"message"`
+	OperatorAction string                   `json:"operator_action,omitempty"`
+	Remediation    string                   `json:"remediation,omitempty"`
+	Retryable      bool                     `json:"retryable"`
+	EvidenceRef    string                   `json:"evidence_ref,omitempty"`
+	Tradeoff       string                   `json:"tradeoff,omitempty"`
+	Actions        []AWSConnectorNextAction `json:"actions,omitempty"`
 }
 
 // AWSStackSetOnboardingCoverageGap names a deliberate boundary of the planner.
@@ -279,6 +285,7 @@ func (s *Service) buildAWSStackSetOnboarding(scope db.Scope, project db.TenancyP
 		TargetRegions:         collectStackSetRegionCodes(plan.Targets.Regions),
 	})
 
+	diagnostics = awsStackSetRepairDiagnostics(plan, diagnostics)
 	status, confidence, failures, remediations := summarizeAWSStackSetOnboarding(fixtureState, plan, diagnostics)
 
 	return AWSStackSetOnboardingResult{
@@ -748,6 +755,190 @@ func summarizeAWSStackSetOnboarding(fixtureState string, plan awscontract.StackS
 				dedupeStrings(append(remediations, "Open the StackSet console launch URL to deploy the read-only connector across the target accounts."))
 		}
 	}
+}
+
+func awsStackSetRepairDiagnostics(plan awscontract.StackSetOnboardingPlan, diagnostics []AWSStackSetOnboardingDiagnostic) []AWSStackSetOnboardingDiagnostic {
+	out := make([]AWSStackSetOnboardingDiagnostic, 0, len(diagnostics)+len(plan.Validation.Prerequisites)+len(plan.Instances)+1)
+	for _, diagnostic := range diagnostics {
+		out = append(out, enrichAWSStackSetDiagnostic(plan, diagnostic))
+	}
+	for _, prerequisite := range plan.Validation.Prerequisites {
+		if prerequisite.Satisfied {
+			continue
+		}
+		code := "selected_target_missing_stackset_instance"
+		switch prerequisite.ID {
+		case "stackset.trusted_access_enabled":
+			code = "stackset_trusted_access_missing"
+		case "stackset.delegated_admin_registered":
+			code = "delegated_admin_recommended"
+		}
+		out = append(out, enrichAWSStackSetDiagnostic(plan, AWSStackSetOnboardingDiagnostic{
+			Source:      "stackset_onboarding_prerequisite",
+			Scope:       prerequisite.ID,
+			Code:        code,
+			Message:     prerequisite.Reason,
+			Remediation: prerequisite.Remediation,
+			Retryable:   true,
+		}))
+	}
+	for _, instance := range plan.Instances {
+		switch instance.State {
+		case awscontract.StackSetStatePending, awscontract.StackSetStateValidating, awscontract.StackSetStateDeploying:
+			out = append(out, enrichAWSStackSetDiagnostic(plan, AWSStackSetOnboardingDiagnostic{
+				Source:      "stackset_instance",
+				Scope:       awsStackSetInstanceScope(instance.AccountID, instance.Region),
+				Code:        "cloudformation_stack_not_deployed",
+				Message:     "AWS has not reported an active StackSet instance for this target yet.",
+				Remediation: "Open the StackSet launch URL, complete deployment, then refresh status.",
+				Retryable:   true,
+			}))
+		case awscontract.StackSetStateFailed:
+			out = append(out, enrichAWSStackSetDiagnostic(plan, AWSStackSetOnboardingDiagnostic{
+				Source:      "stackset_instance",
+				Scope:       awsStackSetInstanceScope(instance.AccountID, instance.Region),
+				Code:        "partial_stackset_coverage",
+				Message:     firstNonEmptyAWSValue(strings.TrimSpace(instance.FailureReason), "A StackSet instance failed and coverage is partial."),
+				Remediation: "Re-run the failed StackSet instance, then refresh status.",
+				Retryable:   instance.Resumable,
+			}))
+		case awscontract.StackSetStatePermissionDenied:
+			out = append(out, enrichAWSStackSetDiagnostic(plan, AWSStackSetOnboardingDiagnostic{
+				Source:      "stackset_instance",
+				Scope:       awsStackSetInstanceScope(instance.AccountID, instance.Region),
+				Code:        "member_account_permission_denied",
+				Message:     firstNonEmptyAWSValue(strings.TrimSpace(instance.FailureReason), "AWS denied StackSet deployment in a member account."),
+				Remediation: "Confirm Organizations trusted access and member-account permissions, then retry this instance.",
+				Retryable:   true,
+			}))
+		case awscontract.StackSetStateUnsupported:
+			out = append(out, enrichAWSStackSetDiagnostic(plan, AWSStackSetOnboardingDiagnostic{
+				Source:      "stackset_instance",
+				Scope:       awsStackSetInstanceScope(instance.AccountID, instance.Region),
+				Code:        "region_unsupported_or_not_opted_in",
+				Message:     "The target region is unsupported or not opted in for this member account.",
+				Remediation: "Choose an opted-in AWS region or enable the region in the member account before redeploying.",
+				Retryable:   true,
+			}))
+		}
+	}
+	return dedupeAWSStackSetDiagnostics(out)
+}
+
+func enrichAWSStackSetDiagnostic(plan awscontract.StackSetOnboardingPlan, diagnostic AWSStackSetOnboardingDiagnostic) AWSStackSetOnboardingDiagnostic {
+	diagnostic.Code = normalizeAWSStackSetDiagnosticCode(diagnostic.Code)
+	if strings.TrimSpace(diagnostic.Severity) == "" {
+		diagnostic.Severity = awsStackSetDiagnosticSeverity(diagnostic.Code)
+	}
+	if strings.TrimSpace(diagnostic.AffectedScope) == "" {
+		diagnostic.AffectedScope = firstNonEmptyAWSValue(strings.TrimSpace(diagnostic.Scope), plan.OrganizationID, plan.StackSetName)
+	}
+	if strings.TrimSpace(diagnostic.OperatorAction) == "" {
+		diagnostic.OperatorAction = firstNonEmptyAWSValue(strings.TrimSpace(diagnostic.Remediation), awsStackSetDiagnosticAction(diagnostic.Code))
+	}
+	if strings.TrimSpace(diagnostic.Remediation) == "" {
+		diagnostic.Remediation = diagnostic.OperatorAction
+	}
+	if strings.TrimSpace(diagnostic.EvidenceRef) == "" {
+		diagnostic.EvidenceRef = "aws-stackset:" + diagnostic.Code
+		if strings.TrimSpace(diagnostic.Scope) != "" {
+			diagnostic.EvidenceRef += ":" + strings.TrimSpace(diagnostic.Scope)
+		}
+	}
+	if strings.TrimSpace(diagnostic.Tradeoff) == "" {
+		diagnostic.Tradeoff = awsStackSetDiagnosticTradeoff(diagnostic.Code)
+	}
+	if len(diagnostic.Actions) == 0 {
+		diagnostic.Actions = awsStackSetDiagnosticActions(diagnostic.Code)
+	}
+	return diagnostic
+}
+
+func normalizeAWSStackSetDiagnosticCode(code string) string {
+	switch strings.TrimSpace(code) {
+	case "trusted_access_disabled":
+		return "stackset_trusted_access_missing"
+	case "delegated_admin_missing":
+		return "delegated_admin_recommended"
+	case "create_stack_instance_throttled":
+		return "partial_stackset_coverage"
+	default:
+		return strings.TrimSpace(code)
+	}
+}
+
+func awsStackSetDiagnosticSeverity(code string) string {
+	switch code {
+	case "delegated_admin_recommended", "partial_stackset_coverage", "region_unsupported_or_not_opted_in":
+		return "warning"
+	default:
+		return "blocking"
+	}
+}
+
+func awsStackSetDiagnosticAction(code string) string {
+	switch code {
+	case "stackset_trusted_access_missing":
+		return "Enable Organizations trusted access for CloudFormation StackSets, then refresh status."
+	case "delegated_admin_recommended":
+		return "Register a delegated administrator for StackSets to reduce management-account blast radius."
+	case "member_account_permission_denied":
+		return "Fix member-account StackSet permissions, retry that instance, then refresh status."
+	case "region_unsupported_or_not_opted_in":
+		return "Use an opted-in region or enable the target region before relaunching StackSet coverage."
+	case "partial_stackset_coverage":
+		return "Retry failed StackSet instances, then refresh status before relying on coverage."
+	default:
+		return "Open the StackSet launch URL, complete deployment, then refresh status."
+	}
+}
+
+func awsStackSetDiagnosticTradeoff(code string) string {
+	switch code {
+	case "delegated_admin_recommended":
+		return "Using the management account can work, but delegated administration narrows the operational blast radius."
+	case "partial_stackset_coverage":
+		return "Leaving failed instances unresolved keeps healthy accounts visible, but Identrail will not claim full organization coverage."
+	case "region_unsupported_or_not_opted_in":
+		return "Skipping unsupported regions avoids failed deployments, but coverage will exclude workloads in those regions."
+	default:
+		return ""
+	}
+}
+
+func awsStackSetDiagnosticActions(code string) []AWSConnectorNextAction {
+	switch code {
+	case "stackset_trusted_access_missing":
+		return []AWSConnectorNextAction{AWSConnectorNextActionEnableTrustedAccess, AWSConnectorNextActionRefreshStatus, AWSConnectorNextActionOpenDocs}
+	case "delegated_admin_recommended":
+		return []AWSConnectorNextAction{AWSConnectorNextActionRegisterDelegatedAdmin, AWSConnectorNextActionRefreshStatus, AWSConnectorNextActionOpenDocs}
+	case "selected_target_missing_stackset_instance", "cloudformation_stack_not_deployed":
+		return []AWSConnectorNextAction{AWSConnectorNextActionOpenStackSet, AWSConnectorNextActionRefreshStatus}
+	default:
+		return []AWSConnectorNextAction{AWSConnectorNextActionOpenStackSet, AWSConnectorNextActionRefreshStatus, AWSConnectorNextActionOpenDocs}
+	}
+}
+
+func awsStackSetInstanceScope(accountID string, region string) string {
+	return strings.Trim(strings.TrimSpace(accountID)+"/"+strings.TrimSpace(region), "/")
+}
+
+func dedupeAWSStackSetDiagnostics(diagnostics []AWSStackSetOnboardingDiagnostic) []AWSStackSetOnboardingDiagnostic {
+	out := make([]AWSStackSetOnboardingDiagnostic, 0, len(diagnostics))
+	seen := map[string]struct{}{}
+	for _, diagnostic := range diagnostics {
+		key := strings.Join([]string{
+			strings.TrimSpace(diagnostic.Code),
+			strings.TrimSpace(diagnostic.AffectedScope),
+			strings.TrimSpace(diagnostic.EvidenceRef),
+		}, "\x00")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, diagnostic)
+	}
+	return out
 }
 
 func collectStackSetOUIDs(units []awscontract.OrganizationUnit) []string {

@@ -104,6 +104,9 @@ const (
 	AWSConnectorNextActionValidateRole           AWSConnectorNextAction = "validate_role"
 	AWSConnectorNextActionRefreshStatus          AWSConnectorNextAction = "refresh_status"
 	AWSConnectorNextActionRepairPermissions      AWSConnectorNextAction = "repair_permissions"
+	AWSConnectorNextActionRefreshPolicy          AWSConnectorNextAction = "refresh_policy"
+	AWSConnectorNextActionCopyTrustPolicy        AWSConnectorNextAction = "copy_trust_policy"
+	AWSConnectorNextActionOpenDocs               AWSConnectorNextAction = "open_docs"
 	AWSConnectorNextActionStartIntelligence      AWSConnectorNextAction = "start_intelligence"
 )
 
@@ -237,9 +240,16 @@ type AWSConnectionValidationRequest struct {
 
 // AWSConnectionDiagnostic explains one validation outcome and how to remediate it.
 type AWSConnectionDiagnostic struct {
-	Code        string `json:"code"`
-	Message     string `json:"message"`
-	Remediation string `json:"remediation,omitempty"`
+	Code           string                   `json:"code"`
+	Severity       string                   `json:"severity,omitempty"`
+	AffectedScope  string                   `json:"affected_scope,omitempty"`
+	Message        string                   `json:"message"`
+	OperatorAction string                   `json:"operator_action,omitempty"`
+	Remediation    string                   `json:"remediation,omitempty"`
+	Retryable      bool                     `json:"retryable"`
+	EvidenceRef    string                   `json:"evidence_ref,omitempty"`
+	Tradeoff       string                   `json:"tradeoff,omitempty"`
+	Actions        []AWSConnectorNextAction `json:"actions,omitempty"`
 }
 
 // AWSConnectionPermissionCheck captures one connector permission sanity check.
@@ -1418,7 +1428,7 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 		onboardingStatus = AWSConnectorOnboardingNeedsFix
 	}
 
-	checks := copyAWSPermissionChecks(validation.PermissionChecks)
+	checks := scrubAWSPermissionChecks(copyAWSPermissionChecks(validation.PermissionChecks), normalized.ExternalID)
 	if connected && len(checks) == 0 {
 		checks = []AWSConnectionPermissionCheck{{
 			Name:    "sts:AssumeRole",
@@ -1434,7 +1444,13 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
-	diagnostics := append(copyAWSDiagnostics(validation.Diagnostics), capabilityDiagnostics...)
+	diagnostics := awsConnectorSetupDiagnostics(
+		setup,
+		normalized.RoleARN,
+		normalized.ExternalID,
+		append(copyAWSDiagnostics(validation.Diagnostics), capabilityDiagnostics...),
+		checks,
+	)
 
 	metadata := map[string]any{
 		"role_arn":               normalized.RoleARN,
@@ -1737,7 +1753,7 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 		TargetRegions:         collectStackSetRegionCodes(plan.Targets.Regions),
 		AutoDeploymentEnabled: awsConnectorStackSetAutoDeploymentEnabled(mode, setup),
 	})
-	status, confidence, failures, remediations := summarizeAWSStackSetOnboarding("success", plan, nil)
+	diagnostics := []AWSStackSetOnboardingDiagnostic{}
 	instances := mapAWSStackSetInstances(plan.Instances)
 	coverageExpectation := mapAWSStackSetCoverageExpectation(plan.CoverageExpectation)
 	summary := mapAWSStackSetSummary(plan.Summary)
@@ -1749,7 +1765,6 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 			Remediation: "Launch the StackSet in AWS, then refresh connector status to reconcile observed coverage.",
 		},
 	}
-	diagnostics := []AWSStackSetOnboardingDiagnostic{}
 	if !projectionKnown {
 		instances = []AWSStackSetOnboardingInstance{}
 		coverageExpectation = unknownAWSStackSetCoverageExpectation(len(plan.Targets.Regions), "Service-managed StackSet scopes are expanded by AWS during deployment; expected accounts, instances, and coverage targets are unknown until AWS resolves effective membership.")
@@ -1769,6 +1784,8 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 			Retryable:   true,
 		})
 	}
+	diagnostics = awsStackSetRepairDiagnostics(plan, diagnostics)
+	status, confidence, failures, remediations := summarizeAWSStackSetOnboarding("success", plan, diagnostics)
 	return AWSStackSetOnboardingResult{
 		TenantID:            scope.TenantID,
 		WorkspaceID:         project.WorkspaceID,
@@ -2499,6 +2516,9 @@ func failedAWSChecks(checks []AWSConnectionPermissionCheck) []AWSConnectionPermi
 
 func firstAWSRemediation(diagnostics []AWSConnectionDiagnostic, checks []AWSConnectionPermissionCheck) string {
 	for _, diagnostic := range diagnostics {
+		if strings.TrimSpace(diagnostic.OperatorAction) != "" {
+			return diagnostic.OperatorAction
+		}
 		if strings.TrimSpace(diagnostic.Remediation) != "" {
 			return diagnostic.Remediation
 		}
@@ -2689,6 +2709,9 @@ func awsMetadataNextActions(metadata map[string]any, key string, fallback []AWSC
 			AWSConnectorNextActionValidateRole,
 			AWSConnectorNextActionRefreshStatus,
 			AWSConnectorNextActionRepairPermissions,
+			AWSConnectorNextActionRefreshPolicy,
+			AWSConnectorNextActionCopyTrustPolicy,
+			AWSConnectorNextActionOpenDocs,
 			AWSConnectorNextActionStartIntelligence:
 			actions = append(actions, action)
 		}
@@ -2813,12 +2836,227 @@ func (s *Service) resolveAWSConnectorCapabilities(requested []domain.ConnectorCa
 			Reason:     unavailable.Reason,
 		})
 		diagnostics = append(diagnostics, AWSConnectionDiagnostic{
-			Code:        fmt.Sprintf("aws_capability_unavailable_%s", unavailable.Capability),
-			Message:     fmt.Sprintf("requested capability %q is unavailable: %s", unavailable.Capability, unavailable.Reason),
-			Remediation: fmt.Sprintf("Enable the %q capability gate for this deployment before requesting it; write-capable tiers also require a dedicated write role.", unavailable.Capability),
+			Code:           "missing_read_only_permission_tier",
+			Severity:       "blocking",
+			AffectedScope:  string(unavailable.Capability),
+			Message:        fmt.Sprintf("requested capability %q is unavailable: %s", unavailable.Capability, unavailable.Reason),
+			OperatorAction: fmt.Sprintf("Enable the %q capability gate for this deployment before requesting it; write-capable tiers also require a dedicated write role.", unavailable.Capability),
+			Remediation:    fmt.Sprintf("Enable the %q capability gate for this deployment before requesting it; write-capable tiers also require a dedicated write role.", unavailable.Capability),
+			Retryable:      true,
+			EvidenceRef:    fmt.Sprintf("aws-capability:%s/%s", unavailable.Capability, unavailable.Tier),
+			Actions:        []AWSConnectorNextAction{AWSConnectorNextActionRefreshPolicy, AWSConnectorNextActionOpenDocs, AWSConnectorNextActionValidateRole},
 		})
 	}
 	return capabilities, diagnostics, nil
+}
+
+func awsConnectorSetupDiagnostics(setup awsConnectorSetupContract, roleARN string, externalID string, diagnostics []AWSConnectionDiagnostic, checks []AWSConnectionPermissionCheck) []AWSConnectionDiagnostic {
+	out := make([]AWSConnectionDiagnostic, 0, len(diagnostics)+len(checks))
+	for _, diagnostic := range diagnostics {
+		out = append(out, scrubAWSConnectionDiagnostic(enrichAWSConnectionDiagnostic(setup, roleARN, diagnostic), externalID))
+	}
+	for _, check := range checks {
+		if check.Passed {
+			continue
+		}
+		out = append(out, scrubAWSConnectionDiagnostic(awsDiagnosticFromPermissionCheck(setup, roleARN, check), externalID))
+	}
+	return dedupeAWSConnectionDiagnostics(out)
+}
+
+func enrichAWSConnectionDiagnostic(setup awsConnectorSetupContract, roleARN string, diagnostic AWSConnectionDiagnostic) AWSConnectionDiagnostic {
+	code := normalizeAWSSetupDiagnosticCode(diagnostic.Code, diagnostic.Message+" "+diagnostic.Remediation)
+	diagnostic.Code = code
+	if strings.TrimSpace(diagnostic.Severity) == "" {
+		diagnostic.Severity = awsSetupDiagnosticSeverity(code)
+	}
+	if strings.TrimSpace(diagnostic.AffectedScope) == "" {
+		diagnostic.AffectedScope = awsDiagnosticAffectedScope(setup, roleARN)
+	}
+	if strings.TrimSpace(diagnostic.OperatorAction) == "" {
+		diagnostic.OperatorAction = firstNonEmptyAWSValue(strings.TrimSpace(diagnostic.Remediation), awsSetupDiagnosticAction(code, setup))
+	}
+	if strings.TrimSpace(diagnostic.Remediation) == "" {
+		diagnostic.Remediation = diagnostic.OperatorAction
+	}
+	if !diagnostic.Retryable {
+		diagnostic.Retryable = awsSetupDiagnosticRetryable(code)
+	}
+	if strings.TrimSpace(diagnostic.EvidenceRef) == "" {
+		diagnostic.EvidenceRef = "aws-connector:" + code
+	}
+	if strings.TrimSpace(diagnostic.Tradeoff) == "" {
+		diagnostic.Tradeoff = awsSetupDiagnosticTradeoff(code, setup)
+	}
+	if len(diagnostic.Actions) == 0 {
+		diagnostic.Actions = awsSetupDiagnosticActions(code, setup)
+	}
+	return diagnostic
+}
+
+func awsDiagnosticFromPermissionCheck(setup awsConnectorSetupContract, roleARN string, check AWSConnectionPermissionCheck) AWSConnectionDiagnostic {
+	code := "missing_read_only_permission_tier"
+	if strings.Contains(strings.ToLower(check.Name+" "+check.Message), "assumerole") {
+		code = "assume_role_failed"
+	}
+	return enrichAWSConnectionDiagnostic(setup, roleARN, AWSConnectionDiagnostic{
+		Code:        code,
+		Message:     firstNonEmptyAWSValue(strings.TrimSpace(check.Message), "AWS connector validation failed for "+check.Name+"."),
+		Remediation: strings.TrimSpace(check.Remediation),
+		EvidenceRef: "aws-permission-check:" + strings.TrimSpace(check.Name),
+	})
+}
+
+func normalizeAWSSetupDiagnosticCode(code string, text string) string {
+	normalized := strings.ToLower(strings.TrimSpace(code))
+	search := strings.ToLower(text + " " + normalized)
+	switch {
+	case strings.Contains(normalized, "external_id") || strings.Contains(search, "external id") || strings.Contains(search, "externalid"):
+		return "external_id_mismatch"
+	case strings.Contains(normalized, "malformed") || (strings.Contains(search, "role arn") && strings.Contains(search, "valid")):
+		return "role_arn_malformed"
+	case strings.Contains(normalized, "capability") || strings.Contains(normalized, "permission") || strings.Contains(search, "permission"):
+		return "missing_read_only_permission_tier"
+	case strings.Contains(normalized, "access_denied") || strings.Contains(normalized, "assume") || strings.Contains(search, "assume"):
+		return "assume_role_failed"
+	case normalized == "":
+		return "assume_role_failed"
+	default:
+		return normalized
+	}
+}
+
+func awsSetupDiagnosticSeverity(code string) string {
+	switch code {
+	case "delegated_admin_recommended", "partial_stackset_coverage":
+		return "warning"
+	default:
+		return "blocking"
+	}
+}
+
+func awsDiagnosticAffectedScope(setup awsConnectorSetupContract, roleARN string) string {
+	if accountID := awsAccountIDFromRoleARN(roleARN); accountID != "" {
+		return "account/" + accountID
+	}
+	switch setup.ScopeType {
+	case AWSConnectorScopeOrganization:
+		return "organization"
+	case AWSConnectorScopeSelectedOUs:
+		return "selected_ous"
+	case AWSConnectorScopeSelectedAccounts:
+		return "selected_accounts"
+	default:
+		return "single_account"
+	}
+}
+
+func awsAccountIDFromRoleARN(roleARN string) string {
+	parts := strings.Split(roleARN, ":")
+	if len(parts) >= 5 && awsAccountIDPattern.MatchString(parts[4]) {
+		return parts[4]
+	}
+	return ""
+}
+
+func awsSetupDiagnosticAction(code string, setup awsConnectorSetupContract) string {
+	switch code {
+	case "external_id_mismatch":
+		return "Copy the current External ID guidance into the IAM trust policy, then revalidate the role."
+	case "role_arn_malformed":
+		return "Paste the full IAM role ARN from AWS, then revalidate."
+	case "missing_read_only_permission_tier":
+		return "Refresh the expected policy, update the read-only role permissions, then revalidate."
+	case "connector_config_missing":
+		return "Configure the AWS CloudFormation template URL and checksum for this Identrail deployment."
+	default:
+		if awsConnectorDeploymentIsStackSet(setup.DeploymentMethod) {
+			return "Review the StackSet trust and instance status, then refresh connector status."
+		}
+		return "Update the IAM role trust policy so Identrail can assume the role, then revalidate."
+	}
+}
+
+func awsSetupDiagnosticTradeoff(code string, setup awsConnectorSetupContract) string {
+	switch code {
+	case "missing_read_only_permission_tier":
+		return "Keeping the narrower policy limits blast radius, but Identrail will not claim coverage for services it cannot read."
+	case "external_id_mismatch":
+		return "Rotating the trust-policy condition protects this tenant boundary, but the role will stay unavailable until AWS and Identrail match."
+	case "assume_role_failed":
+		if awsConnectorDeploymentIsStackSet(setup.DeploymentMethod) {
+			return "Fixing trust for one StackSet role restores validation without granting write remediation permissions."
+		}
+		return "Fixing trust restores read-only collection without granting write remediation permissions."
+	default:
+		return ""
+	}
+}
+
+func awsSetupDiagnosticRetryable(code string) bool {
+	switch code {
+	case "connector_config_missing":
+		return false
+	default:
+		return true
+	}
+}
+
+func awsSetupDiagnosticActions(code string, setup awsConnectorSetupContract) []AWSConnectorNextAction {
+	switch code {
+	case "external_id_mismatch":
+		return []AWSConnectorNextAction{AWSConnectorNextActionCopyTrustPolicy, AWSConnectorNextActionValidateRole, AWSConnectorNextActionRefreshStatus}
+	case "missing_read_only_permission_tier":
+		return []AWSConnectorNextAction{AWSConnectorNextActionRefreshPolicy, AWSConnectorNextActionRepairPermissions, AWSConnectorNextActionValidateRole}
+	case "role_arn_malformed":
+		return []AWSConnectorNextAction{AWSConnectorNextActionValidateRole, AWSConnectorNextActionOpenDocs}
+	default:
+		if awsConnectorDeploymentIsStackSet(setup.DeploymentMethod) {
+			return []AWSConnectorNextAction{AWSConnectorNextActionOpenStackSet, AWSConnectorNextActionRefreshStatus, AWSConnectorNextActionValidateRole}
+		}
+		return []AWSConnectorNextAction{AWSConnectorNextActionCopyTrustPolicy, AWSConnectorNextActionValidateRole, AWSConnectorNextActionRefreshStatus}
+	}
+}
+
+func dedupeAWSConnectionDiagnostics(diagnostics []AWSConnectionDiagnostic) []AWSConnectionDiagnostic {
+	out := make([]AWSConnectionDiagnostic, 0, len(diagnostics))
+	seen := map[string]struct{}{}
+	for _, diagnostic := range diagnostics {
+		key := strings.Join([]string{
+			strings.TrimSpace(diagnostic.Code),
+			strings.TrimSpace(diagnostic.AffectedScope),
+		}, "\x00")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, diagnostic)
+	}
+	return out
+}
+
+func scrubAWSConnectionDiagnostic(diagnostic AWSConnectionDiagnostic, externalID string) AWSConnectionDiagnostic {
+	secret := strings.TrimSpace(externalID)
+	if secret == "" {
+		return diagnostic
+	}
+	diagnostic.Message = strings.ReplaceAll(diagnostic.Message, secret, "[redacted]")
+	diagnostic.OperatorAction = strings.ReplaceAll(diagnostic.OperatorAction, secret, "[redacted]")
+	diagnostic.Remediation = strings.ReplaceAll(diagnostic.Remediation, secret, "[redacted]")
+	diagnostic.Tradeoff = strings.ReplaceAll(diagnostic.Tradeoff, secret, "[redacted]")
+	return diagnostic
+}
+
+func scrubAWSPermissionChecks(checks []AWSConnectionPermissionCheck, externalID string) []AWSConnectionPermissionCheck {
+	secret := strings.TrimSpace(externalID)
+	if secret == "" {
+		return checks
+	}
+	for index := range checks {
+		checks[index].Message = strings.ReplaceAll(checks[index].Message, secret, "[redacted]")
+		checks[index].Remediation = strings.ReplaceAll(checks[index].Remediation, secret, "[redacted]")
+	}
+	return checks
 }
 
 // defaultAWSConnectorCapabilities returns the read-only discovery baseline used

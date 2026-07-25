@@ -23999,6 +23999,74 @@ html[data-theme='light'] .idt-app-shell-screen select {
   margin: 0;
 }
 
+.idt-aws-repair-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-aws-repair-card {
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.8rem;
+  background: #050505;
+}
+
+.idt-aws-repair-card.is-blocking {
+  border-color: rgba(255, 90, 90, 0.42);
+}
+
+.idt-aws-repair-card.is-warning {
+  border-color: rgba(255, 153, 0, 0.38);
+}
+
+.idt-aws-repair-card.is-clear {
+  border-color: rgba(91, 221, 139, 0.34);
+}
+
+.idt-aws-repair-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.idt-aws-repair-card header span {
+  color: var(--app-dim);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-aws-repair-card p {
+  margin: 0.55rem 0 0;
+  color: var(--app-muted);
+}
+
+.idt-aws-repair-card small {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--app-dim);
+}
+
+.idt-aws-repair-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0.7rem 0 0;
+}
+
+.idt-aws-repair-card dt {
+  color: var(--app-dim);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-aws-repair-card dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
 .idt-aws-control-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));

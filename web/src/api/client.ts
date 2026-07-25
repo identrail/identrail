@@ -828,8 +828,15 @@ export type AWSConnectionPermissionCheck = {
 
 export type AWSConnectionDiagnostic = {
   code: string;
+  severity?: string;
+  affected_scope?: string;
   message: string;
+  operator_action?: string;
   remediation?: string;
+  retryable?: boolean;
+  evidence_ref?: string;
+  tradeoff?: string;
+  actions?: AWSConnectorNextAction[];
 };
 
 export type AWSPermissionPreviewItem = {
@@ -9077,9 +9084,15 @@ export type AWSStackSetOnboardingDiagnostic = {
   source: string;
   scope?: string;
   code: string;
+  severity?: string;
+  affected_scope?: string;
   message: string;
+  operator_action?: string;
   remediation?: string;
   retryable: boolean;
+  evidence_ref?: string;
+  tradeoff?: string;
+  actions?: AWSConnectorNextAction[];
 };
 
 export type AWSStackSetOnboardingCoverageGap = {
@@ -9709,6 +9722,9 @@ export type AWSConnectorNextAction =
   | 'validate_role'
   | 'refresh_status'
   | 'repair_permissions'
+  | 'refresh_policy'
+  | 'copy_trust_policy'
+  | 'open_docs'
   | 'start_intelligence';
 
 export type AWSConnectorTargetSummary = {

@@ -9018,6 +9018,83 @@ describe('Domain-first app routes', () => {
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
   });
 
+  it('shows guided AWS repair blockers with safe action buttons', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connected: false,
+        status: 'degraded',
+        health_status: 'error',
+        onboarding_status: 'needs_fix',
+        diagnostics: [
+          {
+            code: 'missing_read_only_permission_tier',
+            severity: 'blocking',
+            affected_scope: 'account/123456789012',
+            message: 'IAM read-only permissions are missing for the connector role.',
+            operator_action: 'Refresh the expected policy, update the role, then revalidate.',
+            remediation: 'Refresh the expected policy, update the role, then revalidate.',
+            retryable: true,
+            evidence_ref: 'aws-permission-check:iam:ListRoles',
+            tradeoff: 'Identrail will not claim coverage for services it cannot read.',
+            actions: ['refresh_policy', 'validate_role', 'refresh_status']
+          }
+        ]
+      }
+    });
+    const refreshPolicy = vi.spyOn(api.apiClient, 'refreshAWSConnectorPolicy').mockResolvedValue({
+      policy_hash: 'sha256:updated',
+      policy_document: {},
+      permission_preview: [
+        { service: 'IAM', actions: ['iam:ListRoles'], resources: ['*'], reason: 'List IAM roles.' }
+      ],
+      permission_tiers: []
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: /Next setup action/i })).toBeInTheDocument();
+    expect(screen.getByText(/Primary blocker/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Missing Read Only Permission Tier/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Identrail will not claim coverage/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Refresh policy/i }));
+
+    await waitFor(() =>
+      expect(refreshPolicy).toHaveBeenCalledWith(
+        'aws-connector-1',
+        { workspace_id: 'workspace-a', project_id: 'production' },
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+  });
+
   it('preserves AWS connector 404 details for stale environments', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });

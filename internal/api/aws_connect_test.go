@@ -618,6 +618,49 @@ func TestRouterAWSConnectionOnboardingReturnsTrustRemediation(t *testing.T) {
 	}
 }
 
+func TestRouterAWSConnectionDiagnosticsRedactExternalID(t *testing.T) {
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			PermissionChecks: []AWSConnectionPermissionCheck{{
+				Name:        "sts:AssumeRole",
+				Passed:      false,
+				Message:     "AWS rejected External ID secret-external-id-value.",
+				Remediation: "Replace secret-external-id-value in the trust policy.",
+			}},
+			Diagnostics: []AWSConnectionDiagnostic{{
+				Code:        "external_id_mismatch",
+				Message:     "Trust policy expected a different External ID than secret-external-id-value.",
+				Remediation: "Copy secret-external-id-value from setup context only.",
+			}},
+		},
+	}
+	r := newAWSConnectionTestRouter(t, validator)
+
+	resp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/aws/connection", `{
+		"role_arn":"arn:aws:iam::123456789012:role/BadTrustRole",
+		"external_id":"secret-external-id-value"
+	}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected diagnostic response 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if strings.Contains(resp.Body.String(), "secret-external-id-value") {
+		t.Fatalf("diagnostics must redact external id, got %s", resp.Body.String())
+	}
+
+	var body struct {
+		Connection AWSConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Connection.Diagnostics) != 1 || body.Connection.Diagnostics[0].Code != "external_id_mismatch" {
+		t.Fatalf("expected one external-id diagnostic, got %+v", body.Connection.Diagnostics)
+	}
+	if !strings.Contains(body.Connection.Diagnostics[0].Message, "[redacted]") {
+		t.Fatalf("expected redacted diagnostic text, got %+v", body.Connection.Diagnostics[0])
+	}
+}
+
 func TestRouterAWSConnectionRejectsInvalidRoleARN(t *testing.T) {
 	r := newAWSConnectionTestRouter(t, &fakeAWSConnectorValidator{})
 
