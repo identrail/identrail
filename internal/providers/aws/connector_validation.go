@@ -134,10 +134,19 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 	}
 	identity, err := identityClient(assumedCfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
+		code := classifyAWSError(err, "aws_identity_metadata_failed")
+		if code == "aws_access_denied" {
+			// AssumeRole already succeeded, so an AccessDenied on
+			// GetCallerIdentity is not a trust-policy problem — the assumed
+			// credentials were rejected by a session policy, permissions
+			// boundary, or organization SCP. Emit a distinct code so guided
+			// repair does not send the operator to the trust policy.
+			code = "aws_assumed_role_access_denied"
+		}
 		result.Diagnostics = append(result.Diagnostics, api.AWSConnectionDiagnostic{
-			Code:        classifyAWSError(err, "aws_identity_metadata_failed"),
+			Code:        code,
 			Message:     "Unable to read caller identity metadata after assuming the connector role.",
-			Remediation: "Verify the assumed-role credentials are usable and not blocked by an organization SCP or session policy.",
+			Remediation: "Verify the assumed-role credentials are usable and not blocked by an organization SCP, permissions boundary, or session policy.",
 		})
 		return result, nil
 	}

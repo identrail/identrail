@@ -109,7 +109,7 @@ func TestUpsertAWSConnectionReportsUnavailableWriteCapability(t *testing.T) {
 
 	var capabilityDiagnostic *AWSConnectionDiagnostic
 	for i := range status.Diagnostics {
-		if status.Diagnostics[i].Code == "missing_read_only_permission_tier" &&
+		if status.Diagnostics[i].Code == "capability_unavailable" &&
 			status.Diagnostics[i].AffectedScope == string(domain.ConnectorCapabilityApprovedRemediation) {
 			capabilityDiagnostic = &status.Diagnostics[i]
 			break
@@ -118,8 +118,16 @@ func TestUpsertAWSConnectionReportsUnavailableWriteCapability(t *testing.T) {
 	if capabilityDiagnostic == nil {
 		t.Fatalf("expected a capability-scoped diagnostic, got %+v", status.Diagnostics)
 	}
+	if capabilityDiagnostic.Severity != "warning" {
+		t.Fatalf("capability diagnostic severity = %q, want warning so it does not block a healthy connector", capabilityDiagnostic.Severity)
+	}
 	if capabilityDiagnostic.Remediation == "" {
 		t.Fatalf("expected remediation guidance on capability diagnostic, got %+v", capabilityDiagnostic)
+	}
+	for _, diagnostic := range status.Diagnostics {
+		if diagnostic.Code == "missing_read_only_permission_tier" {
+			t.Fatalf("write-tier capability must not surface as a read-only permission blocker: %+v", diagnostic)
+		}
 	}
 }
 

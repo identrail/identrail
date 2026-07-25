@@ -2835,15 +2835,15 @@ func (s *Service) resolveAWSConnectorCapabilities(requested []domain.ConnectorCa
 			Reason:     unavailable.Reason,
 		})
 		diagnostics = append(diagnostics, AWSConnectionDiagnostic{
-			Code:           "missing_read_only_permission_tier",
-			Severity:       "blocking",
+			Code:           "capability_unavailable",
+			Severity:       "warning",
 			AffectedScope:  string(unavailable.Capability),
 			Message:        fmt.Sprintf("requested capability %q is unavailable: %s", unavailable.Capability, unavailable.Reason),
 			OperatorAction: fmt.Sprintf("Enable the %q capability gate for this deployment before requesting it; write-capable tiers also require a dedicated write role.", unavailable.Capability),
 			Remediation:    fmt.Sprintf("Enable the %q capability gate for this deployment before requesting it; write-capable tiers also require a dedicated write role.", unavailable.Capability),
 			Retryable:      true,
 			EvidenceRef:    fmt.Sprintf("aws-capability:%s/%s", unavailable.Capability, unavailable.Tier),
-			Actions:        []AWSConnectorNextAction{AWSConnectorNextActionRefreshPolicy, AWSConnectorNextActionOpenDocs, AWSConnectorNextActionValidateRole},
+			Actions:        []AWSConnectorNextAction{AWSConnectorNextActionOpenDocs, AWSConnectorNextActionRefreshPolicy},
 		})
 	}
 	return capabilities, diagnostics, nil
@@ -2909,8 +2909,12 @@ func awsDiagnosticFromPermissionCheck(setup awsConnectorSetupContract, roleARN s
 func normalizeAWSSetupDiagnosticCode(code string, text string) string {
 	normalized := strings.ToLower(strings.TrimSpace(code))
 	switch normalized {
-	case "assume_role_failed", "external_id_mismatch", "role_arn_malformed", "missing_read_only_permission_tier", "connector_config_missing":
+	case "assume_role_failed", "external_id_mismatch", "role_arn_malformed", "missing_read_only_permission_tier", "connector_config_missing", "assumed_role_access_denied", "capability_unavailable":
 		return normalized
+	case "aws_assumed_role_access_denied":
+		return "assumed_role_access_denied"
+	case "aws_capability_unavailable":
+		return "capability_unavailable"
 	case "aws_access_denied", "access_denied":
 		return "assume_role_failed"
 	}
@@ -2933,7 +2937,7 @@ func normalizeAWSSetupDiagnosticCode(code string, text string) string {
 
 func awsSetupDiagnosticSeverity(code string) string {
 	switch code {
-	case "delegated_admin_recommended", "partial_stackset_coverage":
+	case "delegated_admin_recommended", "partial_stackset_coverage", "capability_unavailable":
 		return "warning"
 	default:
 		return "blocking"
@@ -2972,6 +2976,10 @@ func awsSetupDiagnosticAction(code string, setup awsConnectorSetupContract) stri
 		return "Paste the full IAM role ARN from AWS, then revalidate."
 	case "missing_read_only_permission_tier":
 		return "Refresh the expected policy, update the read-only role permissions, then revalidate."
+	case "capability_unavailable":
+		return "Enable the requested capability gate for this Identrail deployment; the read-only connector will keep collecting in the meantime."
+	case "assumed_role_access_denied":
+		return "Trust already worked. Loosen the session policy, permissions boundary, or organization SCP that is blocking the assumed role, then revalidate."
 	case "connector_config_missing":
 		return "Configure the AWS CloudFormation template URL and checksum for this Identrail deployment."
 	default:
@@ -2986,6 +2994,8 @@ func awsSetupDiagnosticTradeoff(code string, setup awsConnectorSetupContract) st
 	switch code {
 	case "missing_read_only_permission_tier":
 		return "Keeping the narrower policy limits blast radius, but Identrail will not claim coverage for services it cannot read."
+	case "capability_unavailable":
+		return "Read-only discovery keeps running, but the requested capability stays off until the deployment gate opens it."
 	case "external_id_mismatch":
 		return "Rotating the trust-policy condition protects this tenant boundary, but the role will stay unavailable until AWS and Identrail match."
 	case "assume_role_failed":
@@ -2993,6 +3003,8 @@ func awsSetupDiagnosticTradeoff(code string, setup awsConnectorSetupContract) st
 			return "Fixing trust for one StackSet role restores validation without granting write remediation permissions."
 		}
 		return "Fixing trust restores read-only collection without granting write remediation permissions."
+	case "assumed_role_access_denied":
+		return "Trust already works; loosening the session policy or SCP restores caller-identity metadata without changing the trust boundary."
 	default:
 		return ""
 	}
@@ -3013,6 +3025,10 @@ func awsSetupDiagnosticActions(code string, setup awsConnectorSetupContract) []A
 		return []AWSConnectorNextAction{AWSConnectorNextActionCopyTrustPolicy, AWSConnectorNextActionValidateRole, AWSConnectorNextActionRefreshStatus}
 	case "missing_read_only_permission_tier":
 		return []AWSConnectorNextAction{AWSConnectorNextActionRefreshPolicy, AWSConnectorNextActionRepairPermissions, AWSConnectorNextActionValidateRole}
+	case "capability_unavailable":
+		return []AWSConnectorNextAction{AWSConnectorNextActionOpenDocs, AWSConnectorNextActionRefreshPolicy}
+	case "assumed_role_access_denied":
+		return []AWSConnectorNextAction{AWSConnectorNextActionRepairPermissions, AWSConnectorNextActionOpenDocs, AWSConnectorNextActionValidateRole}
 	case "role_arn_malformed":
 		return []AWSConnectorNextAction{AWSConnectorNextActionValidateRole, AWSConnectorNextActionOpenDocs}
 	default:
