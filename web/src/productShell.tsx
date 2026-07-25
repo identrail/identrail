@@ -10197,7 +10197,24 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     const requestID = ++stackSetOnboardingRequestRef.current;
     setStackSetOnboarding(null);
     setStackSetOnboardingError('');
-    if (!isAWSCoverageInventoryRoute(routeID) || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+    // Only fetch when the connector is actually a StackSet setup. Otherwise
+    // the backend defaults to a synthetic service-managed success fixture
+    // with fabricated OUs and accounts, which would render as fake
+    // organization progress under a plain single_account/cloudformation
+    // connector on the AWS Accounts and Coverage routes.
+    const isStackSetConnector =
+      connection?.scope_type === 'organization' ||
+      connection?.scope_type === 'selected_ous' ||
+      connection?.scope_type === 'selected_accounts' ||
+      connection?.deployment_method === 'stackset_service_managed' ||
+      connection?.deployment_method === 'stackset_self_managed';
+    if (
+      !isAWSCoverageInventoryRoute(routeID) ||
+      !scope ||
+      !selectedEnvironmentID ||
+      !connection?.connector_id ||
+      !isStackSetConnector
+    ) {
       setStackSetOnboardingLoading(false);
       return;
     }
@@ -10236,6 +10253,8 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     connection?.region,
     connection?.status,
     connection?.health_status,
+    connection?.scope_type,
+    connection?.deployment_method,
   ]);
 
   useEffect(() => {
@@ -21728,7 +21747,11 @@ export function ProductAWSConnectPage() {
     // Once the operator edits any scope-contract field, the prepared start
     // response no longer describes what the wizard would launch. Drop it so
     // neither the launch button nor the sidebar can send them to the AWS
-    // console with the old targets baked into the launch URL.
+    // console with the old targets baked into the launch URL. Also bump the
+    // start request ref so an in-flight StackSet start (targets typed while
+    // Preparing StackSet... is still spinning) can no longer restore its
+    // previous targets, launch URL, or auto-open the AWS console for an
+    // account or OU the operator just removed.
     setAWSCloudFormationStart((current) => {
       if (
         current &&
@@ -21740,7 +21763,9 @@ export function ProductAWSConnectPage() {
       return current;
     });
     setAWSStackSetOnboarding(null);
+    awsStartRequestRef.current += 1;
     awsStackSetOnboardingRequestRef.current += 1;
+    setSubmitting(false);
     setAWSStackSetOnboardingLoading(false);
     setAWSStackSetOnboardingError('');
   };
