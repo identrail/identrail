@@ -21692,11 +21692,17 @@ export function ProductAWSConnectPage() {
       }
       return '';
     }
-    return (
-      cloudFormationAWSStart?.connector_id ??
-      (connection?.deployment_method === 'cloudformation' ? connection?.connector_id : '') ??
-      ''
-    );
+    // Single-account mode covers CloudFormation and Terraform deployment
+    // methods (both map back to scope_type=single_account via
+    // awsSetupModeFromResponse). Restricting the fallback to
+    // deployment_method==='cloudformation' would hide the Refresh/Validate
+    // actions for a persisted Terraform connector.
+    const singleAccountConnectionID =
+      connection?.deployment_method === 'cloudformation' ||
+      connection?.deployment_method === 'terraform'
+        ? connection?.connector_id
+        : '';
+    return cloudFormationAWSStart?.connector_id ?? singleAccountConnectionID ?? '';
   })();
   activeConnectorIDRef.current = activeConnectorID;
   const canValidateRole = Boolean(normalizeValue(awsForm.roleARN)) && (!isManualSetup || Boolean(activeConnectorID));

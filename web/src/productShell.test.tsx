@@ -10264,6 +10264,76 @@ describe('Domain-first app routes', () => {
     expect(stagingCall?.stack_set_name).not.toBe('ProdCustomStackSet');
   });
 
+  it('keeps a persisted Terraform single-account connector reachable from the wizard', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-terraform-single',
+        scope_type: 'single_account',
+        deployment_method: 'terraform',
+        onboarding_status: 'connected'
+      }
+    });
+    const pollAWSConnector = vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-terraform-single',
+        scope_type: 'single_account',
+        deployment_method: 'terraform',
+        onboarding_status: 'connected'
+      }
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Single-account mode covers both CloudFormation and Terraform deployment
+    // methods. The verify step (Refresh status / Validate connection) must
+    // still be reachable for a Terraform-provisioned connector — the wizard
+    // step's Refresh button clicks into pollAWSConnector, not the sidebar
+    // Permission health refresh action.
+    const wizardStep = await screen.findByRole('heading', { level: 4, name: /Verify the connection/i });
+    const wizardStepBody = wizardStep.closest('.idt-aws-wizard-step') as HTMLElement | null;
+    expect(wizardStepBody).not.toBeNull();
+    const refreshButton = within(wizardStepBody!).getByRole('button', { name: /Refresh status/i });
+    expect(refreshButton).not.toBeDisabled();
+
+    fireEvent.click(refreshButton);
+    await waitFor(() =>
+      expect(pollAWSConnector).toHaveBeenCalledWith(
+        'aws-terraform-single',
+        'workspace-a',
+        'production',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+  });
+
   it('omits role_name on resume for a pending StackSet connector with empty role_arn', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
