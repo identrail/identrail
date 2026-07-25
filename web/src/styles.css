@@ -18280,15 +18280,12 @@ html[data-theme='light'] .idt-scan-stepper li.is-active {
   padding: clamp(4.8rem, 8vw, 7.2rem) clamp(1.1rem, 5vw, 6rem);
 }
 
-.idt-home-after-stack .idt-eyebrow {
-  color: currentColor;
-  font-size: 0.74rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-}
-
-/* Light theme: use the brand accent so the eyebrow stays legible instead of
-   inheriting a washed-out body color via currentColor. */
+/* The home-after-stack surface always renders on a light cream background
+   regardless of the site's `data-theme`, so the eyebrow must not inherit the
+   dark-theme body color (a near-white blue-gray) via `currentColor` — that
+   made "ADOPTION PATHS" read as blurry near-white text on cream. Use the
+   brand accent in both themes. */
+.idt-home-after-stack .idt-eyebrow,
 html[data-theme='light'] .idt-home-after-stack .idt-eyebrow {
   color: var(--idt-z-purple-dark);
   font-size: 0.74rem;

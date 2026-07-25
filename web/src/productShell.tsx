@@ -5,7 +5,7 @@ import type {
   MutableRefObject,
   PointerEvent as ReactPointerEvent
 } from 'react';
-import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router';
 import {
   BarChart3,
   ChevronDown,

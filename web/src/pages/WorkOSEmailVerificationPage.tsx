@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { OTPInput, REGEXP_ONLY_DIGITS } from 'input-otp';
 import { ApiError, apiClient, type WorkOSEmailVerificationPendingResponse } from '../api/client';
 import { normalizeCompletedSessionRedirect, normalizeReturnTo } from './WorkOSMFAPage';

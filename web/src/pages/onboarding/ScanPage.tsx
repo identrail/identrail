@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router';
 import { apiClient, type OnboardingState, type ScanRecord, type ScanRequest } from '../../api/client';
 import { EnterSubmitHint } from '../../components/common/EnterSubmitHint';
 import { SkipForNow } from '../../components/onboarding/SkipForNow';

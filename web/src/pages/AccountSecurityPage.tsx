@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import { apiClient, type SessionListItem } from '../api/client';
 import { SessionsList } from '../components/auth/SessionsList';
 import { ErrorState } from '../components/common/ErrorState';

@@ -1,5 +1,5 @@
 import { renderToString } from 'react-dom/server';
-import { StaticRouter } from 'react-router-dom';
+import { StaticRouter } from 'react-router';
 import { RoutedSite, ScanIntakeModalProvider } from './App';
 
 type PrerenderInput = {

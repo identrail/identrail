@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { ApiError, apiClient, buildAPIURL, type AuthConfigResponse } from '../api/client';
 import { getCachedAuthConfig, loadAuthConfig } from '../authConfigCache';
 import { clearMeCache } from '../hooks/useMe';

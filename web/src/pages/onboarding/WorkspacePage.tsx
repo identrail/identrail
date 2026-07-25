@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router';
 import { apiClient, type OnboardingState } from '../../api/client';
 import { EnterSubmitHint } from '../../components/common/EnterSubmitHint';
 import {

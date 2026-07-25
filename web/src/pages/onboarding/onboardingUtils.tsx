@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Link, NavigateFunction } from 'react-router-dom';
+import { Link, NavigateFunction } from 'react-router';
 import { ArrowRight, LogOut } from 'lucide-react';
 import {
   apiClient,

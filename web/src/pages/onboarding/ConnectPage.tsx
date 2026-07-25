@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router';
 import { apiClient } from '../../api/client';
 import { EnterSubmitHint } from '../../components/common/EnterSubmitHint';
 import { SkipForNow } from '../../components/onboarding/SkipForNow';

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router';
 import { apiClient, type OnboardingState } from '../../api/client';
 import { SkipForNow } from '../../components/onboarding/SkipForNow';
 import {

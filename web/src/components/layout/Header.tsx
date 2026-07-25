@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router';
 import { preloadAuthConfig } from '../../authConfigCache';
 import { siteLinks } from '../../siteConfig';
 
