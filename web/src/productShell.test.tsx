@@ -10132,9 +10132,226 @@ describe('Domain-first app routes', () => {
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
     await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
+    // On resume the wizard omits stack_set_name (and role_name) so the backend
+    // keeps whatever it stored for the connector; sending the wizard default
+    // would trip resumeAWSStackSetConnectorStart when the stored name differs.
     expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({
       connector_id: 'aws-org-named',
-      stack_set_name: 'CustomerNamedStackSet'
+      stack_set_name: undefined,
+      role_name: undefined
+    });
+  });
+
+  it('resets the hidden StackSet name when switching to an environment without a connector', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging',
+          name: 'Staging',
+          slug: 'staging',
+          description: 'Staging AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    const getConnection = vi
+      .spyOn(api.apiClient, 'getAWSProjectConnection')
+      .mockImplementation((_workspaceID: string, projectID: string) => {
+        if (projectID === 'production') {
+          return Promise.resolve({
+            connection: {
+              ...connectedAWS,
+              connector_id: 'aws-prod-named',
+              scope_type: 'organization',
+              deployment_method: 'stackset_service_managed',
+              onboarding_status: 'connected',
+              target_regions: ['us-east-1'],
+              target_ou_ids: ['r-abcd'],
+              stack_set_name: 'ProdCustomStackSet'
+            }
+          });
+        }
+        return Promise.resolve({ connection: disconnectedAWS });
+      });
+    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
+      onboarding: readyAWSStackSetOnboarding
+    });
+    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-staging-new',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'launch_ready'
+      },
+      connector_id: 'aws-staging-new',
+      external_id: 'staging-external',
+      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
+      template_url: 'https://example.com/template.yaml',
+      role_name: 'IdentrailReadOnly',
+      stack_name: 'identrail-readonly-connector',
+      stack_set_name: 'identrail-readonly-stackset',
+      policy_hash: 'sha256:example',
+      template_checksum: 'sha256:example',
+      scope_type: 'organization',
+      deployment_method: 'stackset_service_managed',
+      onboarding_status: 'launch_ready',
+      target_regions: ['us-east-1'],
+      target_account_ids: [],
+      target_ou_ids: ['r-abcd'],
+      excluded_account_ids: [],
+      auto_onboard_new_accounts: true,
+      setup_summary: 'Fresh staging setup.',
+      next_actions: ['open_stackset', 'refresh_status'],
+      stackset_onboarding: readyAWSStackSetOnboarding,
+      permission_preview: [],
+      permission_tiers: []
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Wait for the production connector to hydrate the custom stack set name.
+    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
+
+    // Switch to the staging environment (no connector yet).
+    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
+    await waitFor(() => expect(getConnection).toHaveBeenCalledWith(
+      'workspace-a',
+      'staging',
+      expect.anything()
+    ));
+
+    // Kick off a fresh StackSet setup in staging — the hidden StackSet name
+    // must come from the wizard default, not leak from the production
+    // environment's custom name.
+    fireEvent.click(screen.getByRole('button', { name: /AWS Organization/i }));
+    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
+    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
+
+    await waitFor(() => expect(startAWSConnector).toHaveBeenCalled());
+    const stagingCall = startAWSConnector.mock.calls[startAWSConnector.mock.calls.length - 1]?.[0] as {
+      stack_set_name?: string;
+      connector_id?: string;
+    };
+    expect(stagingCall?.connector_id).toBeUndefined();
+    expect(stagingCall?.stack_set_name).toBe('identrail-readonly-stackset');
+    expect(stagingCall?.stack_set_name).not.toBe('ProdCustomStackSet');
+  });
+
+  it('omits role_name on resume for a pending StackSet connector with empty role_arn', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      // Pending API-created StackSet connector: no role_arn yet (StackSet
+      // hasn't deployed the role), so role_name cannot be derived from the
+      // ARN. AWSConnectionStatus doesn't currently expose role_name.
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-pending-role',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'waiting_for_aws',
+        target_regions: ['us-east-1'],
+        target_ou_ids: ['r-abcd'],
+        role_arn: undefined
+      }
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
+      onboarding: readyAWSStackSetOnboarding
+    });
+    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-pending-role',
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'launch_ready'
+      },
+      connector_id: 'aws-pending-role',
+      external_id: 'pending-external',
+      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
+      template_url: 'https://example.com/template.yaml',
+      role_name: 'CustomRoleFromBackend',
+      stack_name: 'identrail-readonly-connector',
+      stack_set_name: 'CustomerNamedStackSet',
+      policy_hash: 'sha256:example',
+      template_checksum: 'sha256:example',
+      scope_type: 'organization',
+      deployment_method: 'stackset_service_managed',
+      onboarding_status: 'launch_ready',
+      target_regions: ['us-east-1'],
+      target_account_ids: [],
+      target_ou_ids: ['r-abcd'],
+      excluded_account_ids: [],
+      auto_onboard_new_accounts: true,
+      setup_summary: 'Pending setup.',
+      next_actions: ['open_stackset', 'refresh_status'],
+      stackset_onboarding: readyAWSStackSetOnboarding,
+      permission_preview: [],
+      permission_tiers: []
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
+    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
+
+    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
+    // Resume must not overwrite the stored custom role name with the wizard
+    // default — omit role_name entirely so the backend keeps its stored value.
+    expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({
+      connector_id: 'aws-pending-role',
+      role_name: undefined
     });
   });
 
@@ -10626,10 +10843,13 @@ describe('Domain-first app routes', () => {
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
     await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
+    // The role name and StackSet name are hydrated in the form for display,
+    // but the resume payload omits them so the backend keeps the stored
+    // values rather than overwriting them with the wizard defaults.
     expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({
       connector_id: 'aws-org-role',
-      role_name: 'CustomerReadOnlyIdentrail',
-      stack_set_name: 'CustomerNamedStackSet'
+      role_name: undefined,
+      stack_set_name: undefined
     });
   });
 

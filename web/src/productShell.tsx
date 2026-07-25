@@ -21540,6 +21540,8 @@ export function ProductAWSConnectPage() {
       region: 'us-east-1',
       displayName: '',
       sessionName: 'identrail-connector-validation',
+      roleName: 'IdentrailReadOnly',
+      stackSetName: 'identrail-readonly-stackset',
       organizationRootID: '',
       targetRegions: 'us-east-1',
       targetOUIDs: '',
@@ -22012,14 +22014,26 @@ export function ProductAWSConnectPage() {
         }
         return undefined;
       })();
+      const resumingExisting = Boolean(activeConnectorID);
+      // On resume, omit role_name / stack_set_name when the operator hasn't
+      // touched them. AWSConnectionStatus doesn't currently expose the stored
+      // role_name (and role_arn is empty for a not-yet-deployed connector),
+      // so we can't hydrate the form with the stored value in every case.
+      // Sending the hardcoded default would trip resumeAWSStackSetConnectorStart
+      // when the stored name differs. Omitting them lets the backend keep the
+      // stored values.
+      const shouldSendRoleName =
+        !resumingExisting || awsScopeDirtyRef.current.roleName;
+      const shouldSendStackSetName =
+        !resumingExisting || awsScopeDirtyRef.current.stackSetName;
       const payload = {
         workspace_id: scope.workspaceID,
         project_id: requestEnvironmentID,
         connector_id: activeConnectorID || undefined,
         display_name: normalizeValue(awsForm.displayName) || undefined,
         region,
-        role_name: normalizeValue(awsForm.roleName) || undefined,
-        stack_set_name: normalizeValue(awsForm.stackSetName) || undefined,
+        role_name: shouldSendRoleName ? normalizeValue(awsForm.roleName) || undefined : undefined,
+        stack_set_name: shouldSendStackSetName ? normalizeValue(awsForm.stackSetName) || undefined : undefined,
         scope_type: scopeType,
         deployment_method: deploymentMethod,
         target_regions: parsedTargetRegions,
