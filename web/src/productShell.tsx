@@ -21903,6 +21903,10 @@ export function ProductAWSConnectPage() {
           !awsCloudFormationStartRef.current &&
           !awsSetupModeTouchedRef.current
         ) {
+          // Snapshot the wizard-start request id at dispatch so we can drop
+          // this resume if a real start (Manual, StackSet, or a fresh
+          // CloudFormation launch) fired while our call was in flight.
+          const resumeStartRequestID = awsStartRequestRef.current;
           try {
             const resumed = await apiClient.startAWSConnector(
               {
@@ -21915,13 +21919,27 @@ export function ProductAWSConnectPage() {
               },
               buildProductAuthContext(scope)
             );
-            if (!isStale()) {
-              setAWSCloudFormationStart(resumed);
-              setAWSForm((current) => ({
-                ...current,
-                externalID: current.externalID || resumed.external_id
-              }));
+            // Recheck every ref that describes the wizard's current shape
+            // before applying resumed secrets. If the operator switched to
+            // Manual or a StackSet mode while we awaited — or a competing
+            // start response already installed different values — installing
+            // the CloudFormation External ID here would hide "Generate
+            // External ID" in Manual mode while leaving activeConnectorID
+            // empty and validation disabled, stranding the wizard in a
+            // mismatched state.
+            if (
+              isStale() ||
+              awsSetupModeTouchedRef.current ||
+              awsCloudFormationStartRef.current ||
+              awsStartRequestRef.current !== resumeStartRequestID
+            ) {
+              return;
             }
+            setAWSCloudFormationStart(resumed);
+            setAWSForm((current) => ({
+              ...current,
+              externalID: current.externalID || resumed.external_id
+            }));
           } catch {
             // Resume is a best-effort hydration; if it fails the operator
             // can still restart the wizard manually. Do not surface an
