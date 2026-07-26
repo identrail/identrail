@@ -22218,15 +22218,21 @@ export function ProductAWSConnectPage() {
   const canValidateRole = Boolean(normalizeValue(awsForm.roleARN)) && (!isManualSetup || Boolean(activeConnectorID));
   const selectedAWSRegion = normalizeValue(awsForm.region) || 'us-east-1';
   const manualExternalID = normalizeValue(awsForm.externalID);
-  // Trust-policy snippet is identical across deployment methods: it encodes
-  // the Identrail account plus this connector's External ID. Sourcing from the
-  // active start response — instead of only the manual variant — keeps the
-  // guided repair "copy trust policy" button usable after a CloudFormation or
-  // StackSet start, which is exactly when a trust misconfiguration surfaces.
-  const wizardIdentrailAccountID = normalizeValue(awsCloudFormationStart?.identrail_account_id);
+  // The trust-policy snippet is identical across deployment methods: it
+  // encodes the Identrail account plus this connector's External ID. Both are
+  // non-secret trust-policy inputs already published to AWS in the customer's
+  // role, so we fall back to the persisted connection status when the
+  // transient wizard start response is gone (page reload after a degraded
+  // CloudFormation setup). Without this fallback, the guided repair
+  // copy_trust_policy button stays disabled precisely when the operator needs
+  // it after navigation.
+  const wizardIdentrailAccountID = normalizeValue(
+    awsCloudFormationStart?.identrail_account_id ?? connection?.identrail_account_id ?? ''
+  );
+  const persistedExternalID = normalizeValue(connection?.external_id);
   const awsTrustPolicy = buildAWSManualTrustPolicy(
     wizardIdentrailAccountID,
-    manualExternalID,
+    manualExternalID || persistedExternalID,
     awsPartitionForManualTrustPolicy(awsForm.roleARN, selectedAWSRegion)
   );
 

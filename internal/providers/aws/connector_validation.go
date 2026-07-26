@@ -134,19 +134,19 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 	}
 	identity, err := identityClient(assumedCfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
-		// sts:GetCallerIdentity has no permission surface — AWS documents that
-		// it returns the caller identity even under an explicit deny — and
-		// this validator supplies no session policy to AssumeRole. Any failure
-		// here (including AccessDenied) is therefore a credential/endpoint
-		// anomaly rather than a policy problem, so do not send the operator to
-		// trust, session, SCP, or permissions-boundary controls that cannot be
-		// responsible for the outcome.
-		code := classifyAWSError(err, "aws_identity_metadata_failed")
-		if code == "aws_access_denied" {
-			code = "aws_identity_metadata_unexpected"
-		}
+		// AssumeRole already succeeded, so any failure of the follow-up
+		// GetCallerIdentity call — AccessDenied, throttling, invalid token,
+		// expired token, or otherwise — must not route the operator to
+		// AssumeRole/trust-policy repair actions. AWS documents that
+		// sts:GetCallerIdentity requires no permissions (it returns caller
+		// info even under an explicit deny) and this validator supplies no
+		// session policy to AssumeRole, so trust, session, SCP, and
+		// permissions-boundary controls cannot be responsible for the outcome.
+		// Classify every failure here as an identity-metadata anomaly so
+		// guided repair points to credential/endpoint remediation regardless
+		// of the underlying error subtype.
 		result.Diagnostics = append(result.Diagnostics, api.AWSConnectionDiagnostic{
-			Code:        code,
+			Code:        "aws_identity_metadata_unexpected",
 			Message:     "Unable to read caller identity metadata after assuming the connector role.",
 			Remediation: "Retry validation; if the failure persists, check STS endpoint reachability from this deployment and confirm the assumed session credentials are intact — sts:GetCallerIdentity requires no permissions, so trust and session policies are not the cause.",
 		})

@@ -148,45 +148,54 @@ func TestConnectionValidatorValidateAWSConnectionTrustFailure(t *testing.T) {
 	}
 }
 
-// AWS documents sts:GetCallerIdentity as requiring no permissions, so an
-// AccessDenied response there indicates a credential/endpoint anomaly rather
-// than a policy issue. The validator must not reclassify it as an
-// AssumeRole/trust failure — that would send the operator to controls that
-// cannot be responsible for the outcome.
-func TestConnectionValidatorValidateAWSConnectionGetCallerIdentityAccessDenied(t *testing.T) {
-	validator := testConnectionValidator(&fakeSTSAssumeRoleClient{
-		output: &sts.AssumeRoleOutput{
-			Credentials: &ststypes.Credentials{
-				AccessKeyId:     awsv2.String("access"),
-				SecretAccessKey: awsv2.String("secret"),
-				SessionToken:    awsv2.String("token"),
-			},
-		},
-	}, fakeSTSIdentityClient{
-		err: &smithy.GenericAPIError{Code: "AccessDenied", Message: "denied"},
-	}, fakeIAMValidationClient{})
+// AWS documents sts:GetCallerIdentity as requiring no permissions, so any
+// failure here indicates a credential/endpoint anomaly rather than a policy
+// issue. The validator must not preserve subtype-specific codes that would
+// fall through guided-repair action tables to trust-policy actions —
+// AssumeRole already succeeded, so those repairs cannot resolve the failure.
+func TestConnectionValidatorValidateAWSConnectionGetCallerIdentityFailures(t *testing.T) {
+	cases := map[string]error{
+		"access denied": &smithy.GenericAPIError{Code: "AccessDenied", Message: "denied"},
+		"throttled":     &smithy.GenericAPIError{Code: "Throttling", Message: "slow down"},
+		"expired token": &smithy.GenericAPIError{Code: "ExpiredToken", Message: "session expired"},
+		"invalid token": &smithy.GenericAPIError{Code: "InvalidClientTokenID", Message: "unknown key"},
+		"unclassified":  errors.New("network reset"),
+	}
+	for name, callErr := range cases {
+		t.Run(name, func(t *testing.T) {
+			validator := testConnectionValidator(&fakeSTSAssumeRoleClient{
+				output: &sts.AssumeRoleOutput{
+					Credentials: &ststypes.Credentials{
+						AccessKeyId:     awsv2.String("access"),
+						SecretAccessKey: awsv2.String("secret"),
+						SessionToken:    awsv2.String("token"),
+					},
+				},
+			}, fakeSTSIdentityClient{err: callErr}, fakeIAMValidationClient{})
 
-	result, err := validator.ValidateAWSConnection(context.Background(), api.AWSConnectionValidationRequest{
-		RoleARN: "arn:aws:iam::123456789012:role/IdentrailReadOnly",
-	})
-	if err != nil {
-		t.Fatalf("validate connection: %v", err)
-	}
-	if len(result.PermissionChecks) != 1 || !result.PermissionChecks[0].Passed {
-		t.Fatalf("expected AssumeRole check to succeed before GetCallerIdentity, got %+v", result.PermissionChecks)
-	}
-	if len(result.Diagnostics) != 1 {
-		t.Fatalf("expected exactly one diagnostic, got %+v", result.Diagnostics)
-	}
-	diagnostic := result.Diagnostics[0]
-	if diagnostic.Code != "aws_identity_metadata_unexpected" {
-		t.Fatalf("expected identity-metadata unexpected code, got %+v", diagnostic)
-	}
-	lower := strings.ToLower(diagnostic.Remediation)
-	for _, forbidden := range []string{"scp", "session policy", "permissions boundary", "trust policy"} {
-		if strings.Contains(lower, forbidden) {
-			t.Fatalf("remediation must not send operators to %q controls that cannot resolve this failure: %q", forbidden, diagnostic.Remediation)
-		}
+			result, err := validator.ValidateAWSConnection(context.Background(), api.AWSConnectionValidationRequest{
+				RoleARN: "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+			})
+			if err != nil {
+				t.Fatalf("validate connection: %v", err)
+			}
+			if len(result.PermissionChecks) != 1 || !result.PermissionChecks[0].Passed {
+				t.Fatalf("expected AssumeRole check to succeed before GetCallerIdentity, got %+v", result.PermissionChecks)
+			}
+			if len(result.Diagnostics) != 1 {
+				t.Fatalf("expected exactly one diagnostic, got %+v", result.Diagnostics)
+			}
+			diagnostic := result.Diagnostics[0]
+			if diagnostic.Code != "aws_identity_metadata_unexpected" {
+				t.Fatalf("expected identity-metadata unexpected code, got %+v", diagnostic)
+			}
+			lower := strings.ToLower(diagnostic.Remediation)
+			for _, forbidden := range []string{"scp", "session policy", "permissions boundary", "trust policy"} {
+				if strings.Contains(lower, forbidden) {
+					t.Fatalf("remediation must not send operators to %q controls that cannot resolve this failure: %q", forbidden, diagnostic.Remediation)
+				}
+			}
+		})
 	}
 }
 
