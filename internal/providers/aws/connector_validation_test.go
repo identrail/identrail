@@ -148,6 +148,48 @@ func TestConnectionValidatorValidateAWSConnectionTrustFailure(t *testing.T) {
 	}
 }
 
+// AWS documents sts:GetCallerIdentity as requiring no permissions, so an
+// AccessDenied response there indicates a credential/endpoint anomaly rather
+// than a policy issue. The validator must not reclassify it as an
+// AssumeRole/trust failure — that would send the operator to controls that
+// cannot be responsible for the outcome.
+func TestConnectionValidatorValidateAWSConnectionGetCallerIdentityAccessDenied(t *testing.T) {
+	validator := testConnectionValidator(&fakeSTSAssumeRoleClient{
+		output: &sts.AssumeRoleOutput{
+			Credentials: &ststypes.Credentials{
+				AccessKeyId:     awsv2.String("access"),
+				SecretAccessKey: awsv2.String("secret"),
+				SessionToken:    awsv2.String("token"),
+			},
+		},
+	}, fakeSTSIdentityClient{
+		err: &smithy.GenericAPIError{Code: "AccessDenied", Message: "denied"},
+	}, fakeIAMValidationClient{})
+
+	result, err := validator.ValidateAWSConnection(context.Background(), api.AWSConnectionValidationRequest{
+		RoleARN: "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+	})
+	if err != nil {
+		t.Fatalf("validate connection: %v", err)
+	}
+	if len(result.PermissionChecks) != 1 || !result.PermissionChecks[0].Passed {
+		t.Fatalf("expected AssumeRole check to succeed before GetCallerIdentity, got %+v", result.PermissionChecks)
+	}
+	if len(result.Diagnostics) != 1 {
+		t.Fatalf("expected exactly one diagnostic, got %+v", result.Diagnostics)
+	}
+	diagnostic := result.Diagnostics[0]
+	if diagnostic.Code != "aws_identity_metadata_unexpected" {
+		t.Fatalf("expected identity-metadata unexpected code, got %+v", diagnostic)
+	}
+	lower := strings.ToLower(diagnostic.Remediation)
+	for _, forbidden := range []string{"scp", "session policy", "permissions boundary", "trust policy"} {
+		if strings.Contains(lower, forbidden) {
+			t.Fatalf("remediation must not send operators to %q controls that cannot resolve this failure: %q", forbidden, diagnostic.Remediation)
+		}
+	}
+}
+
 func TestConnectionValidatorValidateAWSConnectionIAMPermissionFailure(t *testing.T) {
 	validator := testConnectionValidator(&fakeSTSAssumeRoleClient{
 		output: &sts.AssumeRoleOutput{

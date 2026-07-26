@@ -2909,10 +2909,10 @@ func awsDiagnosticFromPermissionCheck(setup awsConnectorSetupContract, roleARN s
 func normalizeAWSSetupDiagnosticCode(code string, text string) string {
 	normalized := strings.ToLower(strings.TrimSpace(code))
 	switch normalized {
-	case "assume_role_failed", "external_id_mismatch", "role_arn_malformed", "missing_read_only_permission_tier", "connector_config_missing", "assumed_role_access_denied", "capability_unavailable":
+	case "assume_role_failed", "external_id_mismatch", "role_arn_malformed", "missing_read_only_permission_tier", "connector_config_missing", "identity_metadata_unexpected", "capability_unavailable":
 		return normalized
-	case "aws_assumed_role_access_denied":
-		return "assumed_role_access_denied"
+	case "aws_identity_metadata_unexpected", "aws_identity_metadata_failed":
+		return "identity_metadata_unexpected"
 	case "aws_capability_unavailable":
 		return "capability_unavailable"
 	case "aws_access_denied", "access_denied":
@@ -2978,8 +2978,8 @@ func awsSetupDiagnosticAction(code string, setup awsConnectorSetupContract) stri
 		return "Refresh the expected policy, update the read-only role permissions, then revalidate."
 	case "capability_unavailable":
 		return "Enable the requested capability gate for this Identrail deployment; the read-only connector will keep collecting in the meantime."
-	case "assumed_role_access_denied":
-		return "Trust already worked. Loosen the session policy, permissions boundary, or organization SCP that is blocking the assumed role, then revalidate."
+	case "identity_metadata_unexpected":
+		return "Retry validation, then check STS endpoint reachability and session-credential integrity from this deployment — sts:GetCallerIdentity requires no permissions, so trust and session policies are not the cause."
 	case "connector_config_missing":
 		return "Configure the AWS CloudFormation template URL and checksum for this Identrail deployment."
 	default:
@@ -3003,8 +3003,8 @@ func awsSetupDiagnosticTradeoff(code string, setup awsConnectorSetupContract) st
 			return "Fixing trust for one StackSet role restores validation without granting write remediation permissions."
 		}
 		return "Fixing trust restores read-only collection without granting write remediation permissions."
-	case "assumed_role_access_denied":
-		return "Trust already works; loosening the session policy or SCP restores caller-identity metadata without changing the trust boundary."
+	case "identity_metadata_unexpected":
+		return "Trust and permissions already work; STS endpoint reachability or credential integrity is the likely cause, so no policy changes are recommended."
 	default:
 		return ""
 	}
@@ -3027,8 +3027,8 @@ func awsSetupDiagnosticActions(code string, setup awsConnectorSetupContract) []A
 		return []AWSConnectorNextAction{AWSConnectorNextActionRefreshPolicy, AWSConnectorNextActionRepairPermissions, AWSConnectorNextActionValidateRole}
 	case "capability_unavailable":
 		return []AWSConnectorNextAction{AWSConnectorNextActionOpenDocs, AWSConnectorNextActionRefreshPolicy}
-	case "assumed_role_access_denied":
-		return []AWSConnectorNextAction{AWSConnectorNextActionRepairPermissions, AWSConnectorNextActionOpenDocs, AWSConnectorNextActionValidateRole}
+	case "identity_metadata_unexpected":
+		return []AWSConnectorNextAction{AWSConnectorNextActionValidateRole, AWSConnectorNextActionRefreshStatus, AWSConnectorNextActionOpenDocs}
 	case "role_arn_malformed":
 		return []AWSConnectorNextAction{AWSConnectorNextActionValidateRole, AWSConnectorNextActionOpenDocs}
 	default:
