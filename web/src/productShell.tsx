@@ -21896,12 +21896,17 @@ export function ProductAWSConnectPage() {
           response.connection.deployment_method === 'cloudformation' &&
           response.connection.scope_type === 'single_account';
         const needsTrustPolicyResume = !response.connection.connected;
+        // Fire whenever the current wizard mode is CloudFormation. Guarding
+        // on awsSetupModeTouchedRef would permanently block hydration after
+        // the operator switched setup mode even once — including switching
+        // away and back to CloudFormation, which clears
+        // awsCloudFormationStart and legitimately needs a fresh resume.
         if (
           connectorID &&
           canResumeCloudFormation &&
           needsTrustPolicyResume &&
           !awsCloudFormationStartRef.current &&
-          !awsSetupModeTouchedRef.current
+          awsSetupModeRef.current === 'cloudformation'
         ) {
           // Snapshot the wizard-start request id at dispatch so we can drop
           // this resume if a real start (Manual, StackSet, or a fresh
@@ -21919,17 +21924,16 @@ export function ProductAWSConnectPage() {
               },
               buildProductAuthContext(scope)
             );
-            // Recheck every ref that describes the wizard's current shape
-            // before applying resumed secrets. If the operator switched to
-            // Manual or a StackSet mode while we awaited — or a competing
-            // start response already installed different values — installing
-            // the CloudFormation External ID here would hide "Generate
-            // External ID" in Manual mode while leaving activeConnectorID
-            // empty and validation disabled, stranding the wizard in a
-            // mismatched state.
+            // Recheck the wizard's current shape before applying resumed
+            // secrets. If the operator switched to Manual or a StackSet mode
+            // while we awaited — or a competing start response already
+            // installed different values — installing the CloudFormation
+            // External ID here would hide "Generate External ID" in Manual
+            // mode while leaving activeConnectorID empty and validation
+            // disabled, stranding the wizard in a mismatched state.
             if (
               isStale() ||
-              awsSetupModeTouchedRef.current ||
+              awsSetupModeRef.current !== 'cloudformation' ||
               awsCloudFormationStartRef.current ||
               awsStartRequestRef.current !== resumeStartRequestID
             ) {
