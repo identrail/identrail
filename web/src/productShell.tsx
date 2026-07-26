@@ -3755,6 +3755,90 @@ function awsConnectionLabel(connection: AWSConnectionStatus | null): string {
   return connection.connected ? 'Connected' : connectionLifecycle(connection);
 }
 
+function awsExcludedAccountCount(connection: AWSConnectionStatus): number {
+  return connection.target_summary?.excluded_account_count ?? connection.excluded_account_ids.length;
+}
+
+function awsExcludedAccountLabel(count: number): string {
+  return `${count} excluded account${count === 1 ? '' : 's'}`;
+}
+
+function awsConnectedScopeLabel(connection: AWSConnectionStatus): string {
+  const excludedCount = awsExcludedAccountCount(connection);
+  switch (connection.scope_type) {
+    case 'organization':
+      if (!connection.target_summary?.all_accounts) {
+        return 'Organization';
+      }
+      return excludedCount > 0
+        ? `Organization, all accounts except ${awsExcludedAccountLabel(excludedCount)}`
+        : 'Organization, all accounts';
+    case 'selected_ous':
+      return 'Selected organizational units';
+    case 'selected_accounts':
+      return 'Selected accounts';
+    case 'manual_role':
+      return 'Existing IAM role';
+    case 'single_account':
+    default:
+      return 'Single account';
+  }
+}
+
+function awsConnectedAccountCoverageLabel(connection: AWSConnectionStatus): string {
+  const excludedCount = awsExcludedAccountCount(connection);
+  if (connection.target_summary?.all_accounts) {
+    const coverage = connection.target_summary.account_count_known
+      ? `${connection.target_summary.account_count} account${connection.target_summary.account_count === 1 ? '' : 's'}`
+      : 'All organization accounts';
+    return excludedCount > 0 ? `${coverage} except ${awsExcludedAccountLabel(excludedCount)}` : coverage;
+  }
+  if (connection.target_summary?.account_count_known) {
+    const coverage = `${connection.target_summary.account_count} account${connection.target_summary.account_count === 1 ? '' : 's'}`;
+    return excludedCount > 0 ? `${coverage} after ${awsExcludedAccountLabel(excludedCount)}` : coverage;
+  }
+  if (connection.target_summary) {
+    return 'Pending';
+  }
+  if (connection.target_account_ids.length > 0) {
+    return `${connection.target_account_ids.length} account${connection.target_account_ids.length === 1 ? '' : 's'}`;
+  }
+  return connection.account_id ? `Account ${connection.account_id}` : 'Pending';
+}
+
+function awsConnectedRegionCoverageLabel(connection: AWSConnectionStatus): string {
+  const count = connection.target_summary?.region_count ?? connection.target_regions.length;
+  if (count > 0) {
+    return `${count} region${count === 1 ? '' : 's'}`;
+  }
+  return connection.region ? connection.region : 'Pending';
+}
+
+function awsConnectedTradeoffs(connection: AWSConnectionStatus): string[] {
+  switch (connection.scope_type) {
+    case 'organization':
+      return connection.auto_onboard_new_accounts
+        ? ['New organization accounts are included automatically.', 'Excluded accounts stay out of collection until removed from the exclusion list.']
+        : ['Organization coverage is fixed to the current targets.', 'New accounts need an explicit onboarding update before Identrail collects them.'];
+    case 'selected_ous':
+      return [
+        connection.excluded_account_ids.length > 0
+          ? 'Accounts in the selected OUs are collected, except excluded accounts.'
+          : 'Only accounts in the selected OUs are collected.',
+        connection.auto_onboard_new_accounts
+          ? 'New accounts under those OUs are included automatically.'
+          : 'New accounts under those OUs need an explicit onboarding update.'
+      ];
+    case 'selected_accounts':
+      return ['Only the selected account IDs are collected.', 'OU movement does not change coverage until the selected account list changes.'];
+    case 'manual_role':
+      return ['IAM trust and permissions are managed outside Identrail.', 'Update the role manually before rerunning validation.'];
+    case 'single_account':
+    default:
+      return ['Collection is limited to one account and home region.', 'Use Manage connection to expand coverage through an organization or selected scope.'];
+  }
+}
+
 function awsRouteLink(scope: ProductSession, routeID: ProductDomainRouteID, environmentID: string): string {
   return appendEnvironmentQuery(domainRoutePath(scope, 'aws', findDomainRoute('aws', routeID)), environmentID);
 }
@@ -4137,6 +4221,123 @@ function AWSGuidedRepairList({
         </article>
       ))}
     </div>
+  );
+}
+
+function AWSConnectedSuccessPanel({
+  scope,
+  environmentID,
+  connection,
+  baseline,
+  refreshing,
+  baselineLoading,
+  onRefresh,
+  onRunBaseline,
+  onManageConnection
+}: {
+  scope: ProductSession;
+  environmentID: string;
+  connection: AWSConnectionStatus;
+  baseline: AWSPlatformBaselineResult | null;
+  refreshing: boolean;
+  baselineLoading: boolean;
+  onRefresh: () => void;
+  onRunBaseline: () => void;
+  onManageConnection: () => void;
+}) {
+  const overviewPath = awsRouteLink(scope, 'overview', environmentID);
+  const identitiesPath = awsRouteLink(scope, 'identities', environmentID);
+  const coveragePath = awsRouteLink(scope, 'coverage', environmentID);
+  const findingsPath = awsRouteLink(scope, 'findings', environmentID);
+  const tradeoffs = awsConnectedTradeoffs(connection);
+  const permissionFailures = connection.permission_checks.filter((check) => !check.passed).length;
+  const showFindingsAction =
+    connection.health_status === 'warning' ||
+    connection.health_status === 'error' ||
+    connection.status === 'degraded' ||
+    permissionFailures > 0;
+
+  return (
+    <section className="idt-source-config idt-aws-connected-success" aria-label="AWS connected summary">
+      <div className="idt-source-config-header">
+        <div className="idt-source-config-title">
+          <SourceLogoMark provider="aws" className="is-hero" />
+          <div>
+            <p className="idt-app-kicker">Connected</p>
+            <h3>{connection.display_name || 'AWS connector is active'}</h3>
+            <p>{connection.setup_summary || 'AWS is connected and ready for identity intelligence.'}</p>
+          </div>
+        </div>
+        <DomainStatusBadge variant={awsStatusVariant(connection)} detail={connection.health_status} />
+      </div>
+
+      <dl className="idt-aws-connected-facts">
+        <div>
+          <dt>Scope</dt>
+          <dd>{awsConnectedScopeLabel(connection)}</dd>
+        </div>
+        <div>
+          <dt>Accounts</dt>
+          <dd>{awsConnectedAccountCoverageLabel(connection)}</dd>
+        </div>
+        <div>
+          <dt>Regions</dt>
+          <dd>{awsConnectedRegionCoverageLabel(connection)}</dd>
+        </div>
+        <div>
+          <dt>Health</dt>
+          <dd>{formatTokenLabel(connection.health_status)}</dd>
+        </div>
+        <div>
+          <dt>Last validation</dt>
+          <dd>{formatConnectionTime(connection.last_validated_at ?? connection.updated_at)}</dd>
+        </div>
+        <div>
+          <dt>Permissions</dt>
+          <dd>
+            {connection.permission_checks.length > 0
+              ? `${connection.permission_checks.length - permissionFailures}/${connection.permission_checks.length} passed`
+              : 'Not validated'}
+          </dd>
+        </div>
+        <div>
+          <dt>Readiness</dt>
+          <dd>{awsBaselineLabel(baseline)}</dd>
+        </div>
+      </dl>
+
+      <div className="idt-aws-connected-actions">
+        <Link className="idt-btn idt-btn-primary" to={overviewPath}>
+          Start AWS intelligence
+        </Link>
+        <Link className="idt-btn idt-btn-dark" to={identitiesPath}>
+          Review machine identities
+        </Link>
+        <Link className="idt-btn idt-btn-secondary" to={coveragePath}>
+          View coverage gaps
+        </Link>
+        {showFindingsAction ? (
+          <Link className="idt-btn idt-btn-ghost" to={findingsPath}>
+            Review findings
+          </Link>
+        ) : null}
+        <button className="idt-btn idt-btn-ghost" type="button" onClick={onRefresh} disabled={refreshing}>
+          {refreshing ? 'Refreshing...' : 'Refresh status'}
+        </button>
+        <button className="idt-btn idt-btn-ghost" type="button" onClick={onRunBaseline} disabled={baselineLoading}>
+          {baselineLoading ? 'Running...' : 'Run baseline'}
+        </button>
+        <button className="idt-btn idt-btn-ghost" type="button" onClick={onManageConnection}>
+          Manage connection
+        </button>
+      </div>
+
+      <ul className="idt-aws-connected-tradeoffs" aria-label="AWS setup tradeoffs">
+        {tradeoffs.map((tradeoff) => (
+          <li key={tradeoff}>{tradeoff}</li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -21534,6 +21735,7 @@ export function ProductAWSConnectPage() {
   const [baseline, setBaseline] = useState<AWSPlatformBaselineResult | null>(null);
   const [baselineLoading, setBaselineLoading] = useState(false);
   const [baselineError, setBaselineError] = useState('');
+  const [manageConnectionOpen, setManageConnectionOpen] = useState(false);
   const [awsForm, setAWSForm] = useState({
     roleARN: '',
     externalID: '',
@@ -21614,6 +21816,9 @@ export function ProductAWSConnectPage() {
           return;
         }
         setConnection(response.connection);
+        if (response.connection.connected) {
+          setManageConnectionOpen(false);
+        }
         const responseSetupMode = awsSetupModeFromResponse(response.connection.scope_type);
         const preserveManualDraft = awsSetupModeTouchedRef.current
           ? awsSetupModeRef.current === 'manual'
@@ -21827,6 +22032,7 @@ export function ProductAWSConnectPage() {
     setAWSCopiedField('');
     setBaseline(null);
     setBaselineError('');
+    setManageConnectionOpen(false);
     setSubmitting(false);
     setAWSCloudFormationStart(null);
     setAWSPermissionPreview([]);
@@ -21913,9 +22119,11 @@ export function ProductAWSConnectPage() {
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
+    awsStackSetOnboardingRequestRef.current += 1;
     setConnection(null);
     setBaseline(null);
     setBaselineError('');
+    setManageConnectionOpen(false);
     setAWSSetupMessage('');
     navigate(
       {
@@ -22010,9 +22218,14 @@ export function ProductAWSConnectPage() {
   const canValidateRole = Boolean(normalizeValue(awsForm.roleARN)) && (!isManualSetup || Boolean(activeConnectorID));
   const selectedAWSRegion = normalizeValue(awsForm.region) || 'us-east-1';
   const manualExternalID = normalizeValue(awsForm.externalID);
-  const manualIdentrailAccountID = normalizeValue(manualAWSStart?.identrail_account_id);
-  const manualTrustPolicy = buildAWSManualTrustPolicy(
-    manualIdentrailAccountID,
+  // Trust-policy snippet is identical across deployment methods: it encodes
+  // the Identrail account plus this connector's External ID. Sourcing from the
+  // active start response — instead of only the manual variant — keeps the
+  // guided repair "copy trust policy" button usable after a CloudFormation or
+  // StackSet start, which is exactly when a trust misconfiguration surfaces.
+  const wizardIdentrailAccountID = normalizeValue(awsCloudFormationStart?.identrail_account_id);
+  const awsTrustPolicy = buildAWSManualTrustPolicy(
+    wizardIdentrailAccountID,
     manualExternalID,
     awsPartitionForManualTrustPolicy(awsForm.roleARN, selectedAWSRegion)
   );
@@ -22435,7 +22648,7 @@ export function ProductAWSConnectPage() {
     }
   };
 
-  const handleAWSPoll = async () => {
+  const handleAWSPoll = async (options?: { keepManagementOpen?: boolean }) => {
     if (!selectedEnvironmentID || !activeConnectorID) {
       setErrorMessage('Launch the stack or save a connector before polling AWS status.');
       return;
@@ -22462,6 +22675,9 @@ export function ProductAWSConnectPage() {
         return;
       }
       setConnection(response.connection);
+      if (response.connection.connected && !options?.keepManagementOpen) {
+        setManageConnectionOpen(false);
+      }
       setAWSForm((current) => ({
         ...current,
         roleARN: current.roleARN || response.connection.role_arn || '',
@@ -22585,6 +22801,9 @@ export function ProductAWSConnectPage() {
         return;
       }
       setConnection(response.connection);
+      if (response.connection.connected) {
+        setManageConnectionOpen(false);
+      }
       setAWSForm((current) => ({
         ...current,
         roleARN: current.roleARN || response.connection.role_arn || '',
@@ -22610,6 +22829,7 @@ export function ProductAWSConnectPage() {
   };
 
   const connectedNow = Boolean(connection?.connected);
+  const showAWSSetupControls = Boolean(selectedEnvironmentID) && (!connectedNow || manageConnectionOpen);
   const awaitingFirstConnectLoad = loadingConnection && !connection && !errorMessage;
   const connectSubtitle = (() => {
     if (awaitingFirstConnectLoad || environmentScope.loading) {
@@ -22746,9 +22966,9 @@ export function ProductAWSConnectPage() {
         case 'copy_trust_policy':
           return {
             label,
-            onClick: () => void copyAWSManualValue('trust-policy', manualTrustPolicy),
+            onClick: () => void copyAWSManualValue('trust-policy', awsTrustPolicy),
             variant,
-            disabled: !manualTrustPolicy
+            disabled: !awsTrustPolicy
           };
         case 'enable_trusted_access':
         case 'register_delegated_admin':
@@ -22871,6 +23091,22 @@ export function ProductAWSConnectPage() {
 
       {selectedEnvironmentID ? (
         <div className="idt-aws-connect-layout">
+          <div className="idt-aws-connect-main">
+            {connectedNow && connection ? (
+              <AWSConnectedSuccessPanel
+                scope={scope}
+                environmentID={selectedEnvironmentID}
+                connection={connection}
+                baseline={baseline}
+                refreshing={refreshingConnection}
+                baselineLoading={baselineLoading}
+                onRefresh={() => void refreshConnection('manual')}
+                onRunBaseline={() => void verifyBaseline()}
+                onManageConnection={() => setManageConnectionOpen(true)}
+              />
+            ) : null}
+
+            {showAWSSetupControls ? (
           <section className="idt-source-config idt-aws-connect-panel idt-aws-scope-wizard" aria-label="AWS account setup">
             <div className="idt-source-config-header idt-aws-wizard-header">
               <div className="idt-source-config-title">
@@ -23124,14 +23360,14 @@ export function ProductAWSConnectPage() {
                             </button>
                           </div>
                         </label>
-                        {manualTrustPolicy ? (
+                        {awsTrustPolicy ? (
                           <label>
                             Trust policy
-                            <textarea value={manualTrustPolicy} readOnly rows={10} />
+                            <textarea value={awsTrustPolicy} readOnly rows={10} />
                             <button
                               className="idt-btn idt-btn-ghost"
                               type="button"
-                              onClick={() => void copyAWSManualValue('trust-policy', manualTrustPolicy)}
+                              onClick={() => void copyAWSManualValue('trust-policy', awsTrustPolicy)}
                             >
                               {awsCopiedField === 'trust-policy' ? 'Copied trust policy' : 'Copy trust policy'}
                             </button>
@@ -23170,7 +23406,7 @@ export function ProductAWSConnectPage() {
                     </label>
                     <div className="idt-source-actions">
                       {activeConnectorID ? (
-                        <button className="idt-btn idt-btn-secondary" type="button" onClick={handleAWSPoll} disabled={submitting}>
+                        <button className="idt-btn idt-btn-secondary" type="button" onClick={() => void handleAWSPoll()} disabled={submitting}>
                           {submitting ? 'Refreshing...' : 'Refresh status'}
                         </button>
                       ) : null}
@@ -23215,7 +23451,7 @@ export function ProductAWSConnectPage() {
                     </details>
                     <div className="idt-source-actions">
                       {activeConnectorID ? (
-                        <button className="idt-btn idt-btn-secondary" type="button" onClick={handleAWSPoll} disabled={submitting}>
+                        <button className="idt-btn idt-btn-secondary" type="button" onClick={() => void handleAWSPoll()} disabled={submitting}>
                           {submitting ? 'Refreshing...' : 'Refresh status'}
                         </button>
                       ) : null}
@@ -23235,7 +23471,7 @@ export function ProductAWSConnectPage() {
                 onRefresh={
                   activeConnectorID
                     ? () => {
-                        void handleAWSPoll();
+                        void handleAWSPoll({ keepManagementOpen: true });
                         void refreshStackSetOnboarding();
                       }
                     : undefined
@@ -23244,6 +23480,8 @@ export function ProductAWSConnectPage() {
               />
             ) : null}
           </section>
+            ) : null}
+          </div>
 
           <div className="idt-aws-connect-side">
             <section className="idt-source-config idt-aws-connect-summary" aria-label="AWS setup summary">
@@ -29048,6 +29286,13 @@ export function ProductShellLayout() {
         path: domainCommandPath(`${basePath}/aws/coverage`)
       });
       items.push({
+        id: 'aws-identities',
+        label: 'AWS identities',
+        description: 'Machine identities discovered from the connected AWS scope',
+        keywords: ['aws', 'identities', 'iam', 'roles', 'machine'],
+        path: domainCommandPath(`${basePath}/aws/identities`)
+      });
+      items.push({
         id: 'aws-findings',
         label: 'AWS findings',
         description: 'Domain-scoped AWS risk queue',
@@ -29058,8 +29303,8 @@ export function ProductShellLayout() {
         items.push({
           id: 'aws-connect',
           label: 'Connect AWS',
-          description: 'Start AWS account and identity onboarding',
-          keywords: ['aws', 'connect', 'account', 'role'],
+          description: 'Review AWS connection status or manage onboarding',
+          keywords: ['aws', 'connect', 'account', 'role', 'status', 'onboarding'],
           path: domainCommandPath(`${basePath}/aws/connect`)
         });
       }

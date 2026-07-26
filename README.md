@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/identrail/identrail/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/identrail/identrail/ci.yml?branch=dev&style=flat&label=ci&labelColor=000000" alt="CI status" /></a>
-  <a href="https://github.com/identrail/identrail/releases/tag/v1.0.1"><img src="https://img.shields.io/badge/version-v1.0.1-0969da?style=flat&labelColor=000000" alt="Version v1.0.1" /></a>
+  <a href="https://github.com/identrail/identrail/releases/tag/v1.0.2"><img src="https://img.shields.io/badge/version-v1.0.2-0969da?style=flat&labelColor=000000" alt="Version v1.0.2" /></a>
   <a href="https://www.bestpractices.dev/projects/12950"><img src="https://img.shields.io/cii/level/12950?style=flat&label=openssf%20best%20practices&labelColor=000000" alt="OpenSSF Best Practices" /></a>
 </p>
 
@@ -104,6 +104,18 @@ identrail scan
 ```
 
 Change `IDENTRAIL_AWS_REGION` to the AWS region you want to inspect.
+
+For hosted AWS connectors, check the connected status and next action from the
+API-backed CLI:
+
+```bash
+identrail aws-status \
+  --api-url "$IDENTRAIL_API_URL" \
+  --api-key "$IDENTRAIL_API_KEY" \
+  --tenant-id tenant-a \
+  --workspace-id workspace-a \
+  --project-id production
+```
 
 ### 4. Scan Kubernetes
 

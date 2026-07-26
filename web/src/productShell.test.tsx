@@ -2026,6 +2026,12 @@ function mockAWSBaseline(api: typeof import('./api/client'), baseline: AWSPlatfo
   mockAWSServiceCollectorContract(api);
 }
 
+async function openAWSConnectionManagement(): Promise<HTMLElement> {
+  const summary = await screen.findByRole('region', { name: 'AWS connected summary' });
+  fireEvent.click(within(summary).getByRole('button', { name: /Manage connection/i }));
+  return screen.findByRole('region', { name: 'AWS account setup' });
+}
+
 const disconnectedKubernetes: KubernetesConnectionStatus = {
   provider: 'kubernetes',
   connected: false,
@@ -8836,6 +8842,7 @@ describe('Domain-first app routes', () => {
     fireEvent.click(refreshButtons[refreshButtons.length - 1]);
 
     await waitFor(() => expect(getAWSProjectConnection).toHaveBeenCalledTimes(2));
+    await openAWSConnectionManagement();
     expect(screen.getByLabelText('External ID')).toHaveValue('manual-external-id-to-keep');
     expect(screen.getByLabelText('Role ARN')).toHaveValue('arn:aws:iam::123456789012:role/CustomerManagedIdentrail');
     expect(String((screen.getByLabelText('Trust policy') as HTMLTextAreaElement).value)).toContain(
@@ -10231,6 +10238,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
+    await openAWSConnectionManagement();
     expect(await screen.findByRole('region', { name: /StackSet onboarding progress/i })).toBeInTheDocument();
     expect(getStackSetOnboarding).toHaveBeenCalledWith(
       'workspace-a',
@@ -10424,7 +10432,8 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    // Wait for the connection to hydrate.
+    // Wait for the connection to hydrate, then open setup management.
+    await openAWSConnectionManagement();
     await screen.findByRole('region', { name: /StackSet onboarding progress/i });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -10533,6 +10542,7 @@ describe('Domain-first app routes', () => {
     );
 
     // Wait for the production connector to hydrate the custom stack set name.
+    await openAWSConnectionManagement();
     await screen.findByRole('region', { name: /StackSet onboarding progress/i });
 
     // Switch to the staging environment (no connector yet).
@@ -10609,6 +10619,7 @@ describe('Domain-first app routes', () => {
     );
 
     // Wait for the connector's scope to hydrate the wizard.
+    await openAWSConnectionManagement();
     await screen.findByRole('heading', { level: 4, name: /Set the coverage scope/i });
 
     // The wizard exposes an alert that says this setup is not relaunchable and
@@ -10682,6 +10693,7 @@ describe('Domain-first app routes', () => {
     // still be reachable for a Terraform-provisioned connector — the wizard
     // step's Refresh button clicks into pollAWSConnector, not the sidebar
     // Permission health refresh action.
+    await openAWSConnectionManagement();
     const wizardStep = await screen.findByRole('heading', { level: 4, name: /Verify the connection/i });
     const wizardStepBody = wizardStep.closest('.idt-aws-wizard-step') as HTMLElement | null;
     expect(wizardStepBody).not.toBeNull();
@@ -10927,6 +10939,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
+    await openAWSConnectionManagement();
     expect(await screen.findByText(/Persisted organization recovery action/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Selected scope/i }));
     expect(screen.queryByText(/Persisted organization recovery action/i)).not.toBeInTheDocument();
@@ -11069,6 +11082,7 @@ describe('Domain-first app routes', () => {
     );
 
     // Initial hydrate.
+    await openAWSConnectionManagement();
     expect(await screen.findByText(/Persisted recovery action to restore/i)).toBeInTheDocument();
     const initialCallCount = getStackSetOnboarding.mock.calls.length;
 
@@ -11128,6 +11142,7 @@ describe('Domain-first app routes', () => {
     );
 
     // Panel shows a StackSet link initially.
+    await openAWSConnectionManagement();
     await screen.findByRole('region', { name: /StackSet onboarding progress/i });
 
     fireEvent.click(screen.getByRole('button', { name: /This AWS account/i }));
@@ -11184,6 +11199,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
+    await openAWSConnectionManagement();
     await screen.findByRole('region', { name: /StackSet onboarding progress/i });
     fireEvent.click(screen.getByRole('button', { name: /Selected scope/i }));
 
@@ -11274,6 +11290,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
+    await openAWSConnectionManagement();
     await screen.findByRole('region', { name: /StackSet onboarding progress/i });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -11361,6 +11378,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
+    await openAWSConnectionManagement();
     expect(await screen.findByText(/Preserved recovery action/i)).toBeInTheDocument();
     const priorCalls = getStackSetOnboarding.mock.calls.length;
 
@@ -11452,6 +11470,7 @@ describe('Domain-first app routes', () => {
     );
 
     // Wait for the existing organization connector to hydrate.
+    await openAWSConnectionManagement();
     await screen.findByRole('region', { name: /StackSet onboarding progress/i });
 
     fireEvent.click(screen.getByRole('button', { name: /Selected scope/i }));
@@ -11508,6 +11527,71 @@ describe('Domain-first app routes', () => {
     expect(screen.getByRole('heading', { level: 3, name: /Platform readiness/i })).toBeInTheDocument();
   });
 
+  it('shows connected AWS status as the default success state before setup management', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        target_summary: {
+          account_count: 1,
+          account_count_known: true,
+          ou_count: 0,
+          region_count: 1,
+          excluded_account_count: 0,
+          expected_stack_instances: 1,
+          expected_stack_instances_known: true,
+          all_accounts: false
+        }
+      }
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const summary = await screen.findByRole('region', { name: 'AWS connected summary' });
+    expect(within(summary).getByRole('heading', { level: 3, name: /Production AWS/i })).toBeInTheDocument();
+    expect(within(summary).getByText('Single account')).toBeInTheDocument();
+    expect(within(summary).getByText('1 account')).toBeInTheDocument();
+    expect(within(summary).getByText('1 region')).toBeInTheDocument();
+    expect(within(summary).getByRole('link', { name: /Start AWS intelligence/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws?environment=production'
+    );
+    expect(within(summary).getByRole('link', { name: /Review machine identities/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/identities?environment=production'
+    );
+    expect(screen.queryByRole('region', { name: 'AWS account setup' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(summary).getByRole('button', { name: /Manage connection/i }));
+
+    expect(await screen.findByRole('region', { name: 'AWS account setup' })).toBeInTheDocument();
+  });
+
   it('keeps edited AWS role drafts when polling status returns older connection data', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
@@ -11545,12 +11629,15 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
+    expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Manage connection/i }));
     const roleInput = await screen.findByLabelText('Stack role ARN');
     fireEvent.change(roleInput, { target: { value: 'arn:aws:iam::123456789012:role/CorrectedConnectorRole' } });
     fireEvent.click(within(screen.getByLabelText('AWS account setup')).getByRole('button', { name: /Refresh status/i }));
 
     await waitFor(() => expect(api.apiClient.pollAWSConnector).toHaveBeenCalled());
-    expect(screen.getByLabelText('Stack role ARN')).toHaveValue('arn:aws:iam::123456789012:role/CorrectedConnectorRole');
+    expect(screen.getByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Stack role ARN')).not.toBeInTheDocument();
   });
 
   it('keeps legacy role-only AWS connections out of connector validation', async () => {
@@ -11593,6 +11680,8 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
+    expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Manage connection/i }));
     expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('Stack role ARN')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Validate connection/i })).not.toBeInTheDocument();
@@ -12315,6 +12404,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
+    await openAWSConnectionManagement();
     expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
     const refreshButton = within(screen.getByLabelText('AWS account setup')).getByRole('button', {
       name: /Refresh status/i
@@ -12399,8 +12489,9 @@ describe('Domain-first app routes', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
-    expect(await screen.findByDisplayValue('arn:aws:iam::123456789012:role/IdentrailReadOnly')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Validate connection/i })).toBeEnabled();
+    expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('arn:aws:iam::123456789012:role/IdentrailReadOnly')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Validate connection/i })).not.toBeInTheDocument();
   });
 
   it('ignores stale AWS validation responses after switching environments', async () => {
@@ -12448,6 +12539,8 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
+    expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Manage connection/i }));
     const submitButton = await screen.findByRole('button', { name: /Validate connection/i });
     fireEvent.click(submitButton);
     await waitFor(() =>
@@ -12513,7 +12606,7 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
     // The connected-state primary CTA is the AWS overview link.
     expect(screen.getByRole('link', { name: /AWS overview/i })).toHaveAttribute(
       'href',
@@ -12529,6 +12622,62 @@ describe('Domain-first app routes', () => {
       'older-production',
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
+  });
+
+  it('qualifies organization all-account summaries when accounts are excluded', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        scope_type: 'organization',
+        deployment_method: 'stackset_service_managed',
+        target_account_ids: [],
+        target_ou_ids: ['r-abcd'],
+        excluded_account_ids: ['111111111111', '222222222222'],
+        auto_onboard_new_accounts: true,
+        target_summary: {
+          account_count: 0,
+          account_count_known: false,
+          ou_count: 0,
+          region_count: 1,
+          excluded_account_count: 2,
+          expected_stack_instances: 0,
+          expected_stack_instances_known: false,
+          all_accounts: true
+        }
+      }
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const summary = await screen.findByRole('region', { name: 'AWS connected summary' });
+    expect(within(summary).getByText('Organization, all accounts except 2 excluded accounts')).toBeInTheDocument();
+    expect(within(summary).getByText('All organization accounts except 2 excluded accounts')).toBeInTheDocument();
   });
 
   it('keeps requested environment selected when getProject check fails for a transient error', async () => {

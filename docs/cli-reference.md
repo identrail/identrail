@@ -39,6 +39,34 @@ Reads persisted findings state and prints output.
 Key flags:
 - `--output table|json`
 
+## `identrail aws-status`
+
+Fetches hosted AWS connector status for one project or environment. Table output
+summarizes connection state, health, declared scope, account coverage, region
+coverage, permission checks, next action, connector ID, and diagnostic count.
+JSON output returns the API response envelope. The command never prints the
+connector External ID.
+
+Example:
+```bash
+identrail aws-status \
+  --api-url "$IDENTRAIL_API_URL" \
+  --api-key "$IDENTRAIL_API_KEY" \
+  --tenant-id tenant-a \
+  --workspace-id workspace-a \
+  --project-id production
+```
+
+Key flags:
+- `--api-url`
+- `--api-key`
+- `--tenant-id`
+- `--workspace-id` (required unless configured as the default workspace)
+- `--project-id` (required)
+- `--connector-id` (optional, uses the connector-specific poll route)
+- `--timeout`
+- `--output table|json`
+
 ## `identrail repo-scan`
 
 Runs the local repository exposure scanner. This is the backward-compatible long

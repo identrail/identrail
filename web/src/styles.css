@@ -24137,6 +24137,12 @@ html[data-theme='light'] .idt-app-shell-screen select {
   min-width: 0;
 }
 
+.idt-aws-connect-main {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
 .idt-app-console-layout .idt-aws-connect-panel .idt-source-meta {
   grid-template-columns: minmax(0, 1fr) minmax(8rem, 0.55fr) minmax(12.5rem, 0.8fr);
 }
@@ -24344,6 +24350,67 @@ html[data-theme='light'] .idt-app-shell-screen select {
 .idt-aws-connect-summary {
   display: grid;
   gap: 0.75rem;
+}
+
+.idt-aws-connected-success {
+  display: grid;
+  gap: 0.9rem;
+  border-color: rgba(88, 214, 141, 0.36);
+}
+
+.idt-aws-connected-success .idt-source-config-header {
+  align-items: flex-start;
+}
+
+.idt-aws-connected-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.idt-aws-connected-facts div {
+  min-width: 0;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.68rem 0.74rem;
+  background: #050505;
+}
+
+.idt-aws-connected-facts dt {
+  color: var(--app-dim);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-aws-connected-facts dd {
+  min-width: 0;
+  margin: 0.18rem 0 0;
+  color: #ffffff;
+  font-size: 0.88rem;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-connected-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.idt-aws-connected-actions .idt-btn {
+  min-height: 2.35rem;
+}
+
+.idt-aws-connected-tradeoffs {
+  display: grid;
+  gap: 0.42rem;
+  margin: 0;
+  padding-left: 1.05rem;
+  color: var(--app-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
 }
 
 .idt-app-console-layout .idt-aws-connect-summary .idt-source-meta {
@@ -25188,6 +25255,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
   .idt-domain-page-body.has-subnav.has-aside,
   .idt-aws-status-grid,
   .idt-aws-connect-layout,
+  .idt-aws-connected-facts,
   .idt-aws-inventory-split,
   .idt-app-console-layout .idt-aws-connect-panel .idt-source-meta,
   .idt-aws-next-actions {
@@ -25221,7 +25289,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
   .idt-domain-action,
   .idt-domain-header-actions .idt-btn,
   .idt-domain-filter-actions .idt-btn,
-  .idt-domain-action-footer .idt-btn {
+  .idt-domain-action-footer .idt-btn,
+  .idt-aws-connected-actions .idt-btn {
     width: 100%;
   }
 

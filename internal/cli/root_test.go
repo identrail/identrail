@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/identrail/identrail/internal/api"
 	"github.com/identrail/identrail/internal/config"
 	"github.com/identrail/identrail/internal/domain"
 	awsprovider "github.com/identrail/identrail/internal/providers/aws"
@@ -346,6 +347,234 @@ func TestExecuteScanReplayTable(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Replay queued: source_scan=scan-123 replay_scan=replay-456 provider=aws status=queued retry_count=0") {
 		t.Fatalf("expected table replay output, got %q", out.String())
+	}
+}
+
+func TestExecuteAWSStatusTable(t *testing.T) {
+	cfg := config.Config{DefaultTenantID: "default", DefaultWorkspaceID: "default"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("expected GET request, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/workspaces/workspace-a/projects/production/aws/connection" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if got := strings.TrimSpace(r.Header.Get("X-API-Key")); got != "admin-key" {
+			t.Fatalf("expected api key header, got %q", got)
+		}
+		if got := strings.TrimSpace(r.Header.Get("X-Identrail-Tenant-ID")); got != "tenant-a" {
+			t.Fatalf("expected tenant header, got %q", got)
+		}
+		if got := strings.TrimSpace(r.Header.Get("X-Identrail-Workspace-ID")); got != "workspace-a" {
+			t.Fatalf("expected workspace header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(struct {
+			Connection api.AWSConnectionStatus `json:"connection"`
+		}{
+			Connection: api.AWSConnectionStatus{
+				Provider:             "aws",
+				Connected:            true,
+				ConnectorID:          "aws-connector-1",
+				Status:               domain.ConnectorStatusActive,
+				HealthStatus:         "healthy",
+				ExternalIDConfigured: true,
+				ExternalID:           "do-not-print",
+				AccountID:            "123456789012",
+				Region:               "us-east-1",
+				ScopeType:            api.AWSConnectorScopeSingleAccount,
+				DeploymentMethod:     api.AWSConnectorDeploymentCloudFormation,
+				OnboardingStatus:     api.AWSConnectorOnboardingConnected,
+				TargetRegions:        []string{"us-east-1"},
+				TargetAccountIDs:     []string{"123456789012"},
+				SetupSummary:         "AWS connector is connected and ready for discovery.",
+				NextActions:          []api.AWSConnectorNextAction{api.AWSConnectorNextActionStartIntelligence},
+				PermissionChecks: []api.AWSConnectionPermissionCheck{
+					{Name: "iam:GetRole", Passed: true, Message: "Role metadata can be inspected."},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	err := Execute(cfg, []string{
+		"aws-status",
+		"--api-url", server.URL,
+		"--api-key", "admin-key",
+		"--tenant-id", "tenant-a",
+		"--workspace-id", "workspace-a",
+		"--project-id", "production",
+		"--output", "table",
+	}, &out)
+	if err != nil {
+		t.Fatalf("aws status failed: %v", err)
+	}
+	body := out.String()
+	if !strings.Contains(body, "AWS connector: connected health=healthy scope=single_account accounts=1_account regions=1_region permissions=1/1_passed next=start_intelligence") {
+		t.Fatalf("expected aws status table output, got %q", body)
+	}
+	if strings.Contains(strings.ToLower(body), "external") || strings.Contains(body, "do-not-print") {
+		t.Fatalf("expected external id to stay out of status output, got %q", body)
+	}
+}
+
+func TestExecuteAWSStatusConnectorIDUsesPollRoute(t *testing.T) {
+	cfg := config.Config{DefaultTenantID: "tenant-a", DefaultWorkspaceID: "workspace-a"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("expected GET request, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/connectors/aws/aws-prod/poll" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("workspace_id"); got != "workspace-a" {
+			t.Fatalf("expected workspace query, got %q", got)
+		}
+		if got := r.URL.Query().Get("project_id"); got != "production" {
+			t.Fatalf("expected project query, got %q", got)
+		}
+		if got := strings.TrimSpace(r.Header.Get("X-Identrail-Workspace-ID")); got != "workspace-a" {
+			t.Fatalf("expected workspace header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(struct {
+			Connection api.AWSConnectionStatus `json:"connection"`
+		}{
+			Connection: api.AWSConnectionStatus{
+				Provider:             "aws",
+				Connected:            true,
+				ConnectorID:          "aws-prod",
+				Status:               domain.ConnectorStatusActive,
+				HealthStatus:         "healthy",
+				ExternalIDConfigured: true,
+				AccountID:            "123456789012",
+				Region:               "us-east-1",
+				ScopeType:            api.AWSConnectorScopeSingleAccount,
+				DeploymentMethod:     api.AWSConnectorDeploymentCloudFormation,
+				OnboardingStatus:     api.AWSConnectorOnboardingConnected,
+				TargetRegions:        []string{"us-east-1"},
+				TargetAccountIDs:     []string{"123456789012"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	err := Execute(cfg, []string{
+		"aws-status",
+		"--api-url", server.URL,
+		"--project-id", "production",
+		"--connector-id", "aws-prod",
+	}, &out)
+	if err != nil {
+		t.Fatalf("aws status failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "Connector: aws-prod") {
+		t.Fatalf("expected connector-specific status output, got %q", out.String())
+	}
+}
+
+func TestExecuteAWSStatusPendingSelectedAccountCoverage(t *testing.T) {
+	cfg := config.Config{DefaultTenantID: "tenant-a", DefaultWorkspaceID: "workspace-a"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(struct {
+			Connection api.AWSConnectionStatus `json:"connection"`
+		}{
+			Connection: api.AWSConnectionStatus{
+				Provider:             "aws",
+				Connected:            true,
+				ConnectorID:          "aws-connector-1",
+				Status:               domain.ConnectorStatusActive,
+				HealthStatus:         "healthy",
+				ExternalIDConfigured: true,
+				ScopeType:            api.AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:     api.AWSConnectorDeploymentStackSetServiceManaged,
+				OnboardingStatus:     api.AWSConnectorOnboardingConnected,
+				TargetRegions:        []string{"us-east-1"},
+				TargetAccountIDs:     []string{"111111111111", "222222222222"},
+				TargetSummary: &api.AWSConnectorTargetSummary{
+					AccountCount:      0,
+					AccountCountKnown: false,
+					RegionCount:       1,
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	err := Execute(cfg, []string{
+		"aws-status",
+		"--api-url", server.URL,
+		"--project-id", "production",
+	}, &out)
+	if err != nil {
+		t.Fatalf("aws status failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "accounts=pending") {
+		t.Fatalf("expected pending selected-account coverage, got %q", out.String())
+	}
+	if strings.Contains(out.String(), "accounts=2_accounts") {
+		t.Fatalf("did not expect raw selected target count as coverage, got %q", out.String())
+	}
+}
+
+func TestExecuteAWSStatusOrganizationExclusionsQualifyAllAccounts(t *testing.T) {
+	cfg := config.Config{DefaultTenantID: "tenant-a", DefaultWorkspaceID: "workspace-a"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(struct {
+			Connection api.AWSConnectionStatus `json:"connection"`
+		}{
+			Connection: api.AWSConnectionStatus{
+				Provider:             "aws",
+				Connected:            true,
+				ConnectorID:          "aws-org-1",
+				Status:               domain.ConnectorStatusActive,
+				HealthStatus:         "healthy",
+				ExternalIDConfigured: true,
+				ScopeType:            api.AWSConnectorScopeOrganization,
+				DeploymentMethod:     api.AWSConnectorDeploymentStackSetServiceManaged,
+				OnboardingStatus:     api.AWSConnectorOnboardingConnected,
+				TargetRegions:        []string{"us-east-1"},
+				ExcludedAccountIDs:   []string{"999999999999"},
+				TargetSummary: &api.AWSConnectorTargetSummary{
+					AccountCountKnown:    false,
+					RegionCount:          1,
+					ExcludedAccountCount: 1,
+					AllAccounts:          true,
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	err := Execute(cfg, []string{
+		"aws-status",
+		"--api-url", server.URL,
+		"--project-id", "production",
+	}, &out)
+	if err != nil {
+		t.Fatalf("aws status failed: %v", err)
+	}
+	body := out.String()
+	if !strings.Contains(body, "scope=organization_all_accounts_except_1_excluded_account") {
+		t.Fatalf("expected scope to qualify exclusions, got %q", body)
+	}
+	if !strings.Contains(body, "accounts=all_accounts_except_1_excluded_account") {
+		t.Fatalf("expected account coverage to qualify exclusions, got %q", body)
+	}
+}
+
+func TestExecuteAWSStatusRejectsPositionalArgs(t *testing.T) {
+	cfg := config.Config{DefaultTenantID: "tenant-a", DefaultWorkspaceID: "workspace-a"}
+	var out bytes.Buffer
+	err := Execute(cfg, []string{"aws-status", "--project-id", "production", "extra"}, &out)
+	if err == nil {
+		t.Fatal("expected positional argument validation error")
 	}
 }
 

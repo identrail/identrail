@@ -17,6 +17,7 @@ AWS Connect diagnostics describe setup coverage gaps, not runtime machine-identi
 | `selected_target_missing_stackset_instance` | A selected OU, account, or region does not have an active StackSet instance. | Review targets, launch or retry StackSet deployment, then refresh status. | Healthy targets remain visible, but coverage is partial. |
 | `member_account_permission_denied` | AWS denied StackSet deployment in a member account. | Fix member-account StackSet permissions and retry the instance. | The account is excluded from claimed coverage until repaired. |
 | `region_unsupported_or_not_opted_in` | The selected region is unsupported or not opted in for the member account. | Enable the region or remove it from the selected target set. | Removing it avoids failures, but coverage excludes workloads there. |
+| `suspended_accounts_excluded` | One or more selected organization accounts are suspended and excluded from effective coverage. | Remove suspended accounts from the selected targets or reactivate them in AWS Organizations, then refresh status. | Excluding suspended accounts keeps active targets usable, but Identrail will not claim coverage for those accounts. |
 | `partial_stackset_coverage` | Some StackSet instances failed while others remain usable. | Retry failed instances, then refresh status. | Identrail keeps successful targets visible but does not claim full coverage. |
 
 ## Repair Actions

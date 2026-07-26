@@ -39,10 +39,11 @@ When a persistent database is configured and AWS connector setup is enabled, `ID
 
 ## Flow
 
-The app presents AWS setup as a scope-first wizard. The default executable path
-is **Single AWS account** through CloudFormation. Existing manual-role setup is
-available under **Advanced** for teams that manage IAM through their own change
-process. Organization and selected OU/account setup remain planned paths.
+The app presents AWS setup as a scope-first wizard. Supported executable paths
+are **Single AWS account** through CloudFormation, **Organization** through a
+service-managed StackSet, **Selected OUs**, **Selected accounts**, and
+**Existing IAM role** for teams that manage IAM through their own change
+process.
 
 1. The operator chooses **Single AWS account**, adds a display name, and picks
    the home region used for setup.
@@ -165,6 +166,42 @@ The executable `POST /v1/connectors/aws` setup path supports
 `organization`/`stackset_service_managed`, `selected_ous`/
 `stackset_service_managed`, and selected-account StackSet setup. Terraform
 remains reserved for follow-on implementation issues.
+
+## Connected State
+
+After validation succeeds, the AWS Connect page opens on a connected summary
+instead of the setup wizard. The summary shows the active scope, account and
+region coverage, connector health, last validation time, permission health, and
+baseline readiness. It links operators into the AWS overview, machine identity
+inventory, coverage gaps, and findings when health is degraded.
+
+Setup controls stay hidden for connected environments until the operator chooses
+**Manage connection**. Opening management intentionally reveals the existing
+wizard for expanding scope, refreshing status, or validating a repaired role.
+Switching environments closes management and clears setup drafts so role ARNs,
+External IDs, StackSet targets, and stale async responses cannot leak across
+project scopes.
+
+Each scope carries an explicit tradeoff in the success state:
+
+- Single account is narrow and predictable; use management to expand coverage.
+- Organization scope can include future accounts automatically, unless the
+  connector was created with fixed targets.
+- Selected OUs follow accounts in those OUs only.
+- Selected accounts stay pinned to the listed account IDs.
+- Manual role setup leaves IAM trust and permissions under the customer's
+  external change process.
+
+The hosted CLI exposes the same status without returning connector secrets:
+
+```bash
+identrail aws-status \
+  --api-url "$IDENTRAIL_API_URL" \
+  --api-key "$IDENTRAIL_API_KEY" \
+  --tenant-id tenant-a \
+  --workspace-id workspace-a \
+  --project-id production
+```
 
 ## Account and Region Coverage Registry
 

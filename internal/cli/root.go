@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/identrail/identrail/internal/api"
 	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/config"
 	"github.com/identrail/identrail/internal/domain"
@@ -60,6 +61,7 @@ func BuildRootCmd(cfg config.Config, out io.Writer) *cobra.Command {
 
 	root.AddCommand(buildScanCmd(cfg, out, &stateFile))
 	root.AddCommand(buildScanReplayCmd(cfg, out))
+	root.AddCommand(buildAWSStatusCmd(cfg, out))
 	root.AddCommand(buildFindingsCmd(out, &stateFile))
 	root.AddCommand(buildRepoScanCmd(cfg, out))
 	root.AddCommand(buildRepoFindingsCmd(cfg, out))
@@ -260,6 +262,108 @@ func buildScanReplayCmd(cfg config.Config, out io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&workspaceID, "workspace-id", strings.TrimSpace(cfg.DefaultWorkspaceID), "Workspace scope header for replay request")
 	cmd.Flags().StringVar(&scanID, "scan-id", "", "Failed or dead-lettered scan ID to replay")
 	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Second, "HTTP timeout for replay request")
+	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
+	return cmd
+}
+
+func buildAWSStatusCmd(cfg config.Config, out io.Writer) *cobra.Command {
+	var (
+		apiURL       string
+		apiKey       string
+		tenantID     string
+		workspaceID  string
+		projectID    string
+		connectorID  string
+		timeout      time.Duration
+		outputFormat string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "aws-status",
+		Short: "Show hosted AWS connector status",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if strings.TrimSpace(apiURL) == "" {
+				return fmt.Errorf("--api-url is required")
+			}
+			if strings.TrimSpace(workspaceID) == "" {
+				return fmt.Errorf("--workspace-id is required")
+			}
+			if strings.TrimSpace(projectID) == "" {
+				return fmt.Errorf("--project-id is required")
+			}
+			formatter, err := parseOutputFormat(outputFormat)
+			if err != nil {
+				return err
+			}
+			normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+			normalizedProjectID := strings.TrimSpace(projectID)
+			baseURL := strings.TrimRight(strings.TrimSpace(apiURL), "/")
+			statusURL := baseURL +
+				"/v1/workspaces/" + url.PathEscape(normalizedWorkspaceID) +
+				"/projects/" + url.PathEscape(normalizedProjectID) +
+				"/aws/connection"
+			if normalizedConnectorID := strings.TrimSpace(connectorID); normalizedConnectorID != "" {
+				query := url.Values{}
+				query.Set("workspace_id", normalizedWorkspaceID)
+				query.Set("project_id", normalizedProjectID)
+				statusURL = baseURL +
+					"/v1/connectors/aws/" + url.PathEscape(normalizedConnectorID) +
+					"/poll?" + query.Encode()
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
+			if err != nil {
+				return fmt.Errorf("build aws status request: %w", err)
+			}
+			if normalizedKey := strings.TrimSpace(apiKey); normalizedKey != "" {
+				req.Header.Set("X-API-Key", normalizedKey)
+			}
+			if normalizedTenant := strings.TrimSpace(tenantID); normalizedTenant != "" {
+				req.Header.Set("X-Identrail-Tenant-ID", normalizedTenant)
+			}
+			req.Header.Set("X-Identrail-Workspace-ID", normalizedWorkspaceID)
+
+			resp, err := (&http.Client{Timeout: timeout}).Do(req)
+			if err != nil {
+				return fmt.Errorf("aws status request failed: %w", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				var apiErr scanReplayCLIErrorResponse
+				if err := json.NewDecoder(resp.Body).Decode(&apiErr); err == nil && strings.TrimSpace(apiErr.Error) != "" {
+					return fmt.Errorf("aws status request failed: %s (status %d)", strings.TrimSpace(apiErr.Error), resp.StatusCode)
+				}
+				return fmt.Errorf("aws status request failed with status %d", resp.StatusCode)
+			}
+
+			var response struct {
+				Connection api.AWSConnectionStatus `json:"connection"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+				return fmt.Errorf("decode aws status response: %w", err)
+			}
+
+			switch formatter {
+			case outputJSON:
+				return writeJSON(out, response)
+			default:
+				return renderAWSStatusOutput(out, response.Connection)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&apiURL, "api-url", defaultCLIAPIURL(), "Identrail API base URL")
+	cmd.Flags().StringVar(&apiKey, "api-key", strings.TrimSpace(os.Getenv("IDENTRAIL_API_KEY")), "API key used for AWS status request")
+	cmd.Flags().StringVar(&tenantID, "tenant-id", strings.TrimSpace(cfg.DefaultTenantID), "Tenant scope header for AWS status request")
+	cmd.Flags().StringVar(&workspaceID, "workspace-id", strings.TrimSpace(cfg.DefaultWorkspaceID), "Workspace scope header for AWS status request")
+	cmd.Flags().StringVar(&projectID, "project-id", "", "Environment or project ID to inspect")
+	cmd.Flags().StringVar(&connectorID, "connector-id", "", "AWS connector ID to inspect when a project has multiple connectors")
+	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Second, "HTTP timeout for AWS status request")
 	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
 	return cmd
 }
@@ -475,6 +579,96 @@ func defaultCLIAPIURL() string {
 		return configured
 	}
 	return defaultAPIURL
+}
+
+func renderAWSStatusOutput(out io.Writer, connection api.AWSConnectionStatus) error {
+	passed := 0
+	for _, check := range connection.PermissionChecks {
+		if check.Passed {
+			passed++
+		}
+	}
+	permissions := "not_validated"
+	if len(connection.PermissionChecks) > 0 {
+		permissions = fmt.Sprintf("%d/%d_passed", passed, len(connection.PermissionChecks))
+	}
+	excludedAccountCount := 0
+	if connection.TargetSummary != nil {
+		excludedAccountCount = connection.TargetSummary.ExcludedAccountCount
+	} else {
+		excludedAccountCount = len(connection.ExcludedAccountIDs)
+	}
+	accounts := "pending"
+	if connection.TargetSummary != nil && connection.TargetSummary.AccountCountKnown {
+		accounts = formatCLICount(connection.TargetSummary.AccountCount, "account")
+		if excludedAccountCount > 0 {
+			accounts += "_after_" + formatCLIExcludedAccountCount(excludedAccountCount)
+		}
+	} else if connection.TargetSummary != nil && connection.TargetSummary.AllAccounts {
+		accounts = "all_accounts"
+		if excludedAccountCount > 0 {
+			accounts += "_except_" + formatCLIExcludedAccountCount(excludedAccountCount)
+		}
+	} else if connection.TargetSummary != nil {
+		accounts = "pending"
+	} else if len(connection.TargetAccountIDs) > 0 {
+		accounts = formatCLICount(len(connection.TargetAccountIDs), "account")
+	} else if strings.TrimSpace(connection.AccountID) != "" {
+		accounts = "1_account"
+	}
+	regions := "pending"
+	if connection.TargetSummary != nil && connection.TargetSummary.RegionCount > 0 {
+		regions = formatCLICount(connection.TargetSummary.RegionCount, "region")
+	} else if len(connection.TargetRegions) > 0 {
+		regions = formatCLICount(len(connection.TargetRegions), "region")
+	} else if strings.TrimSpace(connection.Region) != "" {
+		regions = "1_region"
+	}
+	scope := string(connection.ScopeType)
+	if connection.ScopeType == "organization" && connection.TargetSummary != nil && connection.TargetSummary.AllAccounts {
+		scope = "organization_all_accounts"
+		if excludedAccountCount > 0 {
+			scope += "_except_" + formatCLIExcludedAccountCount(excludedAccountCount)
+		}
+	}
+	status := "not_connected"
+	if connection.Connected {
+		status = "connected"
+	} else if strings.TrimSpace(string(connection.OnboardingStatus)) != "" {
+		status = string(connection.OnboardingStatus)
+	}
+	next := "none"
+	if len(connection.NextActions) > 0 {
+		next = string(connection.NextActions[0])
+	}
+	if _, err := fmt.Fprintf(out, "AWS connector: %s health=%s scope=%s accounts=%s regions=%s permissions=%s next=%s\n", status, connection.HealthStatus, scope, accounts, regions, permissions, next); err != nil {
+		return err
+	}
+	if strings.TrimSpace(connection.ConnectorID) != "" {
+		if _, err := fmt.Fprintf(out, "Connector: %s\n", strings.TrimSpace(connection.ConnectorID)); err != nil {
+			return err
+		}
+	}
+	if len(connection.Diagnostics) == 0 {
+		_, err := fmt.Fprintln(out, "Diagnostics: none")
+		return err
+	}
+	_, err := fmt.Fprintf(out, "Diagnostics: %d\n", len(connection.Diagnostics))
+	return err
+}
+
+func formatCLICount(count int, noun string) string {
+	if count == 1 {
+		return fmt.Sprintf("%d_%s", count, noun)
+	}
+	return fmt.Sprintf("%d_%ss", count, noun)
+}
+
+func formatCLIExcludedAccountCount(count int) string {
+	if count == 1 {
+		return "1_excluded_account"
+	}
+	return fmt.Sprintf("%d_excluded_accounts", count)
 }
 
 func renderAuthzRollbackOutput(out io.Writer, response authzPolicyRollbackCLIResponse) error {
