@@ -315,8 +315,7 @@ type AWSConnectionStatus struct {
 	AutoOnboardNewAccounts bool                                `json:"auto_onboard_new_accounts"`
 	SetupSummary           string                              `json:"setup_summary"`
 	NextActions            []AWSConnectorNextAction            `json:"next_actions"`
-	ExternalID             string                              `json:"external_id,omitempty"`
-	IdentrailAccountID     string                              `json:"identrail_account_id,omitempty"`
+	ExternalID             string                              `json:"-"`
 	PermissionChecks       []AWSConnectionPermissionCheck      `json:"permission_checks"`
 	Diagnostics            []AWSConnectionDiagnostic           `json:"diagnostics"`
 	Capabilities           AWSConnectorCapabilities            `json:"capabilities"`
@@ -2383,9 +2382,6 @@ func (s *Service) awsConnectionStatusFromStored(ctx context.Context, stored db.T
 		status.ExternalID = s.awsExternalIDFromStored(ctx, stored)
 	}
 	status.ExternalIDConfigured = status.ExternalIDConfigured || status.ExternalID != ""
-	if s != nil && strings.TrimSpace(status.IdentrailAccountID) == "" {
-		status.IdentrailAccountID = strings.TrimSpace(s.AWSAccountID)
-	}
 	return status
 }
 

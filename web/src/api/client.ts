@@ -885,9 +885,7 @@ export type AWSConnectionStatus = {
   status: ConnectorLifecycleStatus;
   health_status: ConnectorHealthStatus;
   role_arn?: string;
-  external_id?: string;
   external_id_configured: boolean;
-  identrail_account_id?: string;
   account_id?: string;
   principal_arn?: string;
   user_id?: string;
