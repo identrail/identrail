@@ -246,19 +246,13 @@ func (s *Service) ProcessAWSConnectorRegistrationMessage(ctx context.Context, bo
 	if err := validateAWSCloudFormationRequestShape(request); err != nil {
 		return err
 	}
+	phase := awsRegistrationProperty(request.ResourceProperties, "Phase")
 	if request.RequestType == "Delete" {
-		// A partially created stack still owns the active onboarding attempt.
-		// Terminalize it so a replacement launch can create a fresh grant
-		// instead of being rejected as a replay for the rest of the lifetime.
-		if store, storeErr := s.awsOnboardingAttemptStore(); storeErr == nil {
-			s.cancelAWSOnboardingAttemptForDeletedStack(ctx, store, request)
-		}
-		return s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, nil)
+		return s.processAWSRegistrationDelete(ctx, envelope.TopicARN, request, phase)
 	}
 
 	attemptID := awsRegistrationProperty(request.ResourceProperties, "AttemptId")
 	token := awsRegistrationProperty(request.ResourceProperties, "RegistrationToken")
-	phase := awsRegistrationProperty(request.ResourceProperties, "Phase")
 	store, err := s.awsOnboardingAttemptStore()
 	if err != nil {
 		return s.failAWSCloudFormationRequest(ctx, request, "Identrail registration is unavailable.", err)
@@ -350,16 +344,12 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 	if request.RequestType == "Update" && attempt.RegisterRequestID == "" {
 		return s.failAWSCloudFormationRequest(ctx, request, "The original Identrail connection is incomplete.", fmt.Errorf("registration update before create"))
 	}
-	// The persisted RegisterRequestID is the record that the CloudFormation
-	// callback for this request already reached us and returned success — it
-	// is only written below, after `respondToAWSCloudFormation` returns nil.
-	// A same-request SQS redelivery whose callback failed the first time
-	// therefore sees an empty RegisterRequestID and re-sends the response,
-	// while a redelivery that follows a successful callback but crashed
-	// validation sees it set and skips straight to validation. The S3
-	// presigned response URL tolerates repeat PUTs, so a rare double-send
-	// is safe.
-	callbackAlreadyDelivered := request.RequestType == "Create" && attempt.RegisterRequestID != "" && attempt.RegisterRequestID == request.RequestID
+	// RegisterRequestID records the most recent CloudFormation callback that
+	// reached us successfully. This applies to both Create and Update so an SQS
+	// redelivery cannot repeat validation after the callback marker is durable.
+	// If callback delivery or marker persistence failed, the same message is
+	// intentionally retried.
+	callbackAlreadyDelivered := attempt.RegisterRequestID != "" && attempt.RegisterRequestID == request.RequestID
 	if !callbackAlreadyDelivered {
 		if err := s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, map[string]any{"Registration": "accepted"}); err != nil {
 			return err
@@ -368,12 +358,12 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 	// Persist Validating state (and RegisterRequestID as the durable
 	// "callback delivered" marker) only after the callback has been
 	// acknowledged, so a redelivery of a failed-callback attempt retries.
-	if attempt.RegisterRequestID == "" || request.RequestType == "Update" {
+	if !callbackAlreadyDelivered {
 		now := s.Now().UTC()
 		attempt.Status = db.AWSConnectorOnboardingAttemptValidating
 		attempt.RoleARN = roleARN
-		if attempt.RegisterRequestID == "" {
-			attempt.RegisterRequestID = request.RequestID
+		attempt.RegisterRequestID = request.RequestID
+		if attempt.RegisteredAt == nil {
 			attempt.RegisteredAt = &now
 		}
 		attempt.UpdatedAt = now
@@ -386,9 +376,11 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 			return err
 		}
 	}
-	// If validation already reached a terminal outcome on a prior delivery,
-	// return successfully so SQS deletes the redelivered message.
-	if attempt.Status == db.AWSConnectorOnboardingAttemptConnected {
+	// If this exact request already reached a terminal validation outcome,
+	// return successfully so SQS deletes the redelivered message. A new Update
+	// has a different request ID and is allowed to validate the replacement.
+	if callbackAlreadyDelivered &&
+		(attempt.Status == db.AWSConnectorOnboardingAttemptConnected || attempt.Status == db.AWSConnectorOnboardingAttemptNeedsFix) {
 		return nil
 	}
 	status, validationErr := s.ValidateAWSConnector(ctx, attempt.ConnectorID, AWSConnectorValidateRequest{
@@ -424,13 +416,17 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 }
 
 func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardingAttempt, topicARN string, request awsCloudFormationCustomResourceRequest, phase string, token string) error {
+	if !awsRegistrationPhaseMatchesResource(phase, request.ResourceType) {
+		return fmt.Errorf("registration phase does not match resource")
+	}
 	partition, region, accountID, ok := parseAWSStackARN(request.StackID)
 	if !ok || region != attempt.DeploymentRegion {
 		return fmt.Errorf("registration stack mismatch")
 	}
-	sameBoundStack := attempt.StackID != "" && attempt.StackID == request.StackID && attempt.AWSAccountID == accountID && attempt.AWSPartition == partition
-	allowBoundUpdate := request.RequestType == "Update" && sameBoundStack
-	if attempt.ProviderTopicARN != strings.TrimSpace(topicARN) || (!allowBoundUpdate && (attempt.Status == db.AWSConnectorOnboardingAttemptExpired || attempt.Status == db.AWSConnectorOnboardingAttemptFailed || !s.Now().UTC().Before(attempt.ExpiresAt))) {
+	if attempt.ProviderTopicARN != strings.TrimSpace(topicARN) ||
+		attempt.Status == db.AWSConnectorOnboardingAttemptExpired ||
+		attempt.Status == db.AWSConnectorOnboardingAttemptFailed ||
+		!s.Now().UTC().Before(attempt.ExpiresAt) {
 		return fmt.Errorf("registration attempt is not active")
 	}
 	if phase == "Bootstrap" {
@@ -451,6 +447,66 @@ func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardi
 		return fmt.Errorf("registration stack replay")
 	}
 	return nil
+}
+
+func (s *Service) processAWSRegistrationDelete(ctx context.Context, topicARN string, request awsCloudFormationCustomResourceRequest, phase string) error {
+	// CloudFormation deletion must never be blocked by a missing, expired, or
+	// malformed Identrail attempt. A known attempt is terminalized only after
+	// its phase credential and bound stack are verified.
+	store, err := s.awsOnboardingAttemptStore()
+	if err != nil {
+		return s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, nil)
+	}
+	attemptID := awsRegistrationProperty(request.ResourceProperties, "AttemptId")
+	attempt, err := store.GetAWSConnectorOnboardingAttemptAnyScope(ctx, attemptID)
+	if err != nil {
+		return s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, nil)
+	}
+	if attempt.ProviderTopicARN != strings.TrimSpace(topicARN) ||
+		attempt.StackID == "" || attempt.StackID != request.StackID ||
+		!awsRegistrationPhaseMatchesResource(phase, request.ResourceType) ||
+		!s.awsRegistrationDeleteCredentialValid(ctx, attempt, request, phase) {
+		return s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, nil)
+	}
+	// Release the customer stack before persistence. If persistence fails, SQS
+	// retries this idempotently while CloudFormation continues deleting.
+	if err := s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, nil); err != nil {
+		return err
+	}
+	return s.cancelAWSOnboardingAttemptForDeletedStack(ctx, store, attempt)
+}
+
+func (s *Service) awsRegistrationDeleteCredentialValid(ctx context.Context, attempt db.AWSConnectorOnboardingAttempt, request awsCloudFormationCustomResourceRequest, phase string) bool {
+	switch phase {
+	case "Bootstrap":
+		tokenHash := sha256.Sum256([]byte(awsRegistrationProperty(request.ResourceProperties, "RegistrationToken")))
+		return subtle.ConstantTimeCompare(tokenHash[:], attempt.TokenHash) == 1
+	case "Register":
+		scopedContext := db.WithScope(ctx, db.Scope{TenantID: attempt.TenantID, WorkspaceID: attempt.WorkspaceID})
+		stored, err := s.Store.GetTenancyConnector(scopedContext, attempt.WorkspaceID, attempt.ProjectID, attempt.ConnectorID)
+		if err != nil {
+			return false
+		}
+		externalID, configured, err := s.awsExternalIDFromStoredStrict(scopedContext, stored)
+		if err != nil || !configured || externalID == "" {
+			return false
+		}
+		provided := awsRegistrationProperty(request.ResourceProperties, "ExternalId")
+		return subtle.ConstantTimeCompare([]byte(provided), []byte(externalID)) == 1
+	default:
+		return false
+	}
+}
+
+func awsRegistrationPhaseMatchesResource(phase string, resourceType string) bool {
+	switch phase {
+	case "Bootstrap":
+		return resourceType == "Custom::IdentrailAWSConnectorBootstrap"
+	case "Register":
+		return resourceType == "Custom::IdentrailAWSConnectorRegistration"
+	default:
+		return false
+	}
 }
 
 func (s *Service) persistAWSRegistrationProgress(ctx context.Context, stored db.TenancyConnectorWithState, status AWSConnectorOnboardingStatus, roleARN string, accountID string, region string) error {
@@ -578,34 +634,70 @@ func awsRegistrationProperty(properties map[string]any, key string) string {
 	return strings.TrimSpace(value)
 }
 
-// cancelAWSOnboardingAttemptForDeletedStack marks the active attempt bound to
-// a deleted stack as failed so a replacement stack for the same connector can
-// create a fresh grant instead of being rejected as a replay. Only attempts
-// whose StackID matches the deleted stack are cancelled — this keeps a
-// spoofed Delete with an unbound attempt_id from wiping a legitimate
-// in-flight bootstrap.
-func (s *Service) cancelAWSOnboardingAttemptForDeletedStack(ctx context.Context, store db.AWSConnectorOnboardingAttemptStore, request awsCloudFormationCustomResourceRequest) {
-	attemptID := awsRegistrationProperty(request.ResourceProperties, "AttemptId")
-	if attemptID == "" {
-		return
-	}
-	attempt, err := store.GetAWSConnectorOnboardingAttemptAnyScope(ctx, attemptID)
-	if err != nil {
-		return
-	}
-	if attempt.StackID == "" || attempt.StackID != request.StackID {
-		return
-	}
+// cancelAWSOnboardingAttemptForDeletedStack marks the authenticated attempt
+// and connector bound to a deleted stack as failed so the app leaves any
+// waiting/connected state and an explicit replacement can issue a fresh grant.
+func (s *Service) cancelAWSOnboardingAttemptForDeletedStack(ctx context.Context, store db.AWSConnectorOnboardingAttemptStore, attempt db.AWSConnectorOnboardingAttempt) error {
 	if !awsOnboardingAttemptCancelable(attempt.Status) {
-		return
+		return nil
 	}
 	scopedContext := db.WithScope(ctx, db.Scope{TenantID: attempt.TenantID, WorkspaceID: attempt.WorkspaceID})
+	stored, err := s.Store.GetTenancyConnector(scopedContext, attempt.WorkspaceID, attempt.ProjectID, attempt.ConnectorID)
+	if err != nil {
+		return err
+	}
+	if err := s.persistAWSRegistrationTerminalFailure(scopedContext, stored, attempt, "registration_stack_deleted", "The AWS stack was deleted. Start a new connection."); err != nil {
+		return err
+	}
+	expectedStackID := attempt.StackID
+	for updateAttempt := 0; updateAttempt < 2; updateAttempt++ {
+		if !awsOnboardingAttemptCancelable(attempt.Status) || attempt.StackID != expectedStackID {
+			return nil
+		}
+		now := s.Now().UTC()
+		attempt.Status = db.AWSConnectorOnboardingAttemptFailed
+		attempt.FailureCode = "registration_stack_deleted"
+		attempt.FailureMessage = "The AWS stack was deleted. Start a new connection."
+		attempt.UpdatedAt = now
+		_, err = store.UpdateAWSConnectorOnboardingAttempt(scopedContext, attempt, attempt.Version)
+		if !errors.Is(err, db.ErrConflict) {
+			return err
+		}
+		attempt, err = store.GetAWSConnectorOnboardingAttempt(scopedContext, attempt.WorkspaceID, attempt.ProjectID, attempt.AttemptID)
+		if errors.Is(err, db.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return db.ErrConflict
+}
+
+func (s *Service) persistAWSRegistrationTerminalFailure(ctx context.Context, stored db.TenancyConnectorWithState, attempt db.AWSConnectorOnboardingAttempt, code string, message string) error {
+	metadata := copyAWSMetadata(stored.State.Metadata)
+	setup := awsMetadataSetupContract(metadata, AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation)
+	applyAWSConnectorSetupMetadata(metadata, setup, AWSConnectorOnboardingFailed)
+	if attempt.RoleARN != "" {
+		metadata["role_arn"] = attempt.RoleARN
+	}
+	if attempt.AWSAccountID != "" {
+		metadata["account_id"] = attempt.AWSAccountID
+	}
+	if attempt.DeploymentRegion != "" {
+		metadata["region"] = attempt.DeploymentRegion
+	}
+	delete(metadata, "launch_url")
 	now := s.Now().UTC()
-	attempt.Status = db.AWSConnectorOnboardingAttemptFailed
-	attempt.FailureCode = "registration_stack_deleted"
-	attempt.FailureMessage = "The AWS stack was deleted. Start a new connection."
-	attempt.UpdatedAt = now
-	_, _ = store.UpdateAWSConnectorOnboardingAttempt(scopedContext, attempt, attempt.Version)
+	stored.State.Metadata = metadata
+	stored.State.HealthStatus = "error"
+	stored.State.LastErrorCode = code
+	stored.State.LastErrorMessage = message
+	stored.State.ObservedAt = now
+	stored.State.UpdatedAt = now
+	stored.Connector.Status = domain.ConnectorStatusDegraded
+	stored.Connector.UpdatedAt = now
+	return s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State)
 }
 
 func awsOnboardingAttemptCancelable(status string) bool {
@@ -613,6 +705,7 @@ func awsOnboardingAttemptCancelable(status string) bool {
 	case db.AWSConnectorOnboardingAttemptWaiting,
 		db.AWSConnectorOnboardingAttemptRegistering,
 		db.AWSConnectorOnboardingAttemptValidating,
+		db.AWSConnectorOnboardingAttemptConnected,
 		db.AWSConnectorOnboardingAttemptNeedsFix:
 		return true
 	default:

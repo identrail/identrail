@@ -21953,6 +21953,7 @@ export function ProductAWSConnectPage() {
                 connector_id: connectorID,
                 scope_type: 'single_account',
                 deployment_method: 'cloudformation',
+                repair_only: true,
                 region: response.connection.region || 'us-east-1'
               },
               buildProductAuthContext(scope)

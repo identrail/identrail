@@ -154,6 +154,7 @@ type AWSConnectorStartRequest struct {
 	TargetOUIDs            []string                     `json:"target_ou_ids,omitempty"`
 	ExcludedAccountIDs     []string                     `json:"excluded_account_ids,omitempty"`
 	AutoOnboardNewAccounts bool                         `json:"auto_onboard_new_accounts,omitempty"`
+	RepairOnly             bool                         `json:"repair_only,omitempty"`
 }
 
 // AWSConnectorValidateRequest validates a CloudFormation-created AWS connector role.
@@ -380,6 +381,9 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	if err != nil {
 		return AWSConnectorStartResponse{}, err
 	}
+	if request.RepairOnly && (setup.ScopeType != AWSConnectorScopeSingleAccount || setup.DeploymentMethod != AWSConnectorDeploymentCloudFormation) {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
 	if setup.ScopeType == AWSConnectorScopeManualRole && setup.DeploymentMethod == AWSConnectorDeploymentManual {
 		return s.startAWSManualConnector(ctx, project, scope, request, setup)
 	}
@@ -396,6 +400,9 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
 	}
 	connectorID := strings.TrimSpace(request.ConnectorID)
+	if request.RepairOnly && connectorID == "" {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
 	if connectorID == "" {
 		connectorID = "aws-" + uuid.NewString()
 	} else {
@@ -405,6 +412,9 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 		}
 		if !errors.Is(err, db.ErrNotFound) {
 			return AWSConnectorStartResponse{}, err
+		}
+		if request.RepairOnly {
+			return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 		}
 	}
 	displayName := strings.TrimSpace(request.DisplayName)
@@ -1049,11 +1059,23 @@ func (s *Service) resumeAWSConnectorStart(
 			return AWSConnectorStartResponse{}, fmt.Errorf("persist recovered aws connector launch state: %w", err)
 		}
 	}
+	if request.RepairOnly {
+		if !awsConnectorNeedsTrustPolicyRepair(stored) {
+			return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+		}
+		status := s.awsConnectionStatusFromStored(ctx, stored)
+		status.ExternalIDConfigured = true
+		status.Region = firstNonEmptyAWSValue(status.Region, region)
+		status.TemplateURL = firstNonEmptyAWSValue(status.TemplateURL, templateURL)
+		status.PolicyHash = firstNonEmptyAWSValue(status.PolicyHash, policyHash)
+		status.TemplateChecksum = templateChecksum
+		return awsConnectorStartResponse(status, externalID, "", storedTemplateURL, accountID, roleName, stackName, policyHash), nil
+	}
 	attempt, registrationToken, err := s.activeOrNewAWSConnectorOnboardingAttempt(ctx, stored, registrationProviderARN, templateChecksum, region)
 	if err != nil {
 		return AWSConnectorStartResponse{}, err
 	}
-	// Restarting an expired/failed/needs_fix connector issues a fresh
+	// Explicitly restarting an expired/failed/needs_fix connector issues a fresh
 	// registration grant, but the stored setup metadata still carries the
 	// prior terminal onboarding_status — so the UI would continue to show
 	// "Start again" instead of waiting for AWS. Reset the setup metadata to
@@ -1125,16 +1147,6 @@ func (s *Service) resetAWSConnectorSetupToWaiting(
 	// If we're already in a pre-registration state, no reset is required.
 	switch current {
 	case AWSConnectorOnboardingWaitingForAWS, AWSConnectorOnboardingRegistering, AWSConnectorOnboardingValidating, AWSConnectorOnboardingConnected:
-		return nil
-	}
-	// Preserve `needs_fix` and `partial` — those are repair states, not
-	// restart-worthy failures. The client's page-reload hydration path
-	// also enters the resume codepath to rebuild the trust policy for a
-	// degraded connector; resetting to `waiting_for_aws` here would wipe
-	// the diagnostic that drives the guided assume_role_failed repair
-	// and hide the External ID that the repair action needs.
-	switch current {
-	case AWSConnectorOnboardingNeedsFix, AWSConnectorOnboardingPartial:
 		return nil
 	}
 	metadata := copyAWSMetadata(stored.State.Metadata)

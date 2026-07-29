@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/secretstore"
 )
 
@@ -59,7 +60,7 @@ func TestAWSRegistrationConnectsWithoutRoleCopyPaste(t *testing.T) {
 	}
 }
 
-func TestAWSRegistrationAllowsBoundStackUpdateAfterAttemptExpiry(t *testing.T) {
+func TestAWSRegistrationRejectsBoundStackUpdateAfterAttemptExpiry(t *testing.T) {
 	svc, ctx := newAWSRegistrationTestService(t)
 	responder := &recordingAWSCloudFormationResponder{}
 	svc.AWSCloudFormationResponder = responder
@@ -79,19 +80,11 @@ func TestAWSRegistrationAllowsBoundStackUpdateAfterAttemptExpiry(t *testing.T) {
 	}
 	bootstrapUpdate := awsRegistrationRequest(stackID, "Update", "bootstrap-update", "Bootstrap", attempt.AttemptID)
 	bootstrapUpdate.ResourceProperties["RegistrationToken"] = bootstrapToken
-	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, bootstrapUpdate)); err != nil {
-		t.Fatalf("process bootstrap update after expiry: %v", err)
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, bootstrapUpdate)); err == nil {
+		t.Fatal("expected expired registration grant to reject a bound stack update")
 	}
-	updatedExternalID := responder.responses[len(responder.responses)-1].Data["ExternalId"]
-	registrationUpdate := awsRegistrationRequest(stackID, "Update", "registration-update", "Register", attempt.AttemptID)
-	registrationUpdate.ResourceProperties["ExternalId"] = updatedExternalID
-	registrationUpdate.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
-	registrationUpdate.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
-	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registrationUpdate)); err != nil {
-		t.Fatalf("process registration update after expiry: %v", err)
-	}
-	if got := responder.responses[len(responder.responses)-1].Status; got != "SUCCESS" {
-		t.Fatalf("expected successful update response, got %q", got)
+	if got := responder.responses[len(responder.responses)-1].Status; got != "FAILED" {
+		t.Fatalf("expected bounded failure for expired update, got %q", got)
 	}
 }
 
@@ -268,6 +261,87 @@ func TestAWSRegistrationRejectsOutOfOrderAndReplayedRequests(t *testing.T) {
 	})
 }
 
+func TestAWSRegistrationUpdateRedeliveryIsIdempotent(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		validationErr error
+	}{
+		{name: "connected"},
+		{name: "needs fix", validationErr: errors.New("sts unavailable")},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			svc, ctx := newAWSRegistrationTestService(t)
+			responder := &recordingAWSCloudFormationResponder{}
+			svc.AWSCloudFormationResponder = responder
+			_, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+			validator := svc.AWSConnectorValidator.(*fakeAWSConnectorValidator)
+
+			create := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
+			create.ResourceProperties["ExternalId"] = externalID
+			create.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+			create.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+			if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, create)); err != nil {
+				t.Fatalf("complete initial registration: %v", err)
+			}
+
+			validator.err = testCase.validationErr
+			update := awsRegistrationRequest(stackID, "Update", "registration-update", "Register", attempt.AttemptID)
+			update.ResourceProperties["ExternalId"] = externalID
+			update.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+			update.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+			message := awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, update)
+			responsesBefore := len(responder.responses)
+			validationsBefore := validator.calls
+			if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, message); err != nil {
+				t.Fatalf("process registration update: %v", err)
+			}
+			if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, message); err != nil {
+				t.Fatalf("redeliver registration update: %v", err)
+			}
+			if got := len(responder.responses) - responsesBefore; got != 1 {
+				t.Fatalf("expected one CloudFormation callback for a redelivered update, got %d", got)
+			}
+			if got := validator.calls - validationsBefore; got != 1 {
+				t.Fatalf("expected one validation for a redelivered update, got %d", got)
+			}
+		})
+	}
+}
+
+func TestAWSRegistrationRejectsPhaseResourceMismatch(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{WorkspaceID: "workspace-a", ProjectID: "project-1"})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	store := svc.Store.(db.AWSConnectorOnboardingAttemptStore)
+	attempt, err := store.GetActiveAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("load attempt: %v", err)
+	}
+	token, err := svc.awsRegistrationToken(attempt)
+	if err != nil {
+		t.Fatalf("derive registration token: %v", err)
+	}
+	request := awsRegistrationRequest(
+		"arn:aws:cloudformation:us-east-1:123456789012:stack/identrail/12345678-abcd-1234-abcd-123456789012",
+		"Create",
+		"phase-resource-mismatch",
+		"Bootstrap",
+		attempt.AttemptID,
+	)
+	request.ResourceType = "Custom::IdentrailAWSConnectorRegistration"
+	request.ResourceProperties["RegistrationToken"] = token
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, request)); err == nil {
+		t.Fatal("expected mismatched phase and resource type to fail closed")
+	}
+	if len(responder.responses) != 1 || responder.responses[0].Status != "FAILED" {
+		t.Fatalf("expected bounded CloudFormation failure, got %+v", responder.responses)
+	}
+}
+
 func TestAWSRegistrationRejectsRoleFromDifferentAccount(t *testing.T) {
 	svc, ctx := newAWSRegistrationTestService(t)
 	responder := &recordingAWSCloudFormationResponder{}
@@ -301,6 +375,151 @@ func TestAWSRegistrationDeleteAlwaysReleasesCloudFormation(t *testing.T) {
 	}
 	if len(responder.responses) != 1 || responder.responses[0].Status != "SUCCESS" {
 		t.Fatalf("expected successful delete response, got %+v", responder.responses)
+	}
+}
+
+func TestAWSRegistrationDeleteRequiresCredentialAndPersistsTerminalState(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	started, attempt, stackID, _ := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	store := svc.Store.(db.AWSConnectorOnboardingAttemptStore)
+
+	forged := awsRegistrationRequest(stackID, "Delete", "forged-delete", "Bootstrap", attempt.AttemptID)
+	forged.ResourceProperties["RegistrationToken"] = "attacker-supplied"
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, forged)); err != nil {
+		t.Fatalf("forged delete should release CloudFormation without changing state: %v", err)
+	}
+	unchanged, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil || unchanged.Status != db.AWSConnectorOnboardingAttemptRegistering {
+		t.Fatalf("forged delete changed onboarding attempt: %+v err=%v", unchanged, err)
+	}
+
+	token, err := svc.awsRegistrationToken(attempt)
+	if err != nil {
+		t.Fatalf("derive delete credential: %v", err)
+	}
+	valid := awsRegistrationRequest(stackID, "Delete", "valid-delete", "Bootstrap", attempt.AttemptID)
+	valid.ResourceProperties["RegistrationToken"] = token
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, valid)); err != nil {
+		t.Fatalf("process authenticated stack delete: %v", err)
+	}
+	failed, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil || failed.Status != db.AWSConnectorOnboardingAttemptFailed || failed.FailureCode != "registration_stack_deleted" {
+		t.Fatalf("expected terminalized onboarding attempt, got %+v err=%v", failed, err)
+	}
+	status, err := svc.PollAWSConnector(ctx, started.ConnectorID, AWSConnectorPollRequest{WorkspaceID: "workspace-a", ProjectID: "project-1"})
+	if err != nil {
+		t.Fatalf("poll deleted connector: %v", err)
+	}
+	if status.OnboardingStatus != AWSConnectorOnboardingFailed || status.HealthStatus != "error" {
+		t.Fatalf("expected connector failure to match deleted stack, got %+v", status)
+	}
+	persisted, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil || persisted.State.LastErrorCode != "registration_stack_deleted" {
+		t.Fatalf("expected persisted stack deletion diagnostic, got %+v err=%v", persisted.State, err)
+	}
+}
+
+func TestAWSRegistrationConnectedStackDeleteUsesExternalIDCredential(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	started, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	registration := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
+	registration.ResourceProperties["ExternalId"] = externalID
+	registration.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registration.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registration)); err != nil {
+		t.Fatalf("connect role before delete: %v", err)
+	}
+
+	forged := awsRegistrationRequest(stackID, "Delete", "forged-register-delete", "Register", attempt.AttemptID)
+	forged.ResourceProperties["ExternalId"] = "wrong-external-id"
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, forged)); err != nil {
+		t.Fatalf("forged connected delete should be ignored safely: %v", err)
+	}
+	status, err := svc.PollAWSConnector(ctx, started.ConnectorID, AWSConnectorPollRequest{WorkspaceID: "workspace-a", ProjectID: "project-1"})
+	if err != nil || !status.Connected {
+		t.Fatalf("forged delete disconnected connector: %+v err=%v", status, err)
+	}
+
+	valid := awsRegistrationRequest(stackID, "Delete", "valid-register-delete", "Register", attempt.AttemptID)
+	valid.ResourceProperties["ExternalId"] = externalID
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, valid)); err != nil {
+		t.Fatalf("process connected stack delete: %v", err)
+	}
+	status, err = svc.PollAWSConnector(ctx, started.ConnectorID, AWSConnectorPollRequest{WorkspaceID: "workspace-a", ProjectID: "project-1"})
+	if err != nil || status.Connected || status.OnboardingStatus != AWSConnectorOnboardingFailed {
+		t.Fatalf("expected connected stack deletion to invalidate connector, got %+v err=%v", status, err)
+	}
+	persisted, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil || persisted.State.LastErrorCode != "registration_stack_deleted" {
+		t.Fatalf("expected persisted connected-stack deletion diagnostic, got %+v err=%v", persisted.State, err)
+	}
+}
+
+func TestAWSConnectorRepairHydrationDoesNotRenewAttemptAndExplicitRelaunchResetsState(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{WorkspaceID: "workspace-a", ProjectID: "project-1"})
+	if err != nil {
+		t.Fatalf("start connector: %v", err)
+	}
+	attemptStore := svc.Store.(db.AWSConnectorOnboardingAttemptStore)
+	attempt, err := attemptStore.GetActiveAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("load active attempt: %v", err)
+	}
+	attempt.Status = db.AWSConnectorOnboardingAttemptNeedsFix
+	attempt.FailureCode = "assume_role_failed"
+	attempt.FailureMessage = "Repair the trust policy."
+	if _, err := attemptStore.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version); err != nil {
+		t.Fatalf("mark attempt needs fix: %v", err)
+	}
+	stored, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("load connector: %v", err)
+	}
+	setup := awsMetadataSetupContract(stored.State.Metadata, AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation)
+	applyAWSConnectorSetupMetadata(stored.State.Metadata, setup, AWSConnectorOnboardingNeedsFix)
+	stored.Connector.Status = domain.ConnectorStatusDegraded
+	stored.State.HealthStatus = "error"
+	stored.State.LastErrorCode = "assume_role_failed"
+	stored.State.LastErrorMessage = "Repair the trust policy."
+	if err := svc.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+		t.Fatalf("persist repair state: %v", err)
+	}
+
+	hydrated, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: started.ConnectorID,
+		RepairOnly:  true,
+	})
+	if err != nil {
+		t.Fatalf("hydrate repair material: %v", err)
+	}
+	if hydrated.LaunchURL != "" || hydrated.ExternalID == "" || hydrated.OnboardingStatus != AWSConnectorOnboardingNeedsFix {
+		t.Fatalf("repair hydration must preserve state and omit launch, got %+v", hydrated)
+	}
+	if _, err := attemptStore.GetActiveAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", started.ConnectorID); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("repair hydration silently renewed an attempt: %v", err)
+	}
+
+	relaunched, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: started.ConnectorID,
+	})
+	if err != nil {
+		t.Fatalf("explicitly relaunch connector: %v", err)
+	}
+	if relaunched.LaunchURL == "" || relaunched.OnboardingStatus != AWSConnectorOnboardingWaitingForAWS || relaunched.Connection.HealthStatus != "unknown" {
+		t.Fatalf("explicit relaunch must reset to waiting state, got %+v", relaunched)
+	}
+	newAttempt, err := attemptStore.GetActiveAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil || newAttempt.AttemptID == attempt.AttemptID || newAttempt.Status != db.AWSConnectorOnboardingAttemptWaiting {
+		t.Fatalf("expected a fresh explicit onboarding attempt, got %+v err=%v", newAttempt, err)
 	}
 }
 

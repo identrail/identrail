@@ -9085,6 +9085,9 @@ describe('Domain-first app routes', () => {
         ]
       }
     });
+    const hydrateRepair = vi.spyOn(api.apiClient, 'startAWSConnector').mockRejectedValue(
+      new api.ApiError('Repair hydration unavailable', 503)
+    );
     const refreshPolicy = vi.spyOn(api.apiClient, 'refreshAWSConnectorPolicy').mockResolvedValue({
       policy_hash: 'sha256:updated',
       policy_document: {},
@@ -9110,6 +9113,17 @@ describe('Domain-first app routes', () => {
     expect(within(repairList).getAllByText(/Missing Read Only Permission Tier/i)).toHaveLength(1);
     expect(screen.getByRole('link', { name: /Open runbook/i })).toHaveAttribute('href', '/docs');
     expect(screen.getByText(/Identrail will not claim coverage/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(hydrateRepair).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connector_id: 'aws-connector-1',
+          repair_only: true,
+          scope_type: 'single_account',
+          deployment_method: 'cloudformation'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /Refresh policy/i }));
 

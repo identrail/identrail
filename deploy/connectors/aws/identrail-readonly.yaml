@@ -29,6 +29,9 @@ Parameters:
   RegistrationToken:
     Type: String
     Default: ''
+    # Do not set NoEcho: AWS quick-create ignores URL values for NoEcho
+    # parameters. This short-lived, connector-scoped grant is hash-only at
+    # rest and cannot access AWS; making it NoEcho would break zero-copy setup.
     AllowedPattern: '^$|^[A-Za-z0-9_-]{32,128}$'
     Description: One-time registration grant. It cannot access AWS and expires after setup.
   RoleName:

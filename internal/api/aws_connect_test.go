@@ -40,9 +40,11 @@ type fakeAWSConnectorValidator struct {
 	result AWSConnectionValidationResult
 	err    error
 	seen   AWSConnectionValidationRequest
+	calls  int
 }
 
 func (f *fakeAWSConnectorValidator) ValidateAWSConnection(ctx context.Context, request AWSConnectionValidationRequest) (AWSConnectionValidationResult, error) {
+	f.calls++
 	f.seen = request
 	return f.result, f.err
 }
