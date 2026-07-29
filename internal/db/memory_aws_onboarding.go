@@ -103,6 +103,15 @@ func (m *MemoryStore) UpdateAWSConnectorOnboardingAttempt(ctx context.Context, a
 	if !ok {
 		return AWSConnectorOnboardingAttempt{}, ErrNotFound
 	}
+	// Postgres binds an attempt to its (tenant, workspace, project, connector)
+	// tuple via a foreign key. Enforce the same invariant here so a caller
+	// cannot silently move an attempt to another connector or project.
+	if existing.TenantID != normalized.TenantID ||
+		existing.WorkspaceID != normalized.WorkspaceID ||
+		existing.ProjectID != normalized.ProjectID ||
+		existing.ConnectorID != normalized.ConnectorID {
+		return AWSConnectorOnboardingAttempt{}, ErrNotFound
+	}
 	if existing.Version != expectedVersion {
 		return AWSConnectorOnboardingAttempt{}, ErrConflict
 	}

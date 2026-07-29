@@ -26,6 +26,12 @@ resource "aws_sns_topic" "aws_connector_registration" {
 data "aws_iam_policy_document" "aws_connector_registration_topic" {
   count = var.create_aws_connector_registration_provider ? 1 : 0
 
+  # Restrict publishing to CloudFormation-originated calls. `aws:CalledVia`
+  # is populated by IAM when one AWS service invokes another using the
+  # caller's credentials, which is exactly how a CloudFormation custom
+  # resource reaches this SNS topic. Combined with the payload-level token
+  # check in the worker, this keeps arbitrary AWS principals from flooding
+  # the registration queue with unauthenticated notifications.
   statement {
     sid       = "AllowCloudFormationCustomResourceDelivery"
     actions   = ["sns:Publish"]
@@ -40,6 +46,12 @@ data "aws_iam_policy_document" "aws_connector_registration_topic" {
       test     = "StringEquals"
       variable = "AWS:SecureTransport"
       values   = ["true"]
+    }
+
+    condition {
+      test     = "ForAnyValue:StringEquals"
+      variable = "aws:CalledVia"
+      values   = ["cloudformation.amazonaws.com"]
     }
   }
 }
@@ -62,10 +74,15 @@ resource "aws_sqs_queue" "aws_connector_registration_dlq" {
 resource "aws_sqs_queue" "aws_connector_registration" {
   count = var.create_aws_connector_registration_provider ? 1 : 0
 
-  name                       = local.aws_connector_registration_name
-  message_retention_seconds  = 86400
-  receive_wait_time_seconds  = 10
-  visibility_timeout_seconds = 180
+  name                      = local.aws_connector_registration_name
+  message_retention_seconds = 86400
+  receive_wait_time_seconds = 10
+  # The worker processes each message with STS + read-only permission
+  # checks, which can take tens of seconds under network jitter. Hold
+  # messages long enough that a slow batch cannot race the redelivery
+  # window; the worker also fetches fewer messages per receive so that
+  # serial processing stays within this window.
+  visibility_timeout_seconds = 600
   sqs_managed_sse_enabled    = true
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.aws_connector_registration_dlq[0].arn

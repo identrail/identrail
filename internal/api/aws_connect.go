@@ -1046,6 +1046,16 @@ func (s *Service) resumeAWSConnectorStart(
 	if err != nil {
 		return AWSConnectorStartResponse{}, err
 	}
+	// Restarting an expired/failed/needs_fix connector issues a fresh
+	// registration grant, but the stored setup metadata still carries the
+	// prior terminal onboarding_status — so the UI would continue to show
+	// "Start again" instead of waiting for AWS. Reset the setup metadata to
+	// waiting_for_aws once we have a fresh attempt in that state.
+	if attempt.Status == db.AWSConnectorOnboardingAttemptWaiting && attempt.BootstrapRequestID == "" {
+		if err := s.resetAWSConnectorSetupToWaiting(ctx, &stored, setup, region, roleName, stackName, storedTemplateURL, templateChecksum, registrationProviderARN, policyHash); err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+	}
 	launchURL := awsconnector.BuildCloudFormationLaunchURL(awsconnector.CloudFormationLaunchInput{
 		TemplateURL:             storedTemplateURL,
 		Region:                  region,
@@ -1064,6 +1074,55 @@ func (s *Service) resumeAWSConnectorStart(
 	status.PolicyHash = firstNonEmptyAWSValue(status.PolicyHash, policyHash)
 	status.TemplateChecksum = templateChecksum
 	return awsConnectorStartResponse(status, "", launchURL, storedTemplateURL, accountID, roleName, stackName, policyHash), nil
+}
+
+// resetAWSConnectorSetupToWaiting flips a terminal or degraded connector back
+// to the waiting_for_aws onboarding state so a freshly issued registration
+// attempt is reflected consistently in the API and UI.
+func (s *Service) resetAWSConnectorSetupToWaiting(
+	ctx context.Context,
+	stored *db.TenancyConnectorWithState,
+	setup awsConnectorSetupContract,
+	region string,
+	roleName string,
+	stackName string,
+	templateURL string,
+	templateChecksum string,
+	registrationProviderARN string,
+	policyHash string,
+) error {
+	current := awsMetadataOnboardingStatus(stored.State.Metadata, "onboarding_status")
+	// If we're already in a pre-registration state, no reset is required.
+	switch current {
+	case AWSConnectorOnboardingWaitingForAWS, AWSConnectorOnboardingRegistering, AWSConnectorOnboardingValidating, AWSConnectorOnboardingConnected:
+		return nil
+	}
+	metadata := copyAWSMetadata(stored.State.Metadata)
+	metadata["region"] = region
+	metadata["role_name"] = roleName
+	metadata["stack_name"] = stackName
+	metadata["template_url"] = templateURL
+	metadata["template_checksum"] = templateChecksum
+	metadata["template_version"] = awsConnectorTemplateVersion
+	metadata["registration_provider"] = registrationProviderARN
+	if policyHash != "" {
+		metadata["policy_hash"] = policyHash
+	}
+	delete(metadata, "launch_url")
+	applyAWSConnectorSetupMetadata(metadata, setup, AWSConnectorOnboardingWaitingForAWS)
+	now := s.Now().UTC()
+	stored.State.Metadata = metadata
+	stored.State.HealthStatus = "unknown"
+	stored.State.LastErrorCode = ""
+	stored.State.LastErrorMessage = ""
+	stored.State.ObservedAt = now
+	stored.State.UpdatedAt = now
+	stored.Connector.Status = domain.ConnectorStatusPending
+	stored.Connector.UpdatedAt = now
+	if err := s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+		return fmt.Errorf("reset aws connector setup to waiting: %w", err)
+	}
+	return nil
 }
 
 func persistRecoveredAWSConnectorLaunchState(
@@ -1367,14 +1426,23 @@ func (s *Service) PollAWSConnector(ctx context.Context, connectorID string, requ
 	if attemptStore, ok := s.Store.(db.AWSConnectorOnboardingAttemptStore); ok {
 		attempt, attemptErr := attemptStore.GetActiveAWSConnectorOnboardingAttempt(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID))
 		if attemptErr == nil && !s.Now().UTC().Before(attempt.ExpiresAt) {
+			// Persist connector state first, then terminalize the attempt. If
+			// the attempt update fails, the connector shows expired but the
+			// attempt remains active, so a subsequent poll converges. If we
+			// terminalized first, a transient state-write failure would leave
+			// the attempt terminal (invisible to GetActive) with the
+			// connector permanently `waiting_for_aws`.
+			if err := s.persistAWSRegistrationProgress(ctx, stored, AWSConnectorOnboardingExpired, "", "", ""); err != nil {
+				return AWSConnectionStatus{}, err
+			}
 			attempt.Status = db.AWSConnectorOnboardingAttemptExpired
 			attempt.FailureCode = "registration_expired"
 			attempt.FailureMessage = "The AWS connection window expired. Start a new connection."
 			attempt.UpdatedAt = s.Now().UTC()
-			if _, updateErr := attemptStore.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version); updateErr == nil {
-				_ = s.persistAWSRegistrationProgress(ctx, stored, AWSConnectorOnboardingExpired, "", "", "")
-				stored, _ = s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID))
+			if _, updateErr := attemptStore.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version); updateErr != nil && !errors.Is(updateErr, db.ErrConflict) {
+				return AWSConnectionStatus{}, updateErr
 			}
+			stored, _ = s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID))
 		}
 	}
 	return awsConnectorSetupPublicConnectionStatus(s.awsConnectionStatusFromStored(ctx, stored)), nil

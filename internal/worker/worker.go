@@ -398,9 +398,13 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		})
 	}
 	if awsRegistrationTrigger != nil {
+		// Do not run at startup: a poison or transient SQS registration message
+		// would propagate its error out of the startup pass and take down the
+		// whole worker. Let the scheduled interval handle failures — those log
+		// and retry rather than propagating.
 		runners = append(runners, scheduledRunner{
 			name:   "aws-registration",
-			runNow: true,
+			runNow: false,
 			runner: scheduler.Runner{
 				Interval:     time.Second,
 				Key:          "aws-connector-registration",

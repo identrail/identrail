@@ -21795,6 +21795,7 @@ export function ProductAWSConnectPage() {
   const awsStartRequestRef = useRef(0);
   const awsPollRequestRef = useRef(0);
   const awsAutoPollGenerationRef = useRef(0);
+  const [awsAutoPollExhausted, setAWSAutoPollExhausted] = useState(false);
   const awsValidationRequestRef = useRef(0);
   const awsStackSetOnboardingRequestRef = useRef(0);
   const awsSetupModeTouchedRef = useRef(false);
@@ -22217,15 +22218,29 @@ export function ProductAWSConnectPage() {
     const requestEnvironmentID = selectedEnvironmentID;
     const requestScopeKey = scopeKeyRef.current;
     const delays = [2000, 3000, 5000, 8000, 13000, 15000];
+    // Cap total polling at roughly 10 minutes so a waiting/failing
+    // registration cannot spin API traffic indefinitely. When exhausted, the
+    // UI shows a refresh/retry state operators can drive manually.
+    const maxAttempts = 60;
     let delayIndex = 0;
+    let attempts = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let cancelled = false;
+    setAWSAutoPollExhausted(false);
     const stale = () =>
       cancelled ||
       generation !== awsAutoPollGenerationRef.current ||
       selectedEnvironmentIDRef.current !== requestEnvironmentID ||
       scopeKeyRef.current !== requestScopeKey;
+    const scheduleNext = () => {
+      if (attempts >= maxAttempts) {
+        setAWSAutoPollExhausted(true);
+        return;
+      }
+      timer = setTimeout(poll, delays[Math.min(delayIndex++, delays.length - 1)]);
+    };
     const poll = async () => {
+      attempts += 1;
       try {
         const response = await apiClient.pollAWSConnector(
           connectorID,
@@ -22252,9 +22267,9 @@ export function ProductAWSConnectPage() {
         }
         setAWSSetupMessage(formatAWSConnectorSetupError(error));
       }
-      timer = setTimeout(poll, delays[Math.min(delayIndex++, delays.length - 1)]);
+      scheduleNext();
     };
-    timer = setTimeout(poll, delays[delayIndex++]);
+    scheduleNext();
     return () => {
       cancelled = true;
       awsAutoPollGenerationRef.current += 1;
@@ -22536,9 +22551,14 @@ export function ProductAWSConnectPage() {
       awsSetupModeTouchedRef.current = true;
       awsSetupModeRef.current = 'cloudformation';
       setAWSSetupMode('cloudformation');
-    setSuccessMessage('AWS opened in a new tab. Approve the stack and Identrail will finish the connection.');
+      let popupOpened = false;
       if (typeof window !== 'undefined' && !/jsdom/i.test(window.navigator.userAgent)) {
-        window.open(response.launch_url, '_blank', 'noopener,noreferrer');
+        popupOpened = Boolean(window.open(response.launch_url, '_blank', 'noopener,noreferrer'));
+      }
+      if (popupOpened) {
+        setSuccessMessage('AWS opened in a new tab. Approve the stack and Identrail will finish the connection.');
+      } else {
+        setAWSSetupMessage('Popup blocked. Use the direct AWS launch link below to approve the stack.');
       }
     } catch (error) {
       if (isStale()) {
@@ -23475,6 +23495,11 @@ export function ProductAWSConnectPage() {
                         {awsSetupMessage}
                       </p>
                     ) : null}
+                    {awsAutoPollExhausted ? (
+                      <p role="status" className="idt-aws-setup-note">
+                        Still waiting on AWS. Refresh to check again, or start a new connection if the stack was cancelled.
+                      </p>
+                    ) : null}
                     <div className="idt-source-actions">
                       <button
                         className="idt-btn idt-btn-primary"
@@ -23484,6 +23509,26 @@ export function ProductAWSConnectPage() {
                       >
             {submitting ? 'Opening AWS...' : launchURL ? 'Open AWS' : 'Connect AWS'}
                       </button>
+                      {launchURL ? (
+                        <a
+                          className="idt-btn idt-btn-ghost"
+                          href={launchURL}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open AWS directly
+                        </a>
+                      ) : null}
+                      {awsAutoPollExhausted && activeConnectorID ? (
+                        <button
+                          className="idt-btn idt-btn-ghost"
+                          type="button"
+                          onClick={() => void handleAWSPoll()}
+                          disabled={submitting}
+                        >
+                          Refresh status
+                        </button>
+                      ) : null}
                       {awsPermissionPreview.length > 0 ? (
                         <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setAWSPreviewOpen(true)}>
                           Preview permissions

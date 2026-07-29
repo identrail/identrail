@@ -14,7 +14,8 @@ Parameters:
     Type: String
     Default: ''
     NoEcho: true
-    Description: Troubleshooting-only External ID. Automatic setup obtains this securely from Identrail.
+    AllowedPattern: '^$|^[A-Za-z0-9+=,.@:_-]{16,256}$'
+    Description: Troubleshooting-only External ID (16-256 chars when supplied). Automatic setup obtains this securely from Identrail.
   RegistrationProviderArn:
     Type: String
     Default: ''

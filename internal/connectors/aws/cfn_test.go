@@ -121,6 +121,37 @@ func TestBuildCloudFormationLaunchURL(t *testing.T) {
 	}
 }
 
+func TestBuildCloudFormationLaunchURLAutomaticRegistration(t *testing.T) {
+	launchURL := BuildCloudFormationLaunchURL(CloudFormationLaunchInput{
+		TemplateURL:             "https://cdn.example.com/identrail-readonly.yaml",
+		Region:                  "us-east-1",
+		StackName:               "identrail-prod",
+		IdentrailAccountID:      "123456789012",
+		ExternalID:              "external-id-should-not-appear",
+		RoleName:                "IdentrailReadOnlyProd",
+		RegistrationProviderARN: "arn:aws:sns:us-east-1:123456789012:identrail-registration",
+		RegistrationAttemptID:   "attempt-abc-123",
+		RegistrationToken:       "token-xyz-789",
+	})
+
+	parsed, err := url.Parse(launchURL)
+	if err != nil {
+		t.Fatalf("parse launch URL: %v", err)
+	}
+	if !strings.Contains(parsed.Fragment, "param_RegistrationProviderArn=arn:aws:sns:us-east-1:123456789012:identrail-registration") {
+		t.Fatalf("expected registration provider ARN in fragment, got %q", parsed.Fragment)
+	}
+	if !strings.Contains(parsed.Fragment, "param_RegistrationAttemptId=attempt-abc-123") {
+		t.Fatalf("expected registration attempt id in fragment, got %q", parsed.Fragment)
+	}
+	if !strings.Contains(parsed.Fragment, "param_RegistrationToken=token-xyz-789") {
+		t.Fatalf("expected registration token in fragment, got %q", parsed.Fragment)
+	}
+	if strings.Contains(parsed.Fragment, "param_ExternalId") {
+		t.Fatalf("automatic registration must not surface param_ExternalId, got %q", parsed.Fragment)
+	}
+}
+
 func TestBuildCloudFormationStackSetLaunchURL(t *testing.T) {
 	autoDeploy := false
 	launchURL := BuildCloudFormationStackSetLaunchURL(CloudFormationStackSetLaunchInput{

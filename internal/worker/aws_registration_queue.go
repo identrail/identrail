@@ -46,9 +46,14 @@ func (r *awsRegistrationQueueRunner) RunOnce(ctx context.Context) error {
 	if r == nil || r.client == nil || r.queueURL == "" || r.process == nil {
 		return fmt.Errorf("aws registration queue is not configured")
 	}
+	// Fetch a small batch. Each message may run STS + read-only permission
+	// checks, so keeping the batch small ensures serial processing completes
+	// within the queue's visibility timeout even under network jitter — a
+	// redelivery mid-processing would race the original attempt and could
+	// send an otherwise valid registration to the DLQ.
 	result, err := r.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:            &r.queueURL,
-		MaxNumberOfMessages: 10,
+		MaxNumberOfMessages: 3,
 		WaitTimeSeconds:     10,
 	})
 	if err != nil {

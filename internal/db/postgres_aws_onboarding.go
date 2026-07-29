@@ -69,6 +69,9 @@ func (p *PostgresStore) CreateAWSConnectorOnboardingAttempt(ctx context.Context,
 	if errors.Is(err, sql.ErrNoRows) {
 		return AWSConnectorOnboardingAttempt{}, ErrConflict
 	}
+	if isTenancyFKViolation(err) {
+		return AWSConnectorOnboardingAttempt{}, ErrNotFound
+	}
 	return created, err
 }
 
