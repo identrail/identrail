@@ -26,12 +26,17 @@ resource "aws_sns_topic" "aws_connector_registration" {
 data "aws_iam_policy_document" "aws_connector_registration_topic" {
   count = var.create_aws_connector_registration_provider ? 1 : 0
 
-  # Restrict publishing to CloudFormation-originated calls. `aws:CalledVia`
-  # is populated by IAM when one AWS service invokes another using the
-  # caller's credentials, which is exactly how a CloudFormation custom
-  # resource reaches this SNS topic. Combined with the payload-level token
-  # check in the worker, this keeps arbitrary AWS principals from flooding
-  # the registration queue with unauthenticated notifications.
+  # CloudFormation custom resources publish under whichever credentials the
+  # stack was launched with: the deployer's IAM identity when no service
+  # role is configured, or the CloudFormation execution role otherwise.
+  # Neither path uses the `cloudformation.amazonaws.com` service principal
+  # directly, and only the deployer path populates `aws:CalledVia`, so a
+  # service-role deployment would be rejected by any tighter condition.
+  # Ingress is therefore restricted only to secure transport; the
+  # payload-level token check plus per-connector attempt binding is what
+  # authenticates the registration, and the queue's visibility timeout and
+  # small worker batch size keep unauthenticated noise from starving
+  # legitimate handshakes.
   statement {
     sid       = "AllowCloudFormationCustomResourceDelivery"
     actions   = ["sns:Publish"]
@@ -46,12 +51,6 @@ data "aws_iam_policy_document" "aws_connector_registration_topic" {
       test     = "StringEquals"
       variable = "AWS:SecureTransport"
       values   = ["true"]
-    }
-
-    condition {
-      test     = "ForAnyValue:StringEquals"
-      variable = "aws:CalledVia"
-      values   = ["cloudformation.amazonaws.com"]
     }
   }
 }

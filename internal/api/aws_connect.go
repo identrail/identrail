@@ -1020,15 +1020,22 @@ func (s *Service) resumeAWSConnectorStart(
 		}
 		policyHash = hash
 	}
-	templateChecksum := firstNonEmptyAWSValue(
-		normalizeAWSConnectorTemplateChecksum(awsMetadataString(stored.State.Metadata, "template_checksum")),
-		normalizeAWSConnectorTemplateChecksum(s.AWSCloudFormationTemplateSHA),
-	)
+	storedTemplateChecksum := normalizeAWSConnectorTemplateChecksum(awsMetadataString(stored.State.Metadata, "template_checksum"))
+	templateChecksum := firstNonEmptyAWSValue(storedTemplateChecksum, normalizeAWSConnectorTemplateChecksum(s.AWSCloudFormationTemplateSHA))
 	registrationProviderARN := s.awsRegistrationTopicARN(region)
 	if templateChecksum == "" || registrationProviderARN == "" {
 		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
 	}
-	storedTemplateURL := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "template_url"), templateURL)
+	// A legacy connector persisted before the automatic-registration template
+	// (v2.x) has an old `template_url` in metadata but no `template_checksum`.
+	// Pairing that legacy URL with the newly configured v2 checksum would
+	// launch a template without the registration parameters, so the connector
+	// could never complete automatic registration. Prefer the configured URL
+	// whenever the stored metadata predates registration.
+	storedTemplateURL := templateURL
+	if storedTemplateChecksum != "" {
+		storedTemplateURL = firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "template_url"), templateURL)
+	}
 	if generatedExternalID {
 		if rotatedAt.IsZero() {
 			rotatedAt = s.Now().UTC()
@@ -1073,7 +1080,30 @@ func (s *Service) resumeAWSConnectorStart(
 	status.TemplateURL = firstNonEmptyAWSValue(status.TemplateURL, templateURL)
 	status.PolicyHash = firstNonEmptyAWSValue(status.PolicyHash, policyHash)
 	status.TemplateChecksum = templateChecksum
-	return awsConnectorStartResponse(status, "", launchURL, storedTemplateURL, accountID, roleName, stackName, policyHash), nil
+	// A healthy or waiting CloudFormation connector keeps the External ID
+	// server-side. A degraded connector needs it exposed so the guided
+	// `assume_role_failed` repair can render a `copy_trust_policy` action —
+	// otherwise the operator sees an empty trust policy and cannot fix the
+	// trust misconfiguration.
+	responseExternalID := ""
+	if awsConnectorNeedsTrustPolicyRepair(stored) {
+		responseExternalID = externalID
+	}
+	return awsConnectorStartResponse(status, responseExternalID, launchURL, storedTemplateURL, accountID, roleName, stackName, policyHash), nil
+}
+
+func awsConnectorNeedsTrustPolicyRepair(stored db.TenancyConnectorWithState) bool {
+	if stored.Connector.Status == domain.ConnectorStatusDegraded {
+		return true
+	}
+	if stored.State.HealthStatus == "error" {
+		return true
+	}
+	switch awsMetadataOnboardingStatus(stored.State.Metadata, "onboarding_status") {
+	case AWSConnectorOnboardingNeedsFix, AWSConnectorOnboardingFailed, AWSConnectorOnboardingPartial:
+		return true
+	}
+	return false
 }
 
 // resetAWSConnectorSetupToWaiting flips a terminal or degraded connector back
