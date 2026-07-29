@@ -23501,24 +23501,25 @@ export function ProductAWSConnectPage() {
                       </p>
                     ) : null}
                     <div className="idt-source-actions">
-                      <button
-                        className="idt-btn idt-btn-primary"
-                        type="button"
-                        onClick={handleAWSCloudFormationStart}
-                        disabled={!canSubmit}
-                      >
-            {submitting ? 'Opening AWS...' : launchURL ? 'Open AWS' : 'Connect AWS'}
-                      </button>
                       {launchURL ? (
                         <a
-                          className="idt-btn idt-btn-ghost"
+                          className="idt-btn idt-btn-primary"
                           href={launchURL}
                           target="_blank"
                           rel="noreferrer"
                         >
-                          Open AWS directly
+                          Open AWS
                         </a>
-                      ) : null}
+                      ) : (
+                        <button
+                          className="idt-btn idt-btn-primary"
+                          type="button"
+                          onClick={handleAWSCloudFormationStart}
+                          disabled={!canSubmit}
+                        >
+                          {submitting ? 'Opening AWS...' : 'Connect AWS'}
+                        </button>
+                      )}
                       {awsAutoPollExhausted && activeConnectorID ? (
                         <button
                           className="idt-btn idt-btn-ghost"

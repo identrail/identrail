@@ -345,11 +345,24 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 	if request.RequestType == "Update" && attempt.RegisterRequestID == "" {
 		return s.failAWSCloudFormationRequest(ctx, request, "The original Identrail connection is incomplete.", fmt.Errorf("registration update before create"))
 	}
-	// A redelivery from SQS carries the same CloudFormation RequestId. If we
-	// already accepted this request, the callback URL is likely single-use;
-	// retrying it would fail and abort processing before the live validation
-	// path can run, leaving the connector permanently `validating`.
-	alreadyAccepted := request.RequestType == "Create" && attempt.RegisterRequestID != "" && attempt.RegisterRequestID == request.RequestID
+	// The persisted RegisterRequestID is the record that the CloudFormation
+	// callback for this request already reached us and returned success — it
+	// is only written below, after `respondToAWSCloudFormation` returns nil.
+	// A same-request SQS redelivery whose callback failed the first time
+	// therefore sees an empty RegisterRequestID and re-sends the response,
+	// while a redelivery that follows a successful callback but crashed
+	// validation sees it set and skips straight to validation. The S3
+	// presigned response URL tolerates repeat PUTs, so a rare double-send
+	// is safe.
+	callbackAlreadyDelivered := request.RequestType == "Create" && attempt.RegisterRequestID != "" && attempt.RegisterRequestID == request.RequestID
+	if !callbackAlreadyDelivered {
+		if err := s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, map[string]any{"Registration": "accepted"}); err != nil {
+			return err
+		}
+	}
+	// Persist Validating state (and RegisterRequestID as the durable
+	// "callback delivered" marker) only after the callback has been
+	// acknowledged, so a redelivery of a failed-callback attempt retries.
 	if attempt.RegisterRequestID == "" || request.RequestType == "Update" {
 		now := s.Now().UTC()
 		attempt.Status = db.AWSConnectorOnboardingAttemptValidating
@@ -361,19 +374,10 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 		attempt.UpdatedAt = now
 		updated, updateErr := store.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version)
 		if updateErr != nil {
-			return s.failAWSCloudFormationRequest(ctx, request, "Identrail could not accept the AWS role.", updateErr)
+			return updateErr
 		}
 		attempt = updated
 		if err := s.persistAWSRegistrationProgress(ctx, stored, AWSConnectorOnboardingValidating, roleARN, attempt.AWSAccountID, attempt.DeploymentRegion); err != nil {
-			return s.failAWSCloudFormationRequest(ctx, request, "Identrail could not save the AWS role.", err)
-		}
-	}
-
-	// CloudFormation is released before live validation. If the worker exits
-	// after this point, SQS redelivery resumes validation idempotently by
-	// skipping the (already-consumed) callback.
-	if !alreadyAccepted {
-		if err := s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, map[string]any{"Registration": "accepted"}); err != nil {
 			return err
 		}
 	}

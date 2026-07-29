@@ -1127,6 +1127,16 @@ func (s *Service) resetAWSConnectorSetupToWaiting(
 	case AWSConnectorOnboardingWaitingForAWS, AWSConnectorOnboardingRegistering, AWSConnectorOnboardingValidating, AWSConnectorOnboardingConnected:
 		return nil
 	}
+	// Preserve `needs_fix` and `partial` — those are repair states, not
+	// restart-worthy failures. The client's page-reload hydration path
+	// also enters the resume codepath to rebuild the trust policy for a
+	// degraded connector; resetting to `waiting_for_aws` here would wipe
+	// the diagnostic that drives the guided assume_role_failed repair
+	// and hide the External ID that the repair action needs.
+	switch current {
+	case AWSConnectorOnboardingNeedsFix, AWSConnectorOnboardingPartial:
+		return nil
+	}
 	metadata := copyAWSMetadata(stored.State.Metadata)
 	metadata["region"] = region
 	metadata["role_name"] = roleName
