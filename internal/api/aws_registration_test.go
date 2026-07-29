@@ -73,7 +73,12 @@ func TestAWSRegistrationAllowsBoundStackUpdateAfterAttemptExpiry(t *testing.T) {
 	}
 
 	svc.Now = func() time.Time { return attempt.ExpiresAt.Add(time.Hour) }
+	bootstrapToken, err := svc.awsRegistrationToken(attempt)
+	if err != nil {
+		t.Fatalf("derive bootstrap token: %v", err)
+	}
 	bootstrapUpdate := awsRegistrationRequest(stackID, "Update", "bootstrap-update", "Bootstrap", attempt.AttemptID)
+	bootstrapUpdate.ResourceProperties["RegistrationToken"] = bootstrapToken
 	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, bootstrapUpdate)); err != nil {
 		t.Fatalf("process bootstrap update after expiry: %v", err)
 	}
@@ -139,6 +144,27 @@ func TestAWSRegistrationRejectsWrongToken(t *testing.T) {
 	}
 	if len(responder.responses) != 1 || responder.responses[0].Status != "FAILED" || responder.responses[0].Data != nil {
 		t.Fatalf("unexpected safe failure response: %+v", responder.responses)
+	}
+}
+
+func TestAWSRegistrationRejectsBoundBootstrapUpdateWithoutToken(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	_, attempt, stackID, _ := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+
+	// Bound Bootstrap Update targeting the same stack — but sending a wrong
+	// (or missing) RegistrationToken. An attacker who observed the stack
+	// ARN and attempt id must not be able to bypass the token check by
+	// publishing an Update instead of a Create.
+	forged := awsRegistrationRequest(stackID, "Update", "forged-bootstrap-update", "Bootstrap", attempt.AttemptID)
+	forged.ResourceProperties["RegistrationToken"] = "attacker-supplied"
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, forged)); err == nil {
+		t.Fatal("expected bound bootstrap update without a valid token to be rejected")
+	}
+	last := responder.responses[len(responder.responses)-1]
+	if last.Status != "FAILED" || last.Data != nil {
+		t.Fatalf("expected a safe FAILED response, got %+v", last)
 	}
 }
 

@@ -22533,10 +22533,17 @@ export function ProductAWSConnectPage() {
       selectedEnvironmentIDRef.current !== requestEnvironmentID ||
       scopeKeyRef.current !== requestScopeKey;
     try {
+      // Pass `connector_id` whenever the wizard already has an active
+      // connector. After a page reload with a `waiting_for_aws` connector,
+      // the persisted `launch_url` is deliberately empty, so the primary
+      // button falls back to this handler; without the id we would create
+      // a second connector and onboarding attempt, and the original AWS
+      // tab would register the old one while the UI followed the new one.
       const response = await apiClient.startAWSConnector(
         {
           workspace_id: scope.workspaceID,
           project_id: requestEnvironmentID,
+          connector_id: activeConnectorID || undefined,
           display_name: normalizeValue(awsForm.displayName) || undefined,
           region,
           role_name: normalizeValue(awsForm.roleName) || undefined,

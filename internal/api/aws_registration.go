@@ -433,7 +433,13 @@ func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardi
 	if attempt.ProviderTopicARN != strings.TrimSpace(topicARN) || (!allowBoundUpdate && (attempt.Status == db.AWSConnectorOnboardingAttemptExpired || attempt.Status == db.AWSConnectorOnboardingAttemptFailed || !s.Now().UTC().Before(attempt.ExpiresAt))) {
 		return fmt.Errorf("registration attempt is not active")
 	}
-	if phase == "Bootstrap" && !allowBoundUpdate {
+	if phase == "Bootstrap" {
+		// The Bootstrap phase must always prove possession of the one-time
+		// token — for Create and for bound Update. Skipping the token check
+		// for Update let an attacker who observed the attempt id and stack
+		// ARN (both visible in the customer's stack) publish a forged
+		// Bootstrap Update with an attacker-controlled presigned response
+		// URL and leak the connector's External ID.
 		hash := sha256.Sum256([]byte(token))
 		if subtle.ConstantTimeCompare(hash[:], attempt.TokenHash) != 1 {
 			return fmt.Errorf("registration token mismatch")
