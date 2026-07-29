@@ -299,7 +299,11 @@ func ValidateSecurity(cfg Config) error {
 		}
 		for region, topicARN := range cfg.AWSRegistrationTopicARNs {
 			parts := strings.Split(strings.TrimSpace(topicARN), ":")
-			if len(parts) != 6 || parts[0] != "arn" || parts[2] != "sns" || parts[3] != region || !regexp.MustCompile(`^[0-9]{12}$`).MatchString(parts[4]) || strings.TrimSpace(parts[5]) == "" {
+			// Restrict the partition to the same values accepted by the
+			// CloudFormation template pattern and the registration parser,
+			// otherwise a typo like `arn:awss:...` would pass startup and
+			// only fail at stack-parameter validation for every customer.
+			if len(parts) != 6 || parts[0] != "arn" || !awsSupportedPartition(parts[1]) || parts[2] != "sns" || parts[3] != region || !regexp.MustCompile(`^[0-9]{12}$`).MatchString(parts[4]) || strings.TrimSpace(parts[5]) == "" {
 				return fmt.Errorf("IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS contains an invalid regional SNS topic ARN")
 			}
 		}
@@ -995,4 +999,13 @@ func validateForwardURL(raw string) error {
 
 func configRepoTargetAllowed(target string, allowlist []string) bool {
 	return repoallowlist.TargetAllowed(target, allowlist, true)
+}
+
+func awsSupportedPartition(partition string) bool {
+	switch partition {
+	case "aws", "aws-us-gov", "aws-cn":
+		return true
+	default:
+		return false
+	}
 }

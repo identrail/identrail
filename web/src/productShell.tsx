@@ -21918,7 +21918,17 @@ export function ProductAWSConnectPage() {
         const canResumeCloudFormation =
           response.connection.deployment_method === 'cloudformation' &&
           response.connection.scope_type === 'single_account';
-        const needsTrustPolicyResume = !response.connection.connected;
+        // Only hydrate for connectors that actually have a repair-shaped
+        // diagnostic. `expired` and `failed` are restart states — an
+        // explicit user action should issue a new registration attempt,
+        // and firing startAWSConnector here would silently renew the
+        // two-hour grant on every page load. Limit to the `needs_fix`
+        // and `partial` families that drive the assume_role_failed
+        // guided repair.
+        const trustPolicyRepairStatuses = ['needs_fix', 'partial', 'degraded'];
+        const needsTrustPolicyResume =
+          !response.connection.connected &&
+          trustPolicyRepairStatuses.includes(response.connection.onboarding_status ?? '');
         // Fire whenever the current wizard mode is CloudFormation. Guarding
         // on awsSetupModeTouchedRef would permanently block hydration after
         // the operator switched setup mode even once — including switching
