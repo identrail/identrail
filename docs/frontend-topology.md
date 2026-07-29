@@ -79,6 +79,15 @@ To avoid long queued backlogs, keep only the newest queued deployment per branch
 VERCEL_TOKEN=... VERCEL_PROJECT_ID=... KEEP_QUEUED_PER_REF=1 make vercel-queued-cleanup
 ```
 
+### Vercel TypeScript compatibility
+
+Vercel performs a TypeScript pass after the application build completes. Keep
+`web` on the exact TypeScript version enforced by
+`npm run check:vercel-toolchain --prefix web`; a successful Vite build alone
+does not prove that Vercel's post-build processing supports a new compiler
+major. Dependabot ignores TypeScript major upgrades so they can be tested in a
+dedicated preview before the compatibility pin is changed.
+
 ### Production API preflight
 
 Before wiring or rotating the Vercel value, run:

@@ -28,6 +28,12 @@ updates:
     labels:
       - dependencies
       - deps/npm
+    ignore:
+      # Vercel performs a post-build TypeScript pass. Major compiler upgrades
+      # must be validated in a dedicated preview before this pin is changed.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
     groups:
       npm-version-updates:
         applies-to: version-updates
