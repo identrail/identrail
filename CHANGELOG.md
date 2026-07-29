@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Complete **automatic single-account AWS registration** (#1787). One Identrail
+  action opens a prefilled read-only CloudFormation stack; after AWS approval,
+  regional SNS and encrypted SQS delivery binds the stack to an expiring,
+  hash-only onboarding attempt, registers the role, proves the AWS account with
+  STS, checks required read permissions, and updates the app automatically.
+  The normal flow no longer asks operators to copy a role ARN or manually
+  refresh. It shows real waiting, registration, and validation progress, never
+  invents a validation timestamp or pre-validation success state, and keeps
+  manual ARN validation under Troubleshooting. Terraform now provisions the
+  regional topic, queue, dead-letter queue, worker permissions, and alarm.
 - Add **organization and selected-scope onboarding UI** to the Connect AWS
   wizard (#1753). Operators can now pick `AWS Organization`, `Selected OUs`,
   or `Selected accounts` alongside the existing single-account and manual

@@ -1840,7 +1840,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: /Connect AWS/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/aws/connect');
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /AWS overview/i })).toHaveAttribute('href', '/app/tenant-a/workspace-a/aws?environment=project-1');
     expect(screen.queryByLabelText('AWS source')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Source types')).not.toBeInTheDocument();

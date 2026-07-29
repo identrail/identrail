@@ -37,6 +37,7 @@ import {
   type AWSConnectorStartResponse,
   type AWSConnectorScopeType,
   type AWSConnectorDeploymentMethod,
+  type AWSConnectorOnboardingStatus,
   type AWSConnectorNextAction,
   type AWSConnectionDiagnostic,
   type AWSConnectionStatus,
@@ -4148,6 +4149,26 @@ function awsRepairActionLabel(action: AWSConnectorNextAction): string {
   }
 }
 
+function awsOnboardingStatusLabel(status: AWSConnectorOnboardingStatus): string {
+  switch (status) {
+    case 'waiting_for_aws':
+      return 'Waiting for approval';
+    case 'registering':
+      return 'Creating role';
+    case 'validating':
+      return 'Verifying access';
+    case 'connected':
+      return 'Connected';
+    case 'needs_fix':
+    case 'failed':
+      return 'Needs attention';
+    case 'expired':
+      return 'Expired';
+    default:
+      return 'Ready';
+  }
+}
+
 function awsGuidedRepairPriorityLabel(item: AWSGuidedRepairItem, index: number): string {
   if (index !== 0) {
     return formatTokenLabel(item.severity);
@@ -4290,7 +4311,7 @@ function AWSConnectedSuccessPanel({
         </div>
         <div>
           <dt>Last validation</dt>
-          <dd>{formatConnectionTime(connection.last_validated_at ?? connection.updated_at)}</dd>
+      <dd>{formatConnectionTime(connection.last_validated_at)}</dd>
         </div>
         <div>
           <dt>Permissions</dt>
@@ -21773,6 +21794,7 @@ export function ProductAWSConnectPage() {
   const baselineRequestRef = useRef(0);
   const awsStartRequestRef = useRef(0);
   const awsPollRequestRef = useRef(0);
+  const awsAutoPollGenerationRef = useRef(0);
   const awsValidationRequestRef = useRef(0);
   const awsStackSetOnboardingRequestRef = useRef(0);
   const awsSetupModeTouchedRef = useRef(false);
@@ -22178,6 +22200,81 @@ export function ProductAWSConnectPage() {
     refreshStackSetOnboarding
   ]);
 
+  useEffect(() => {
+    const connectorID = normalizeValue(
+      awsCloudFormationStart?.connector_id ?? connection?.connector_id
+    );
+    const status = connection?.onboarding_status ?? awsCloudFormationStart?.onboarding_status;
+    const shouldPoll =
+      Boolean(scope && selectedEnvironmentID && connectorID) &&
+      (connection?.deployment_method ?? awsCloudFormationStart?.deployment_method) === 'cloudformation' &&
+      (status === 'waiting_for_aws' || status === 'registering' || status === 'validating');
+    if (!shouldPoll || !scope || !selectedEnvironmentID) {
+      return;
+    }
+
+    const generation = ++awsAutoPollGenerationRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    const delays = [2000, 3000, 5000, 8000, 13000, 15000];
+    let delayIndex = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+    const stale = () =>
+      cancelled ||
+      generation !== awsAutoPollGenerationRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    const poll = async () => {
+      try {
+        const response = await apiClient.pollAWSConnector(
+          connectorID,
+          scope.workspaceID,
+          requestEnvironmentID,
+          buildProductAuthContext(scope)
+        );
+        if (stale()) {
+          return;
+        }
+        setConnection(response.connection);
+        if (response.connection.connected) {
+          setSuccessMessage('AWS is connected.');
+          setManageConnectionOpen(false);
+          void verifyBaseline();
+          return;
+        }
+        if (!['waiting_for_aws', 'registering', 'validating'].includes(response.connection.onboarding_status)) {
+          return;
+        }
+      } catch (error) {
+        if (stale()) {
+          return;
+        }
+        setAWSSetupMessage(formatAWSConnectorSetupError(error));
+      }
+      timer = setTimeout(poll, delays[Math.min(delayIndex++, delays.length - 1)]);
+    };
+    timer = setTimeout(poll, delays[delayIndex++]);
+    return () => {
+      cancelled = true;
+      awsAutoPollGenerationRef.current += 1;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [
+    awsCloudFormationStart?.connector_id,
+    awsCloudFormationStart?.deployment_method,
+    awsCloudFormationStart?.onboarding_status,
+    connection?.connector_id,
+    connection?.deployment_method,
+    connection?.onboarding_status,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    verifyBaseline
+  ]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -22439,7 +22536,7 @@ export function ProductAWSConnectPage() {
       awsSetupModeTouchedRef.current = true;
       awsSetupModeRef.current = 'cloudformation';
       setAWSSetupMode('cloudformation');
-      setSuccessMessage('AWS CloudFormation launch is ready. Open the stack, then refresh status or validate the role.');
+    setSuccessMessage('AWS opened in a new tab. Approve the stack and Identrail will finish the connection.');
       if (typeof window !== 'undefined' && !/jsdom/i.test(window.navigator.userAgent)) {
         window.open(response.launch_url, '_blank', 'noopener,noreferrer');
       }
@@ -23085,10 +23182,16 @@ export function ProductAWSConnectPage() {
       return 'Open the AWS stack';
     }
     if (onboardingStatus === 'waiting_for_aws') {
-      return 'Waiting for AWS';
+      return 'Waiting for approval';
+    }
+    if (onboardingStatus === 'registering') {
+      return 'AWS is creating the connection';
     }
     if (onboardingStatus === 'validating') {
-      return 'Checking permissions';
+      return 'Verifying access';
+    }
+    if (onboardingStatus === 'expired') {
+      return 'Connection expired';
     }
     if (onboardingStatus === 'needs_fix' || onboardingStatus === 'failed') {
       return 'Needs attention';
@@ -23121,19 +23224,22 @@ export function ProductAWSConnectPage() {
       return connection.setup_summary;
     }
     if (launchURL) {
-      return 'Open the CloudFormation stack in AWS, create it, then come back here to refresh status.';
+      return 'Approve the stack in AWS. Identrail will verify the connection automatically.';
     }
     if (hasConnectorSetup) {
-      return 'Refresh the connector after the CloudFormation stack finishes in AWS.';
+      return 'Identrail is waiting for AWS.';
     }
     return 'Create one read-only CloudFormation stack for this environment.';
   })();
+  const onboardingInProgress = ['launch_ready', 'waiting_for_aws', 'registering', 'validating'].includes(onboardingStatus);
+  const wizardHealth = connection?.health_status;
 
   return (
     <DomainPageShell
       domain="aws"
       eyebrow={null}
       hideLogo
+      compact
       title="Connect AWS"
       description={connectSubtitle}
       scope={<ProductEnvironmentSelector state={environmentScope} onChange={handleEnvironmentChange} />}
@@ -23186,19 +23292,23 @@ export function ProductAWSConnectPage() {
             ) : null}
 
             {showAWSSetupControls ? (
-          <section className="idt-source-config idt-aws-connect-panel idt-aws-scope-wizard" aria-label="AWS account setup">
-            <div className="idt-source-config-header idt-aws-wizard-header">
-              <div className="idt-source-config-title">
-                <SourceLogoMark provider="aws" className="is-hero" />
-                <div>
-                  <h3>Choose what Identrail should cover</h3>
-                  <p>Start with one account. Organization rollout comes next.</p>
+              <section className="idt-source-config idt-aws-connect-panel idt-aws-scope-wizard" aria-label="AWS account setup">
+                <div className="idt-source-config-header idt-aws-wizard-header">
+                  <div className="idt-source-config-title">
+                    <SourceLogoMark provider="aws" className="is-hero" />
+                    <div>
+                      <h3>Choose coverage</h3>
+                      <p>Connect one account or select a broader scope.</p>
+                    </div>
+                  </div>
+                  <DomainStatusBadge
+                    variant={onboardingInProgress ? 'running-scan' : awsStatusVariant(connection)}
+                    label={onboardingInProgress ? 'Connecting' : undefined}
+                    detail={onboardingInProgress ? setupSummaryTitle : wizardHealth && wizardHealth !== 'unknown' ? wizardHealth : undefined}
+                  />
                 </div>
-              </div>
-              <DomainStatusBadge variant={awsStatusVariant(connection)} detail={connection?.health_status ?? 'unknown'} />
-            </div>
 
-            <div className="idt-aws-scope-options" role="list" aria-label="AWS setup scope options">
+                <div className="idt-aws-scope-options" role="list" aria-label="AWS setup scope options">
               <div className="idt-aws-scope-option-shell" role="listitem">
                 <button
                   className={`idt-aws-scope-option ${awsSetupMode === 'organization' ? 'is-selected' : ''}`}
@@ -23354,16 +23464,12 @@ export function ProductAWSConnectPage() {
                   <div className="idt-aws-step-body">
                     <div className="idt-aws-step-heading">
                       <div>
-                        <h4>Connect with CloudFormation</h4>
-                        <p>Identrail creates a read-only role with a trust guard for this environment.</p>
+            <h4>Connect this account</h4>
+            <p>Approve one read-only CloudFormation stack in AWS.</p>
                       </div>
                       {cloudFormationAWSStart ? <span>Launch ready</span> : <span>Read-only</span>}
                     </div>
-                    <div className="idt-aws-permission-summary" aria-label="AWS permission summary">
-                      <span>Read-only discovery across IAM, STS, CloudTrail, Access Analyzer, compute, storage, and secrets.</span>
-                      <span>No write, delete, or remediation permissions.</span>
-                      <span>Unique trust guard generated for this environment.</span>
-                    </div>
+          <p className="idt-aws-access-note">Reads identity and workload metadata. Cannot write, delete, or remediate.</p>
                     {awsSetupMessage ? (
                       <p role="status" className="idt-aws-setup-note">
                         {awsSetupMessage}
@@ -23376,14 +23482,8 @@ export function ProductAWSConnectPage() {
                         onClick={handleAWSCloudFormationStart}
                         disabled={!canSubmit}
                       >
-                        {submitting ? 'Preparing...' : launchURL ? 'Prepare stack again' : 'Connect AWS account'}
+            {submitting ? 'Opening AWS...' : launchURL ? 'Open AWS' : 'Connect AWS'}
                       </button>
-                      {launchURL ? (
-                        <a className="idt-btn idt-btn-dark" href={launchURL} target="_blank" rel="noreferrer">
-                          <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
-                          <span>Open AWS stack</span>
-                        </a>
-                      ) : null}
                       {awsPermissionPreview.length > 0 ? (
                         <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setAWSPreviewOpen(true)}>
                           Preview permissions
@@ -23469,30 +23569,29 @@ export function ProductAWSConnectPage() {
                   <div className="idt-aws-step-body">
                     <div className="idt-aws-step-heading">
                       <div>
-                        <h4>Verify the connection</h4>
-                        <p>Refresh after the AWS stack completes, then validate the created role.</p>
+            <h4>Finish in AWS</h4>
+            <p>This page updates automatically after you approve the stack.</p>
                       </div>
-                      <span>{connectionHealth(connection ?? undefined)}</span>
+            <span>{awsOnboardingStatusLabel(onboardingStatus)}</span>
                     </div>
-                    <label>
-                      Stack role ARN
-                      <input
-                        value={awsForm.roleARN}
-                        onChange={(event) => setAWSForm((current) => ({ ...current, roleARN: event.target.value }))}
-                        placeholder="Paste the role ARN from the stack output"
-                        required={canValidateRole}
-                      />
-                    </label>
-                    <div className="idt-source-actions">
-                      {activeConnectorID ? (
-                        <button className="idt-btn idt-btn-secondary" type="button" onClick={() => void handleAWSPoll()} disabled={submitting}>
-                          {submitting ? 'Refreshing...' : 'Refresh status'}
-                        </button>
-                      ) : null}
-                      <button className="idt-btn idt-btn-primary" type="submit" disabled={!canSubmit || !canValidateRole} data-aws-validate-action="true">
-                        {submitting ? 'Validating...' : 'Validate connection'}
-                      </button>
-                    </div>
+          <div className="idt-aws-registration-progress" aria-label="AWS connection progress">
+            {['AWS approval', 'Creating role', 'Verifying access'].map((label, index) => {
+            const currentIndex = onboardingStatus === 'validating' ? 2 : onboardingStatus === 'registering' ? 1 : 0;
+            return <span key={label} className={index < currentIndex ? 'is-complete' : index === currentIndex ? 'is-current' : ''}>{label}</span>;
+            })}
+          </div>
+          <details className="idt-aws-manual-advanced">
+            <summary>Troubleshooting</summary>
+            <p>Use this only if automatic registration fails.</p>
+            <label>
+            Role ARN
+            <input value={awsForm.roleARN} onChange={(event) => setAWSForm((current) => ({ ...current, roleARN: event.target.value }))} placeholder="arn:aws:iam::123456789012:role/IdentrailReadOnly" />
+            </label>
+            <div className="idt-source-actions">
+            <button className="idt-btn idt-btn-secondary" type="button" onClick={() => void handleAWSPoll()} disabled={submitting}>Refresh</button>
+            <button className="idt-btn idt-btn-primary" type="submit" disabled={!canSubmit || !canValidateRole} data-aws-validate-action="true">Validate role</button>
+            </div>
+          </details>
                   </div>
                 </div>
               ) : null}
@@ -23577,7 +23676,7 @@ export function ProductAWSConnectPage() {
                 </div>
                 <div>
                   <dt>Last validation</dt>
-                  <dd>{formatConnectionTime(connection?.last_validated_at ?? connection?.updated_at)}</dd>
+          <dd>{formatConnectionTime(connection?.last_validated_at)}</dd>
                 </div>
               </dl>
               <p>{setupSummaryBody}</p>
@@ -23592,16 +23691,11 @@ export function ProductAWSConnectPage() {
                     <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
                     <span>Open StackSet in AWS</span>
                   </a>
-                ) : isStackSetSetup ? null : launchURL ? (
-                  <a className="idt-btn idt-btn-primary" href={launchURL} target="_blank" rel="noreferrer">
-                    <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
-                    <span>Open AWS stack</span>
-                  </a>
-                ) : null}
+        ) : null}
               </div>
             </section>
 
-            {(hasConnectorSetup || guidedRepairItems.length > 0 || connectedNow) ? (
+      {guidedRepairItems.length > 0 ? (
               <DomainStatusPanel
                 eyebrow="Guided repair"
                 title={guidedRepairItems.length > 0 ? 'Next setup action' : 'Connector health summary'}

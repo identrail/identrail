@@ -22,6 +22,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_AWS_SOURCE", "")
 	t.Setenv("IDENTRAIL_AWS_REGION", "")
 	t.Setenv("IDENTRAIL_AWS_PROFILE", "")
+	t.Setenv("IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS", "")
+	t.Setenv("IDENTRAIL_AWS_REGISTRATION_QUEUE_URL", "")
+	t.Setenv("IDENTRAIL_AWS_REGISTRATION_QUEUE_REGION", "")
 	t.Setenv("IDENTRAIL_AWS_FIXTURES", "")
 	t.Setenv("IDENTRAIL_K8S_FIXTURES", "")
 	t.Setenv("IDENTRAIL_K8S_SOURCE", "")
@@ -152,6 +155,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.AWSAccountID != "" {
 		t.Fatalf("expected empty aws account id, got %q", cfg.AWSAccountID)
+	}
+	if len(cfg.AWSRegistrationTopicARNs) != 0 || cfg.AWSRegistrationQueueURL != "" || cfg.AWSRegistrationQueueRegion != defaultAWSRegion {
+		t.Fatalf("unexpected aws registration defaults: topics=%+v queue=%q region=%q", cfg.AWSRegistrationTopicARNs, cfg.AWSRegistrationQueueURL, cfg.AWSRegistrationQueueRegion)
 	}
 	if len(cfg.GitHubPATAllowedBaseURLs) != 1 || cfg.GitHubPATAllowedBaseURLs[0] != "https://github.com" {
 		t.Fatalf("expected default github pat base url allowlist, got %+v", cfg.GitHubPATAllowedBaseURLs)
@@ -987,6 +993,29 @@ func TestParseKeyScopes(t *testing.T) {
 	}
 	if len(scopes["key2"]) != 4 {
 		t.Fatalf("expected key2 to have 4 scope entries, got %+v", scopes["key2"])
+	}
+}
+
+func TestParseAWSRegistrationTopicARNs(t *testing.T) {
+	topics, parseErr := parseAWSRegistrationTopicARNs("us-east-1=arn:aws:sns:us-east-1:123456789012:registration; us-gov-west-1=arn:aws-us-gov:sns:us-gov-west-1:123456789012:registration")
+	if parseErr != "" {
+		t.Fatalf("expected valid regional topics, got %q", parseErr)
+	}
+	if len(topics) != 2 || topics["us-east-1"] == "" || topics["us-gov-west-1"] == "" {
+		t.Fatalf("unexpected regional topic map: %+v", topics)
+	}
+}
+
+func TestParseAWSRegistrationTopicARNsRejectsAmbiguousEntries(t *testing.T) {
+	for _, value := range []string{
+		"us-east-1",
+		"=arn:aws:sns:us-east-1:123456789012:registration",
+		"us-east-1=",
+		"us-east-1=arn:one,us-east-1=arn:two",
+	} {
+		if _, parseErr := parseAWSRegistrationTopicARNs(value); parseErr == "" {
+			t.Fatalf("expected invalid topic mapping to fail: %q", value)
+		}
 	}
 }
 

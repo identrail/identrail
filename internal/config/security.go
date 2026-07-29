@@ -297,6 +297,12 @@ func ValidateSecurity(cfg Config) error {
 		if strings.TrimSpace(cfg.DatabaseURL) != "" && strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
 			return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS must be set when IDENTRAIL_FEATURE_CONNECTOR_AWS=true and IDENTRAIL_DATABASE_URL is configured")
 		}
+		for region, topicARN := range cfg.AWSRegistrationTopicARNs {
+			parts := strings.Split(strings.TrimSpace(topicARN), ":")
+			if len(parts) != 6 || parts[0] != "arn" || parts[2] != "sns" || parts[3] != region || !regexp.MustCompile(`^[0-9]{12}$`).MatchString(parts[4]) || strings.TrimSpace(parts[5]) == "" {
+				return fmt.Errorf("IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS contains an invalid regional SNS topic ARN")
+			}
+		}
 	}
 	if cfg.FeatureConnectorGitHubV2 {
 		for _, allowedBaseURL := range cfg.GitHubPATAllowedBaseURLs {

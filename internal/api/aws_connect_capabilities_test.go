@@ -176,6 +176,7 @@ func TestStartAWSConnectorIsDiscoveryOnly(t *testing.T) {
 	svc, ctx := newAWSCapabilityService(t)
 	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{ProjectID: "project-1"})
 	if err != nil {

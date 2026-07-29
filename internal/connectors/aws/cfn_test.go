@@ -2,9 +2,57 @@ package aws
 
 import (
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
+
+func TestReadOnlyTemplateAutomaticRegistrationContract(t *testing.T) {
+	templatePath := filepath.Join("..", "..", "..", "deploy", "connectors", "aws", "identrail-readonly.yaml")
+	body, err := os.ReadFile(templatePath)
+	if err != nil {
+		t.Fatalf("read CloudFormation template: %v", err)
+	}
+	var template map[string]any
+	if err := yaml.Unmarshal(body, &template); err != nil {
+		t.Fatalf("parse CloudFormation template: %v", err)
+	}
+	parameters := requireYAMLMap(t, template, "Parameters")
+	registrationToken := requireYAMLMap(t, parameters, "RegistrationToken")
+	if _, hasNoEcho := registrationToken["NoEcho"]; hasNoEcho {
+		t.Fatal("RegistrationToken must remain prefillable by AWS quick-create; it is short-lived and grants no AWS access")
+	}
+	externalID := requireYAMLMap(t, parameters, "ExternalId")
+	if externalID["NoEcho"] != true {
+		t.Fatal("troubleshooting ExternalId must remain masked")
+	}
+	resources := requireYAMLMap(t, template, "Resources")
+	bootstrap := requireYAMLMap(t, resources, "IdentrailRegistrationBootstrap")
+	bootstrapProperties := requireYAMLMap(t, bootstrap, "Properties")
+	if bootstrap["Type"] != "Custom::IdentrailAWSConnectorBootstrap" || bootstrapProperties["RegistrationToken"] == nil {
+		t.Fatalf("bootstrap must receive the one-time registration token: %+v", bootstrap)
+	}
+	registration := requireYAMLMap(t, resources, "IdentrailConnectorRegistration")
+	registrationProperties := requireYAMLMap(t, registration, "Properties")
+	if registration["Type"] != "Custom::IdentrailAWSConnectorRegistration" || registration["DependsOn"] == nil {
+		t.Fatalf("registration must wait for the role: %+v", registration)
+	}
+	if _, leaksToken := registrationProperties["RegistrationToken"]; leaksToken {
+		t.Fatal("registration phase must use the stack-bound bootstrap result, not replay the launch token")
+	}
+}
+
+func requireYAMLMap(t *testing.T, parent map[string]any, key string) map[string]any {
+	t.Helper()
+	value, ok := parent[key].(map[string]any)
+	if !ok {
+		t.Fatalf("expected %s to be a map, got %#v", key, parent[key])
+	}
+	return value
+}
 
 func TestBuildCloudFormationLaunchURL(t *testing.T) {
 	tests := []struct {

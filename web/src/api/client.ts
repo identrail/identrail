@@ -9708,10 +9708,12 @@ export type AWSConnectorOnboardingStatus =
   | 'draft'
   | 'launch_ready'
   | 'waiting_for_aws'
+  | 'registering'
   | 'validating'
   | 'connected'
   | 'partial'
   | 'needs_fix'
+  | 'expired'
   | 'failed';
 export type AWSConnectorNextAction =
   | 'launch_stack'

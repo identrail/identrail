@@ -22,14 +22,15 @@ locals {
   api_trusted_proxies        = join(",", var.api_trusted_proxy_cidr_blocks)
   api_task_subnet_ids        = length(var.api_task_subnet_ids) > 0 ? var.api_task_subnet_ids : var.api_private_subnet_ids
   api_default_environment_variables = {
-    IDENTRAIL_AWS_REGION           = var.aws_region
-    IDENTRAIL_AWS_SOURCE           = "sdk"
-    IDENTRAIL_CORS_ALLOWED_ORIGINS = local.api_cors_allowed_origins
-    IDENTRAIL_HTTP_ADDR            = ":${var.api_container_port}"
-    IDENTRAIL_REQUIRE_LIVE_SOURCES = "true"
-    IDENTRAIL_RUN_MIGRATIONS       = "false"
-    IDENTRAIL_RUN_MIGRATIONS_ONLY  = "false"
-    IDENTRAIL_TRUSTED_PROXIES      = local.api_trusted_proxies
+    IDENTRAIL_AWS_REGION                  = var.aws_region
+    IDENTRAIL_AWS_SOURCE                  = "sdk"
+    IDENTRAIL_CORS_ALLOWED_ORIGINS        = local.api_cors_allowed_origins
+    IDENTRAIL_HTTP_ADDR                   = ":${var.api_container_port}"
+    IDENTRAIL_REQUIRE_LIVE_SOURCES        = "true"
+    IDENTRAIL_RUN_MIGRATIONS              = "false"
+    IDENTRAIL_RUN_MIGRATIONS_ONLY         = "false"
+    IDENTRAIL_TRUSTED_PROXIES             = local.api_trusted_proxies
+    IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS = var.create_aws_connector_registration_provider ? "${var.aws_region}=${aws_sns_topic.aws_connector_registration[0].arn}" : ""
   }
   user_data_export_bucket_enabled = var.create_api_hosting_resources && var.user_data_export_bucket_enabled && var.create_worker_hosting_resources
   user_data_export_bucket_name = (

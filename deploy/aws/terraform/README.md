@@ -29,6 +29,18 @@ When `create_worker_hosting_resources=true`, the root also creates:
 - a hosted worker runtime that drains API-queued scan jobs by default without
   launching scheduled cloud scans
 
+When `create_aws_connector_registration_provider=true`, the root also creates:
+
+- one regional SNS endpoint for CloudFormation registration messages
+- an encrypted SQS queue and encrypted dead-letter queue for durable delivery
+- least-privilege worker access to consume and acknowledge registrations
+- a CloudWatch alarm when a registration exhausts its automatic retries
+
+The registration endpoint is regional. Deploy this root once in every setup
+region offered by the app, then combine the resulting topic outputs into the
+API's `IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS` map. The API rejects setup in a
+region missing from that map instead of launching a stack that cannot finish.
+
 The default network shape keeps API tasks in private subnets. For the first
 Identrail Cloud cutover, operators may opt into a lower-cost bootstrap mode by
 setting `api_task_subnet_ids` to public subnets and `api_task_assign_public_ip=true`.
@@ -161,6 +173,33 @@ terraform plan \
   -var='api_environment_variables={"IDENTRAIL_FEATURE_NEW_AUTH":"true","IDENTRAIL_PUBLIC_BASE_URL":"https://api.identrail.com","IDENTRAIL_REPO_SCAN_ENABLED":"true","IDENTRAIL_REPO_SCAN_ALLOWLIST":"identrail/identrail"}' \
   -var='api_secrets={"IDENTRAIL_DATABASE_URL":"<database-url-secret-arn>","IDENTRAIL_SESSION_KEY":"<session-key-secret-arn>"}'
 ```
+
+To enable automatic single-account CloudFormation completion in that region,
+add the registration provider and an operator-owned alarm destination:
+
+```bash
+terraform plan \
+  -input=false \
+  -var-file=environments/dev/terraform.tfvars.example \
+  -var='create_foundation_resources=true' \
+  -var='create_api_hosting_resources=true' \
+  -var='create_worker_hosting_resources=true' \
+  -var='create_aws_connector_registration_provider=true' \
+  -var='aws_connector_registration_alarm_topic_arns=["<operator-alert-topic-arn>"]' \
+  -var='worker_container_image=ghcr.io/identrail/identrail-worker:<immutable-release-tag>' \
+  -var='api_vpc_id=<vpc-id>' \
+  -var='api_public_subnet_ids=["<public-subnet-a>","<public-subnet-b>"]' \
+  -var='api_task_subnet_ids=["<task-subnet-a>","<task-subnet-b>"]' \
+  -var='api_private_subnet_egress_ready=true' \
+  -var='api_certificate_arn=<api-certificate-arn>' \
+  -var='api_container_image=ghcr.io/identrail/identrail-api:<immutable-release-tag>' \
+  -var='api_secrets={"IDENTRAIL_DATABASE_URL":"<database-url-secret-arn>","IDENTRAIL_SESSION_KEY":"<session-key-secret-arn>","IDENTRAIL_CONNECTOR_SECRET_KEYS":"<connector-secret-keys-secret-arn>"}'
+```
+
+After apply, record `aws_connector_registration_topic_arn` for the API's
+regional topic map. The API and worker task definitions receive the local topic
+and queue settings automatically. Run the database migration before deploying
+either task so onboarding attempts are durable from the first message.
 
 For the lowest-cost first cutover, avoid NAT Gateway by using public task
 subnets with public IP assignment:

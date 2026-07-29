@@ -138,6 +138,7 @@ export type DomainHeaderProps = {
   secondaryActions?: DomainAction[];
   titleId?: string;
   hideLogo?: boolean;
+  compact?: boolean;
 };
 
 export function DomainHeader({
@@ -151,7 +152,8 @@ export function DomainHeader({
   primaryAction,
   secondaryActions = [],
   titleId,
-  hideLogo = false
+  hideLogo = false,
+  compact = false
 }: DomainHeaderProps) {
   const asset = getDomainAsset(domain);
   const actions = primaryAction ? [primaryAction, ...secondaryActions] : secondaryActions;
@@ -159,7 +161,7 @@ export function DomainHeader({
   const hasDescription = description !== undefined && description !== null && description !== '';
 
   return (
-    <header className={classNames(['idt-domain-header', `is-${domain}`, hideLogo ? 'is-logoless' : ''])}>
+    <header className={classNames(['idt-domain-header', `is-${domain}`, hideLogo ? 'is-logoless' : '', compact ? 'is-compact' : ''])}>
       <div className="idt-domain-header-main">
         {hideLogo ? null : <DomainLogoMark domain={domain} size="hero" />}
         <div>

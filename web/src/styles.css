@@ -23192,6 +23192,16 @@ html[data-theme='light'] .idt-app-shell-screen select {
   letter-spacing: 0.01em;
 }
 
+.idt-domain-header.is-compact {
+  align-items: center;
+  padding: 0.9rem 1rem;
+}
+
+.idt-domain-header.is-compact .idt-domain-header-aside {
+  grid-template-columns: repeat(3, auto);
+  align-items: end;
+}
+
 .idt-overview-banner {
   display: flex;
   align-items: center;
@@ -24335,6 +24345,39 @@ html[data-theme='light'] .idt-app-shell-screen select {
   font-weight: 760;
 }
 
+.idt-aws-access-note {
+	margin: 0;
+	color: var(--app-muted);
+	font-size: 0.88rem;
+	line-height: 1.5;
+}
+
+.idt-aws-registration-progress {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 0.5rem;
+}
+
+.idt-aws-registration-progress span {
+	position: relative;
+	min-width: 0;
+	border-top: 2px solid var(--app-border-soft);
+	padding-top: 0.55rem;
+	color: var(--app-muted);
+	font-size: 0.8rem;
+	font-weight: 760;
+}
+
+.idt-aws-registration-progress span.is-current {
+	border-color: #7e69ff;
+	color: #ffffff;
+}
+
+.idt-aws-registration-progress span.is-complete {
+	border-color: #58d68d;
+	color: #b8f3cf;
+}
+
 .idt-aws-setup-note {
   border: 1px solid rgba(255, 153, 0, 0.38);
   border-radius: 8px;
@@ -25266,6 +25309,11 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
     justify-items: start;
   }
 
+  .idt-domain-header.is-compact .idt-domain-header-aside {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
   .idt-aws-scope-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -25375,6 +25423,10 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
     width: 1.8rem;
     height: 1.8rem;
   }
+
+	.idt-aws-registration-progress {
+		grid-template-columns: 1fr;
+	}
 
   .idt-aws-stackset-progress-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

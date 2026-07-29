@@ -459,6 +459,18 @@ variable "worker_task_cpu" {
   default     = 256
 }
 
+variable "create_aws_connector_registration_provider" {
+  description = "Create the regional SNS-to-SQS provider used for automatic single-account CloudFormation registration."
+  type        = bool
+  default     = false
+}
+
+variable "aws_connector_registration_alarm_topic_arns" {
+  description = "SNS topic ARNs notified when AWS connector registration messages reach the dead-letter queue."
+  type        = list(string)
+  default     = []
+}
+
 variable "worker_task_memory" {
   description = "Fargate memory in MiB for the worker task."
   type        = number

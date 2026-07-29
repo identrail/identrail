@@ -15,12 +15,15 @@ var awsRegionPattern = regexp.MustCompile(`^[a-z]{2}(-gov)?-[a-z]+-[0-9]$`)
 
 // CloudFormationLaunchInput contains the parameters for an AWS console launch URL.
 type CloudFormationLaunchInput struct {
-	TemplateURL        string
-	Region             string
-	StackName          string
-	IdentrailAccountID string
-	ExternalID         string
-	RoleName           string
+	TemplateURL             string
+	Region                  string
+	StackName               string
+	IdentrailAccountID      string
+	ExternalID              string
+	RoleName                string
+	RegistrationProviderARN string
+	RegistrationAttemptID   string
+	RegistrationToken       string
 }
 
 // BuildCloudFormationLaunchURL creates an AWS console deep link for the read-only connector stack.
@@ -42,8 +45,17 @@ func BuildCloudFormationLaunchURL(input CloudFormationLaunchInput) string {
 	values.Set("templateURL", strings.TrimSpace(input.TemplateURL))
 	values.Set("stackName", stackName)
 	values.Set("param_IdentrailAccountId", strings.TrimSpace(input.IdentrailAccountID))
-	values.Set("param_ExternalId", strings.TrimSpace(input.ExternalID))
 	values.Set("param_RoleName", roleName)
+	providerARN := strings.TrimSpace(input.RegistrationProviderARN)
+	attemptID := strings.TrimSpace(input.RegistrationAttemptID)
+	registrationToken := strings.TrimSpace(input.RegistrationToken)
+	if providerARN != "" && attemptID != "" && registrationToken != "" {
+		values.Set("param_RegistrationProviderArn", providerARN)
+		values.Set("param_RegistrationAttemptId", attemptID)
+		values.Set("param_RegistrationToken", registrationToken)
+	} else {
+		values.Set("param_ExternalId", strings.TrimSpace(input.ExternalID))
+	}
 
 	return "https://" + consoleHostForRegion(region) + "/cloudformation/home?region=" + url.QueryEscape(region) + "#/stacks/create/review?" + values.Encode()
 }

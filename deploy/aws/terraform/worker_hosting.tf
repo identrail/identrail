@@ -16,6 +16,8 @@ locals {
     IDENTRAIL_WORKER_REPO_SCAN_ENABLED              = "false"
     IDENTRAIL_RUN_MIGRATIONS                        = "false"
     IDENTRAIL_RUN_MIGRATIONS_ONLY                   = "false"
+    IDENTRAIL_AWS_REGISTRATION_QUEUE_URL            = var.create_aws_connector_registration_provider ? aws_sqs_queue.aws_connector_registration[0].url : ""
+    IDENTRAIL_AWS_REGISTRATION_QUEUE_REGION         = var.aws_region
   }
   worker_runtime_environment_variables = merge(
     local.api_runtime_environment_variables,
@@ -232,5 +234,6 @@ resource "aws_ecs_service" "worker" {
     aws_iam_role_policy.worker_task_execution_secrets,
     aws_iam_role_policy.worker_task_aws_collector,
     aws_iam_role_policy.worker_task_user_data_exports,
+    aws_iam_role_policy.worker_aws_connector_registration,
   ]
 }

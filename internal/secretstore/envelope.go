@@ -3,7 +3,9 @@ package secretstore
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -127,6 +129,30 @@ func (m *Manager) ActiveKeyVersion() string {
 		return ""
 	}
 	return m.activeVersion
+}
+
+// DeriveDigest returns a purpose-bound HMAC without exposing key material.
+// Callers can reproduce short-lived capability values while persisting only
+// their hashes. Historical values remain reproducible while their key version
+// is retained for connector-secret decryption.
+func (m *Manager) DeriveDigest(keyVersion string, purpose string, value []byte) ([]byte, error) {
+	if m == nil {
+		return nil, fmt.Errorf("connector secret manager is not configured")
+	}
+	version := strings.TrimSpace(keyVersion)
+	key := m.keys[version]
+	if len(key) != aes256KeySize {
+		return nil, fmt.Errorf("connector secret key version is unavailable")
+	}
+	purpose = strings.TrimSpace(purpose)
+	if purpose == "" {
+		return nil, fmt.Errorf("connector secret derivation purpose is required")
+	}
+	digest := hmac.New(sha256.New, key)
+	_, _ = digest.Write([]byte(purpose))
+	_, _ = digest.Write([]byte{0})
+	_, _ = digest.Write(value)
+	return digest.Sum(nil), nil
 }
 
 // Encrypt seals plaintext with AES-256-GCM and associated data.
