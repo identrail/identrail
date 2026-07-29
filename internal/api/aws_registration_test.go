@@ -332,7 +332,7 @@ func startAndBootstrapAWSRegistration(t *testing.T, svc *Service, ctx context.Co
 	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, bootstrap)); err != nil {
 		t.Fatalf("process bootstrap: %v", err)
 	}
-	if len(responder.responses) == 0 || responder.responses[len(responder.responses)-1].Status != "SUCCESS" || !responder.responses[len(responder.responses)-1].NoEcho || responder.responses[len(responder.responses)-1].Data["ExternalId"] == "" {
+	if len(responder.responses) == 0 || responder.responses[len(responder.responses)-1].Status != "SUCCESS" || responder.responses[len(responder.responses)-1].NoEcho || responder.responses[len(responder.responses)-1].Data["ExternalId"] == "" {
 		t.Fatalf("unexpected bootstrap response: %+v", responder.responses)
 	}
 	externalID := responder.responses[len(responder.responses)-1].Data["ExternalId"].(string)

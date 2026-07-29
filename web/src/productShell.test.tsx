@@ -8340,7 +8340,7 @@ describe('Domain-first app routes', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
-  expect(await screen.findAllByRole('button', { name: /^Open AWS$/i })).toHaveLength(1);
+  expect(await screen.findAllByRole('link', { name: /^Open AWS$/i })).toHaveLength(1);
     expect(screen.getByLabelText('Role ARN')).toHaveValue('');
   });
 
@@ -8435,7 +8435,7 @@ describe('Domain-first app routes', () => {
     );
 
     fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS/i }))[0]);
-  expect(await screen.findAllByRole('button', { name: /^Open AWS$/i })).toHaveLength(1);
+  expect(await screen.findAllByRole('link', { name: /^Open AWS$/i })).toHaveLength(1);
 
     fireEvent.click(screen.getByRole('button', { name: /Existing IAM role/i }));
 

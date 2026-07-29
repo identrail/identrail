@@ -318,7 +318,12 @@ func (s *Service) processAWSRegistrationBootstrap(ctx context.Context, store db.
 			return s.failAWSCloudFormationRequest(ctx, request, "Identrail could not save the AWS connection progress.", err)
 		}
 	}
-	return s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", true, map[string]any{"ExternalId": externalID})
+	// NoEcho must be false: the template's IAM trust policy and the Register
+	// resource both consume this via Fn::GetAtt, and CloudFormation masks
+	// NoEcho'd custom-resource attributes in those references, which would
+	// wire literal asterisks into `sts:ExternalId` and fail every strict
+	// comparison in processAWSRegistrationRole.
+	return s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, map[string]any{"ExternalId": externalID})
 }
 
 func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSConnectorOnboardingAttemptStore, attempt db.AWSConnectorOnboardingAttempt, request awsCloudFormationCustomResourceRequest) error {

@@ -84,7 +84,10 @@ Resources:
     Properties:
       ServiceToken:
         Ref: RegistrationProviderArn
-      ServiceTimeout: '120'
+      # Set higher than the SQS queue's visibility timeout so a single
+      # redelivery can complete before the stack rolls back. CloudFormation
+      # allows up to 3600s for custom resource ServiceTimeout.
+      ServiceTimeout: '3600'
       Phase: Bootstrap
       AttemptId:
         Ref: RegistrationAttemptId
@@ -181,7 +184,10 @@ Resources:
     Properties:
       ServiceToken:
         Ref: RegistrationProviderArn
-      ServiceTimeout: '120'
+      # Set higher than the SQS queue's visibility timeout so a single
+      # redelivery can complete before the stack rolls back. CloudFormation
+      # allows up to 3600s for custom resource ServiceTimeout.
+      ServiceTimeout: '3600'
       Phase: Register
       AttemptId:
         Ref: RegistrationAttemptId
