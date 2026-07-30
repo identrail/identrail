@@ -4,53 +4,53 @@ const COMMAND_VIEWS = [
   {
     id: 'triage',
     label: 'Triage',
-    eyebrow: 'Exposure triage',
-    title: 'Turn scattered identity signals into one owner-ready queue.',
-    metricLabel: 'Primary risk path',
-    metricValue: 'Production database reachable',
-    secondaryLabel: 'Signal match',
-    secondaryValue: 'AWS role + K8s service account + OIDC claim drift',
+    eyebrow: 'Findings queue',
+    title: 'Start with the path that matters most.',
+    metricLabel: 'Reachable target',
+    metricValue: 'Production database',
+    secondaryLabel: 'Connected signals',
+    secondaryValue: 'GitHub workflow + AWS role + Kubernetes workload',
     confidence: 'High confidence',
     evidence: [
-      'Trust policy allows broad workflow subject claims',
-      'ClusterRoleBinding grants namespace-spanning workload access',
-      'Reachable resource is tagged production and regulated'
+      'AWS trust policy accepts a broad workflow subject claim',
+      'Kubernetes binding reaches the workload namespace',
+      'The target is tagged production and regulated'
     ],
-    playbook: ['Confirm owner', 'Review evidence bundle', 'Prioritize first fix']
+    playbook: ['Confirm owner', 'Review evidence', 'Choose first fix']
   },
   {
     id: 'simulate',
-    label: 'Simulate',
-    eyebrow: 'Policy simulation',
-    title: 'Preview access hardening before anything changes in production.',
-    metricLabel: 'Projected breakage',
-    metricValue: 'No critical workload impact',
-    secondaryLabel: 'Recommended change',
-    secondaryValue: 'Scope OIDC subject claims and split shared platform role',
-    confidence: 'Simulation ready',
+    label: 'Evidence',
+    eyebrow: 'Explain the finding',
+    title: 'Show why the path is risky before asking for a change.',
+    metricLabel: 'Evidence attached',
+    metricValue: 'Trust policy + workload context',
+    secondaryLabel: 'Decision context',
+    secondaryValue: 'Identity, relationship, target, and owner',
+    confidence: 'Evidence ready',
     evidence: [
-      'No active workloads require the broad subject wildcard',
-      'Two service accounts can move to namespace-scoped bindings',
-      'Rollback path preserves current role until validation passes'
+      'Workflow subject claim is wider than the repository scope',
+      'Workload binding crosses the expected namespace boundary',
+      'The affected resource and owner are attached to the finding'
     ],
-    playbook: ['Model policy change', 'Review affected workloads', 'Stage rollout']
+    playbook: ['Review source proof', 'Confirm affected workload', 'Choose next action']
   },
   {
     id: 'report',
-    label: 'Report',
-    eyebrow: 'Executive report',
-    title: 'Package remediation progress for security, platform, and leadership.',
-    metricLabel: 'Risk narrative',
-    metricValue: 'Clear path from source to sensitive target',
-    secondaryLabel: 'Artifacts',
-    secondaryValue: 'Evidence export, timeline, owner notes, and residual risk',
-    confidence: 'Audit ready',
+    label: 'Review',
+    eyebrow: 'Review package',
+    title: 'Give the next team enough context to act.',
+    metricLabel: 'Source proof',
+    metricValue: 'Affected resource and owner',
+    secondaryLabel: 'Handoff',
+    secondaryValue: 'Evidence, decision, and next remediation step',
+    confidence: 'Ready to share',
     evidence: [
       'Every finding keeps source system evidence attached',
-      'Owner handoff includes first action and expected outcome',
-      'Remediation timeline captures decisions and exceptions'
+      'Owner handoff includes the first action and expected outcome',
+      'The review record keeps the decision and exception context'
     ],
-    playbook: ['Export packet', 'Share owner plan', 'Track closure']
+    playbook: ['Export evidence', 'Assign owner', 'Track next decision']
   }
 ] as const;
 
@@ -66,11 +66,11 @@ export function CommandCenterSection() {
     <section className="idt-section idt-command-center" aria-labelledby="command-center-title">
       <div className="idt-command-center-grid">
         <div className="idt-command-copy">
-          <p className="idt-eyebrow">Trust operations layer</p>
-          <h2 id="command-center-title">One operating view for machine identity risk.</h2>
+          <p className="idt-eyebrow">Product proof</p>
+          <h2 id="command-center-title">One finding, with the whole path attached.</h2>
           <p>
-            Identrail gives security and platform teams the same operating picture: live trust paths, policy evidence,
-            blast-radius context, and a practical next step for each owner.
+            Identrail joins identity signals, reachable resources, evidence, and owner context so security and platform
+            teams can work from the same finding.
           </p>
 
           <div className="idt-command-tabs" role="tablist" aria-label="Command center views">

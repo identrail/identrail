@@ -74,5 +74,9 @@ describe('HeroOpenSourceProofPills', () => {
     await waitFor(() => expect(screen.getByText('2.4k+')).toBeInTheDocument());
     expect(screen.queryByText('GitHub stars')).not.toBeInTheDocument();
     expect(fetchedHostnames).not.toContain('api.github.com');
+    expect(screen.getByRole('link', { name: 'View Identrail on GitHub' })).toHaveAttribute(
+      'href',
+      'https://github.com/identrail/identrail'
+    );
   });
 });

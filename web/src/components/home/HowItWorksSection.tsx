@@ -1,27 +1,21 @@
 const WORKFLOW_STEPS = [
   {
-    stage: 'Discover',
-    title: 'Build the trust graph',
-    description: 'Collect AWS IAM, Kubernetes, GitHub, and OIDC identity metadata in read-only mode.',
-    output: 'Output: identity graph snapshot with source evidence links'
+    stage: 'Connect',
+    title: 'Link the sources you own',
+    description: 'Start with a read-only GitHub, AWS, or Kubernetes connection.',
+    output: 'Output: source inventory and identity metadata'
   },
   {
-    stage: 'Prioritize',
-    title: 'Rank reachable risk paths',
-    description: 'Score findings by severity, privilege depth, and production blast-radius potential.',
-    output: 'Output: ranked findings queue with owner-ready context'
+    stage: 'Investigate',
+    title: 'See the path behind the finding',
+    description: 'Trace identities, relationships, and reachable resources with source evidence attached.',
+    output: 'Output: prioritized finding with owner context'
   },
   {
-    stage: 'Simulate',
-    title: 'Preview hardening safely',
-    description: 'Preview trust-policy changes and estimate affected workloads before enforcement.',
-    output: 'Output: remediation plan with expected impact summary'
-  },
-  {
-    stage: 'Operate',
-    title: 'Roll out with controls',
-    description: 'Deploy in stages with rollback options and track resolution outcomes.',
-    output: 'Output: audit-ready remediation timeline and status history'
+    stage: 'Act',
+    title: 'Hand off a fix people can explain',
+    description: 'Assign ownership, share evidence, and track the next remediation decision.',
+    output: 'Output: review package and decision history'
   }
 ] as const;
 
@@ -29,9 +23,9 @@ export function HowItWorksSection() {
   return (
     <section className="idt-section idt-workflow-section" aria-labelledby="workflow-title">
       <div className="idt-section-title">
-        <p className="idt-eyebrow">Operational Workflow</p>
-        <h2 id="workflow-title">From read-only discovery to safe enforcement</h2>
-        <p>Each stage produces a concrete artifact security and platform teams can review before taking action.</p>
+        <p className="idt-eyebrow">How it works</p>
+        <h2 id="workflow-title">From source connection to owner-ready evidence</h2>
+        <p>Every step leaves a useful artifact for the next person in the review.</p>
       </div>
 
       <ol className="idt-steps idt-workflow-track">

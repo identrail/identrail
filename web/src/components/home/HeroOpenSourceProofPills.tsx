@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { projectMetricsSource, siteLinks } from '../../siteConfig';
 import { SafeLink } from '../SafeLink';
 
@@ -93,29 +93,23 @@ export function HeroOpenSourceProofPills() {
     return () => controller.abort();
   }, []);
 
-  const proofItems = useMemo(
-    () => [
-      {
-        label: 'Docker pulls',
-        value: formatMetric(stats.pulls),
-        href: siteLinks.quickstartDocker,
-        icon: '/brand-logos/docker.svg'
-      }
-    ],
-    [stats.pulls]
-  );
-
   return (
     <div className="idt-hero-proof-pills" aria-label="Open source project activity">
-      {proofItems.map((item) => (
-        <SafeLink className="idt-hero-proof-pill" href={item.href} key={item.label}>
-          <img src={item.icon} alt="" aria-hidden="true" loading="lazy" />
-          <span>
-            <strong>{item.value}</strong>
-            <small>{item.label}</small>
-          </span>
-        </SafeLink>
-      ))}
+      <SafeLink className="idt-hero-proof-pill" href={siteLinks.quickstartDocker}>
+        <img src="/brand-logos/docker.svg" alt="" aria-hidden="true" loading="lazy" />
+        <span>
+          <strong>{formatMetric(stats.pulls)}</strong>
+          <small>Docker pulls</small>
+        </span>
+      </SafeLink>
+      <SafeLink
+        className="idt-hero-proof-github"
+        href={siteLinks.github}
+        aria-label="View Identrail on GitHub"
+        title="View Identrail on GitHub"
+      >
+        <img src="/brand-logos/github.svg" alt="" aria-hidden="true" loading="lazy" />
+      </SafeLink>
     </div>
   );
 }
