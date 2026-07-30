@@ -683,8 +683,13 @@ func (s *Service) reserveAWSRegistrationBootstrap(ctx context.Context, store db.
 	}
 	// A concurrent delivery of the same CloudFormation request already
 	// reserved this bootstrap; treat that as the desired outcome so we can
-	// send SUCCESS without re-persisting.
-	if reloaded.BootstrapRequestID == attempt.BootstrapRequestID &&
+	// send SUCCESS without re-persisting. The reloaded row must also still
+	// be in the registering state — if a Delete cancellation or expiry
+	// terminalization won the intervening version race, the fingerprints
+	// can match a `failed`/`expired` row that we must not resurrect back
+	// into the connector's public state.
+	if reloaded.Status == db.AWSConnectorOnboardingAttemptRegistering &&
+		reloaded.BootstrapRequestID == attempt.BootstrapRequestID &&
 		reloaded.StackID == attempt.StackID &&
 		reloaded.AWSAccountID == attempt.AWSAccountID &&
 		reloaded.AWSPartition == attempt.AWSPartition {

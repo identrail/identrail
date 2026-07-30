@@ -21814,13 +21814,20 @@ export function ProductAWSConnectPage() {
     async (candidate: AWSConnectionStatus) => {
       const connectorID = normalizeValue(candidate.connector_id);
       const repairStatuses = ['needs_fix', 'partial', 'degraded'];
+      // Only suppress hydration when a cached start response already
+      // carries the repair material (a non-empty external_id). The
+      // initial launch response is intentionally empty, so guarding on
+      // any start response would prevent hydration when the stack polls
+      // into needs_fix during the same page session — leaving
+      // copy_trust_policy disabled until the operator reloaded the page.
+      const cachedRepairMaterial = normalizeValue(awsCloudFormationStartRef.current?.external_id) !== '';
       const canHydrate =
         Boolean(scope && selectedEnvironmentID && connectorID) &&
         !candidate.connected &&
         candidate.deployment_method === 'cloudformation' &&
         candidate.scope_type === 'single_account' &&
         repairStatuses.includes(candidate.onboarding_status ?? '') &&
-        !awsCloudFormationStartRef.current &&
+        !cachedRepairMaterial &&
         awsSetupModeRef.current === 'cloudformation';
       if (!canHydrate || !scope || !selectedEnvironmentID) {
         return;

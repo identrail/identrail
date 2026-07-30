@@ -157,6 +157,67 @@ func TestAWSRegistrationRenewsAttemptDeadlineOnBoundStackUpdate(t *testing.T) {
 	}
 }
 
+func TestReserveAWSRegistrationBootstrapRejectsTerminalAttemptOnConflict(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	svc.AWSCloudFormationResponder = &recordingAWSCloudFormationResponder{}
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{WorkspaceID: "workspace-a", ProjectID: "project-1"})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	store := svc.Store.(db.AWSConnectorOnboardingAttemptStore)
+	attempt, err := store.GetActiveAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("load active attempt: %v", err)
+	}
+
+	// The caller's in-memory copy of the attempt still shows an empty
+	// BootstrapRequestID (that's how the outer processAWSRegistrationBootstrap
+	// decides to attempt a reservation). We simulate a concurrent reservation
+	// that raced and won the version race, but was then terminalized by a
+	// stack-Delete cancellation before we got here. The reloaded row therefore
+	// shares our BootstrapRequestID / StackID / AccountID / Partition but is
+	// already `failed`.
+	fingerprint := attempt
+	fingerprint.Status = db.AWSConnectorOnboardingAttemptRegistering
+	fingerprint.StackID = "arn:aws:cloudformation:us-east-1:123456789012:stack/identrail/12345678-abcd-1234-abcd-123456789012"
+	fingerprint.AWSAccountID = "123456789012"
+	fingerprint.AWSPartition = "aws"
+	fingerprint.BootstrapRequestID = "bootstrap-create-1"
+	if _, err := store.UpdateAWSConnectorOnboardingAttempt(ctx, fingerprint, attempt.Version); err != nil {
+		t.Fatalf("seed reserved attempt: %v", err)
+	}
+	terminal, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload seeded attempt: %v", err)
+	}
+	terminal.Status = db.AWSConnectorOnboardingAttemptFailed
+	terminal.FailureCode = "registration_stack_deleted"
+	terminal.FailureMessage = "The AWS stack was deleted before Identrail could finish setting up the connection. Start a new connection."
+	if _, err := store.UpdateAWSConnectorOnboardingAttempt(ctx, terminal, terminal.Version); err != nil {
+		t.Fatalf("terminalize attempt: %v", err)
+	}
+
+	// A late-arriving Bootstrap Create with the same fingerprint would call
+	// reserveAWSRegistrationBootstrap with a stale (pre-terminalization)
+	// version. The reload should refuse to accept the terminal row.
+	stale := attempt
+	stale.Status = db.AWSConnectorOnboardingAttemptRegistering
+	stale.StackID = fingerprint.StackID
+	stale.AWSAccountID = fingerprint.AWSAccountID
+	stale.AWSPartition = fingerprint.AWSPartition
+	stale.BootstrapRequestID = fingerprint.BootstrapRequestID
+	if _, err := svc.reserveAWSRegistrationBootstrap(ctx, store, stale); !errors.Is(err, db.ErrConflict) {
+		t.Fatalf("expected reservation on a terminalized attempt to conflict, got %v", err)
+	}
+	still, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload post-reserve attempt: %v", err)
+	}
+	if still.Status != db.AWSConnectorOnboardingAttemptFailed || still.FailureCode != "registration_stack_deleted" {
+		t.Fatalf("terminal attempt must remain failed, got status=%s code=%s", still.Status, still.FailureCode)
+	}
+}
+
 func TestAWSRegistrationRejectsUnauthenticatedBoundStackUpdateAfterAttemptExpiry(t *testing.T) {
 	svc, ctx := newAWSRegistrationTestService(t)
 	responder := &recordingAWSCloudFormationResponder{}
