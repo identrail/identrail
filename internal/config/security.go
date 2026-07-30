@@ -95,6 +95,7 @@ var placeholderDefaultScopeIDs = map[string]struct{}{
 var scopeIdentifierPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$`)
 var oidcClaimNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9._:-]{0,127}$`)
 var awsTemplateSHA256Pattern = regexp.MustCompile(`(?i)^(sha256:)?[a-f0-9]{64}$`)
+var awsRegistrationTopicARNPattern = regexp.MustCompile(`^arn:(aws|aws-us-gov|aws-cn):sns:([a-z0-9-]+):([0-9]{12}):[A-Za-z0-9_-]{1,256}$`)
 
 // ValidateSecurity checks hard-fail security misconfigurations.
 func ValidateSecurity(cfg Config) error {
@@ -298,12 +299,8 @@ func ValidateSecurity(cfg Config) error {
 			return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS must be set when IDENTRAIL_FEATURE_CONNECTOR_AWS=true and IDENTRAIL_DATABASE_URL is configured")
 		}
 		for region, topicARN := range cfg.AWSRegistrationTopicARNs {
-			parts := strings.Split(strings.TrimSpace(topicARN), ":")
-			// Restrict the partition to the same values accepted by the
-			// CloudFormation template pattern and the registration parser,
-			// otherwise a typo like `arn:awss:...` would pass startup and
-			// only fail at stack-parameter validation for every customer.
-			if len(parts) != 6 || parts[0] != "arn" || !awsSupportedPartition(parts[1]) || parts[2] != "sns" || parts[3] != region || !regexp.MustCompile(`^[0-9]{12}$`).MatchString(parts[4]) || strings.TrimSpace(parts[5]) == "" {
+			matches := awsRegistrationTopicARNPattern.FindStringSubmatch(strings.TrimSpace(topicARN))
+			if len(matches) != 4 || matches[2] != region {
 				return fmt.Errorf("IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS contains an invalid regional SNS topic ARN")
 			}
 		}
@@ -999,13 +996,4 @@ func validateForwardURL(raw string) error {
 
 func configRepoTargetAllowed(target string, allowlist []string) bool {
 	return repoallowlist.TargetAllowed(target, allowlist, true)
-}
-
-func awsSupportedPartition(partition string) bool {
-	switch partition {
-	case "aws", "aws-us-gov", "aws-cn":
-		return true
-	default:
-		return false
-	}
 }

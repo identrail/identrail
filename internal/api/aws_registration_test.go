@@ -23,6 +23,21 @@ func (r *recordingAWSCloudFormationResponder) Respond(_ context.Context, _ strin
 	return nil
 }
 
+type awsRegistrationRaceStore struct {
+	db.Store
+	db.AWSConnectorOnboardingAttemptStore
+	interceptUpdate func(context.Context, db.AWSConnectorOnboardingAttempt, int64) (db.AWSConnectorOnboardingAttempt, error, bool)
+}
+
+func (s *awsRegistrationRaceStore) UpdateAWSConnectorOnboardingAttempt(ctx context.Context, attempt db.AWSConnectorOnboardingAttempt, expectedVersion int64) (db.AWSConnectorOnboardingAttempt, error) {
+	if s.interceptUpdate != nil {
+		if updated, err, handled := s.interceptUpdate(ctx, attempt, expectedVersion); handled {
+			return updated, err
+		}
+	}
+	return s.AWSConnectorOnboardingAttemptStore.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, expectedVersion)
+}
+
 func TestAWSRegistrationConnectsWithoutRoleCopyPaste(t *testing.T) {
 	svc, ctx := newAWSRegistrationTestService(t)
 	responder := &recordingAWSCloudFormationResponder{}
@@ -60,11 +75,11 @@ func TestAWSRegistrationConnectsWithoutRoleCopyPaste(t *testing.T) {
 	}
 }
 
-func TestAWSRegistrationRejectsBoundStackUpdateAfterAttemptExpiry(t *testing.T) {
+func TestAWSRegistrationAllowsAuthenticatedBoundStackUpdateAfterAttemptExpiry(t *testing.T) {
 	svc, ctx := newAWSRegistrationTestService(t)
 	responder := &recordingAWSCloudFormationResponder{}
 	svc.AWSCloudFormationResponder = responder
-	_, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	started, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
 	registration := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
 	registration.ResourceProperties["ExternalId"] = externalID
 	registration.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
@@ -80,11 +95,43 @@ func TestAWSRegistrationRejectsBoundStackUpdateAfterAttemptExpiry(t *testing.T) 
 	}
 	bootstrapUpdate := awsRegistrationRequest(stackID, "Update", "bootstrap-update", "Bootstrap", attempt.AttemptID)
 	bootstrapUpdate.ResourceProperties["RegistrationToken"] = bootstrapToken
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, bootstrapUpdate)); err != nil {
+		t.Fatalf("authenticated bootstrap update after onboarding window: %v", err)
+	}
+	registrationUpdate := awsRegistrationRequest(stackID, "Update", "registration-update", "Register", attempt.AttemptID)
+	registrationUpdate.ResourceProperties["ExternalId"] = externalID
+	registrationUpdate.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registrationUpdate.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registrationUpdate)); err != nil {
+		t.Fatalf("authenticated registration update after onboarding window: %v", err)
+	}
+	status, err := svc.PollAWSConnector(ctx, started.ConnectorID, AWSConnectorPollRequest{WorkspaceID: "workspace-a", ProjectID: "project-1"})
+	if err != nil || !status.Connected || status.OnboardingStatus != AWSConnectorOnboardingConnected {
+		t.Fatalf("expected updated bound stack to remain connected, got %+v err=%v", status, err)
+	}
+}
+
+func TestAWSRegistrationRejectsUnauthenticatedBoundStackUpdateAfterAttemptExpiry(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	_, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	registration := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
+	registration.ResourceProperties["ExternalId"] = externalID
+	registration.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registration.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registration)); err != nil {
+		t.Fatalf("complete initial registration: %v", err)
+	}
+
+	svc.Now = func() time.Time { return attempt.ExpiresAt.Add(time.Hour) }
+	bootstrapUpdate := awsRegistrationRequest(stackID, "Update", "bootstrap-update", "Bootstrap", attempt.AttemptID)
+	bootstrapUpdate.ResourceProperties["RegistrationToken"] = "wrong-registration-token"
 	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, bootstrapUpdate)); err == nil {
-		t.Fatal("expected expired registration grant to reject a bound stack update")
+		t.Fatal("expected invalid lifecycle credential to reject a bound stack update")
 	}
 	if got := responder.responses[len(responder.responses)-1].Status; got != "FAILED" {
-		t.Fatalf("expected bounded failure for expired update, got %q", got)
+		t.Fatalf("expected bounded failure for invalid update credential, got %q", got)
 	}
 }
 
@@ -107,6 +154,88 @@ func TestAWSRegistrationValidationFailureBecomesNeedsFix(t *testing.T) {
 	}
 	if status.OnboardingStatus != AWSConnectorOnboardingNeedsFix || status.HealthStatus != "error" || status.LastValidatedAt != nil {
 		t.Fatalf("expected honest needs-fix state without validation timestamp, got %+v", status)
+	}
+}
+
+func TestAWSRegistrationValidationConflictReconcilesDeletedStackState(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	started, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	baseStore := svc.Store
+	baseAttempts := baseStore.(db.AWSConnectorOnboardingAttemptStore)
+	raceStore := &awsRegistrationRaceStore{Store: baseStore, AWSConnectorOnboardingAttemptStore: baseAttempts}
+	raceStore.interceptUpdate = func(ctx context.Context, candidate db.AWSConnectorOnboardingAttempt, expectedVersion int64) (db.AWSConnectorOnboardingAttempt, error, bool) {
+		if candidate.Status != db.AWSConnectorOnboardingAttemptConnected {
+			return db.AWSConnectorOnboardingAttempt{}, nil, false
+		}
+		winner := candidate
+		winner.Status = db.AWSConnectorOnboardingAttemptFailed
+		winner.FailureCode = "registration_stack_deleted"
+		winner.FailureMessage = "The AWS stack was deleted. Start a new connection."
+		winner.ValidatedAt = nil
+		if _, err := baseAttempts.UpdateAWSConnectorOnboardingAttempt(ctx, winner, expectedVersion); err != nil {
+			t.Fatalf("install concurrent delete winner: %v", err)
+		}
+		return db.AWSConnectorOnboardingAttempt{}, db.ErrConflict, true
+	}
+	svc.Store = raceStore
+
+	registration := awsRegistrationRequest(stackID, "Create", "registration-race", "Register", attempt.AttemptID)
+	registration.ResourceProperties["ExternalId"] = externalID
+	registration.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registration.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registration)); err != nil {
+		t.Fatalf("registration conflict should reconcile to the winning delete: %v", err)
+	}
+
+	persistedAttempt, err := baseAttempts.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil || persistedAttempt.Status != db.AWSConnectorOnboardingAttemptFailed {
+		t.Fatalf("expected delete to win attempt race, got %+v err=%v", persistedAttempt, err)
+	}
+	persisted, err := baseStore.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil || persisted.Connector.Status != domain.ConnectorStatusDegraded || persisted.State.LastErrorCode != "registration_stack_deleted" {
+		t.Fatalf("expected connector to converge on deleted-stack failure, got %+v err=%v", persisted, err)
+	}
+}
+
+func TestAWSConnectorExpiryConflictRestoresWinningConnectedState(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	started, initialAttempt, _, _ := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	baseStore := svc.Store
+	baseAttempts := baseStore.(db.AWSConnectorOnboardingAttemptStore)
+	raceStore := &awsRegistrationRaceStore{Store: baseStore, AWSConnectorOnboardingAttemptStore: baseAttempts}
+	raceStore.interceptUpdate = func(ctx context.Context, candidate db.AWSConnectorOnboardingAttempt, expectedVersion int64) (db.AWSConnectorOnboardingAttempt, error, bool) {
+		if candidate.Status != db.AWSConnectorOnboardingAttemptExpired {
+			return db.AWSConnectorOnboardingAttempt{}, nil, false
+		}
+		winner := candidate
+		winner.Status = db.AWSConnectorOnboardingAttemptConnected
+		winner.RoleARN = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+		winner.FailureCode = ""
+		winner.FailureMessage = ""
+		validatedAt := initialAttempt.ExpiresAt
+		winner.ValidatedAt = &validatedAt
+		if _, err := baseAttempts.UpdateAWSConnectorOnboardingAttempt(ctx, winner, expectedVersion); err != nil {
+			t.Fatalf("install concurrent validation winner: %v", err)
+		}
+		return db.AWSConnectorOnboardingAttempt{}, db.ErrConflict, true
+	}
+	svc.Store = raceStore
+	svc.Now = func() time.Time { return initialAttempt.ExpiresAt.Add(time.Minute) }
+
+	status, err := svc.PollAWSConnector(ctx, started.ConnectorID, AWSConnectorPollRequest{WorkspaceID: "workspace-a", ProjectID: "project-1"})
+	if err != nil {
+		t.Fatalf("poll connector across expiry conflict: %v", err)
+	}
+	if !status.Connected || status.OnboardingStatus != AWSConnectorOnboardingConnected || status.HealthStatus != "healthy" {
+		t.Fatalf("expected connector to converge on winning validation, got %+v", status)
+	}
+	persistedAttempt, err := baseAttempts.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", initialAttempt.AttemptID)
+	if err != nil || persistedAttempt.Status != db.AWSConnectorOnboardingAttemptConnected {
+		t.Fatalf("expected connected attempt to win expiry race, got %+v err=%v", persistedAttempt, err)
 	}
 }
 

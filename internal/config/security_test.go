@@ -64,6 +64,26 @@ func TestValidateSecurityRejectsMismatchedAWSRegistrationTopicRegion(t *testing.
 	}
 }
 
+func TestValidateSecurityRejectsMalformedAWSRegistrationTopicNames(t *testing.T) {
+	for _, topicARN := range []string{
+		"arn:aws:sns:us-east-1:123456789012:topic/name",
+		"arn:aws:sns:us-east-1:123456789012:topic.name",
+		"arn:aws:sns:us-east-1:123456789012:" + strings.Repeat("a", 257),
+	} {
+		cfg := Config{
+			APIKeys:                      []string{"reader", "writer"},
+			WriteAPIKeys:                 []string{"writer"},
+			FeatureConnectorAWS:          true,
+			AWSCloudFormationTemplateURL: "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml",
+			AWSAccountID:                 "123456789012",
+			AWSRegistrationTopicARNs:     map[string]string{"us-east-1": topicARN},
+		}
+		if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS") {
+			t.Fatalf("expected malformed registration topic %q to fail safely, got %v", topicARN, err)
+		}
+	}
+}
+
 func TestValidateSecurityRejectsInvalidSessionAuthConfig(t *testing.T) {
 	tests := []struct {
 		name string

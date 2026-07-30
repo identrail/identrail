@@ -1487,14 +1487,43 @@ func (s *Service) PollAWSConnector(ctx context.Context, connectorID string, requ
 			if err := s.persistAWSRegistrationProgress(ctx, stored, AWSConnectorOnboardingExpired, "", "", ""); err != nil {
 				return AWSConnectionStatus{}, err
 			}
-			attempt.Status = db.AWSConnectorOnboardingAttemptExpired
-			attempt.FailureCode = "registration_expired"
-			attempt.FailureMessage = "The AWS connection window expired. Start a new connection."
-			attempt.UpdatedAt = s.Now().UTC()
-			if _, updateErr := attemptStore.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version); updateErr != nil && !errors.Is(updateErr, db.ErrConflict) {
-				return AWSConnectionStatus{}, updateErr
+			for updateAttempt := 0; updateAttempt < 3; updateAttempt++ {
+				if !awsOnboardingAttemptPending(attempt.Status) || s.Now().UTC().Before(attempt.ExpiresAt) {
+					if err := s.reconcileAWSConnectorFromOnboardingAttempt(ctx, attempt); err != nil {
+						return AWSConnectionStatus{}, err
+					}
+					break
+				}
+				attempt.Status = db.AWSConnectorOnboardingAttemptExpired
+				attempt.FailureCode = "registration_expired"
+				attempt.FailureMessage = "The AWS connection window expired. Start a new connection."
+				attempt.UpdatedAt = s.Now().UTC()
+				updated, updateErr := attemptStore.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version)
+				if updateErr == nil {
+					attempt = updated
+					break
+				}
+				if !errors.Is(updateErr, db.ErrConflict) {
+					return AWSConnectionStatus{}, updateErr
+				}
+				attempt, updateErr = attemptStore.GetAWSConnectorOnboardingAttempt(ctx, project.WorkspaceID, project.ProjectID, attempt.AttemptID)
+				if updateErr != nil {
+					return AWSConnectionStatus{}, updateErr
+				}
+				if !awsOnboardingAttemptPending(attempt.Status) {
+					if err := s.reconcileAWSConnectorFromOnboardingAttempt(ctx, attempt); err != nil {
+						return AWSConnectionStatus{}, err
+					}
+					break
+				}
+				if updateAttempt == 2 {
+					return AWSConnectionStatus{}, db.ErrConflict
+				}
 			}
-			stored, _ = s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID))
+			stored, err = s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID))
+			if err != nil {
+				return AWSConnectionStatus{}, err
+			}
 		}
 	}
 	return awsConnectorSetupPublicConnectionStatus(s.awsConnectionStatusFromStored(ctx, stored)), nil

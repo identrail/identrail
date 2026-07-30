@@ -21795,6 +21795,7 @@ export function ProductAWSConnectPage() {
   const awsStartRequestRef = useRef(0);
   const awsPollRequestRef = useRef(0);
   const awsAutoPollGenerationRef = useRef(0);
+  const awsRepairHydrationRequestRef = useRef(0);
   const [awsAutoPollExhausted, setAWSAutoPollExhausted] = useState(false);
   const awsValidationRequestRef = useRef(0);
   const awsStackSetOnboardingRequestRef = useRef(0);
@@ -21809,9 +21810,66 @@ export function ProductAWSConnectPage() {
   selectedEnvironmentIDRef.current = selectedEnvironmentID;
   scopeKeyRef.current = scopeKey;
 
+  const hydrateAWSConnectorRepair = useCallback(
+    async (candidate: AWSConnectionStatus) => {
+      const connectorID = normalizeValue(candidate.connector_id);
+      const repairStatuses = ['needs_fix', 'partial', 'degraded'];
+      const canHydrate =
+        Boolean(scope && selectedEnvironmentID && connectorID) &&
+        !candidate.connected &&
+        candidate.deployment_method === 'cloudformation' &&
+        candidate.scope_type === 'single_account' &&
+        repairStatuses.includes(candidate.onboarding_status ?? '') &&
+        !awsCloudFormationStartRef.current &&
+        awsSetupModeRef.current === 'cloudformation';
+      if (!canHydrate || !scope || !selectedEnvironmentID) {
+        return;
+      }
+
+      const requestID = ++awsRepairHydrationRequestRef.current;
+      const requestEnvironmentID = selectedEnvironmentID;
+      const requestScopeKey = scopeKeyRef.current;
+      const resumeStartRequestID = awsStartRequestRef.current;
+      const isStale = () =>
+        requestID !== awsRepairHydrationRequestRef.current ||
+        selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+        scopeKeyRef.current !== requestScopeKey ||
+        awsSetupModeRef.current !== 'cloudformation' ||
+        Boolean(awsCloudFormationStartRef.current) ||
+        awsStartRequestRef.current !== resumeStartRequestID;
+      try {
+        const resumed = await apiClient.startAWSConnector(
+          {
+            workspace_id: scope.workspaceID,
+            project_id: requestEnvironmentID,
+            connector_id: connectorID,
+            scope_type: 'single_account',
+            deployment_method: 'cloudformation',
+            repair_only: true,
+            region: candidate.region || 'us-east-1'
+          },
+          buildProductAuthContext(scope)
+        );
+        if (isStale()) {
+          return;
+        }
+        setAWSCloudFormationStart(resumed);
+        setAWSForm((current) => ({
+          ...current,
+          externalID: current.externalID || resumed.external_id
+        }));
+      } catch {
+        // Repair hydration is best effort. The explicit restart path remains
+        // available if the background request cannot complete.
+      }
+    },
+    [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]
+  );
+
   const refreshConnection = useCallback(
     async (mode: 'initial' | 'manual' = 'initial') => {
       const requestID = ++connectionRequestRef.current;
+      awsRepairHydrationRequestRef.current += 1;
       const requestEnvironmentID = selectedEnvironmentID;
       const requestScopeKey = scopeKeyRef.current;
       if (!scope || !requestEnvironmentID) {
@@ -21900,90 +21958,7 @@ export function ProductAWSConnectPage() {
             ? current.roleName
             : awsRoleNameFromARN(response.connection.role_arn ?? '') || current.roleName
         }));
-        // Trust-policy inputs (external_id + identrail_account_id) are
-        // deliberately excluded from the connection GET response, so a page
-        // reload leaves the guided repair copy_trust_policy button disabled
-        // even when a diagnostic asks the operator to paste the corrected
-        // trust policy. Resume them by silently calling the idempotent
-        // startAWSConnector endpoint for the existing connector — it returns
-        // the persisted external_id and Identrail account ID without ever
-        // regenerating anything. Only fire when the wizard state is empty
-        // (i.e., this is a resume rather than a fresh onboarding step) and
-        // the operator did not touch the setup mode, so we do not stomp
-        // in-flight edits.
-        // Only hydrate a degraded connector — a healthy one has no trust-policy
-        // repair to complete, so the extra network call is wasted work and
-        // would surprise tests that mock only the connection GET.
-        const connectorID = normalizeValue(response.connection.connector_id);
-        const canResumeCloudFormation =
-          response.connection.deployment_method === 'cloudformation' &&
-          response.connection.scope_type === 'single_account';
-        // Only hydrate for connectors that actually have a repair-shaped
-        // diagnostic. `expired` and `failed` are restart states — an
-        // explicit user action should issue a new registration attempt,
-        // and firing startAWSConnector here would silently renew the
-        // two-hour grant on every page load. Limit to the `needs_fix`
-        // and `partial` families that drive the assume_role_failed
-        // guided repair.
-        const trustPolicyRepairStatuses = ['needs_fix', 'partial', 'degraded'];
-        const needsTrustPolicyResume =
-          !response.connection.connected &&
-          trustPolicyRepairStatuses.includes(response.connection.onboarding_status ?? '');
-        // Fire whenever the current wizard mode is CloudFormation. Guarding
-        // on awsSetupModeTouchedRef would permanently block hydration after
-        // the operator switched setup mode even once — including switching
-        // away and back to CloudFormation, which clears
-        // awsCloudFormationStart and legitimately needs a fresh resume.
-        if (
-          connectorID &&
-          canResumeCloudFormation &&
-          needsTrustPolicyResume &&
-          !awsCloudFormationStartRef.current &&
-          awsSetupModeRef.current === 'cloudformation'
-        ) {
-          // Snapshot the wizard-start request id at dispatch so we can drop
-          // this resume if a real start (Manual, StackSet, or a fresh
-          // CloudFormation launch) fired while our call was in flight.
-          const resumeStartRequestID = awsStartRequestRef.current;
-          try {
-            const resumed = await apiClient.startAWSConnector(
-              {
-                workspace_id: scope.workspaceID,
-                project_id: requestEnvironmentID,
-                connector_id: connectorID,
-                scope_type: 'single_account',
-                deployment_method: 'cloudformation',
-                repair_only: true,
-                region: response.connection.region || 'us-east-1'
-              },
-              buildProductAuthContext(scope)
-            );
-            // Recheck the wizard's current shape before applying resumed
-            // secrets. If the operator switched to Manual or a StackSet mode
-            // while we awaited — or a competing start response already
-            // installed different values — installing the CloudFormation
-            // External ID here would hide "Generate External ID" in Manual
-            // mode while leaving activeConnectorID empty and validation
-            // disabled, stranding the wizard in a mismatched state.
-            if (
-              isStale() ||
-              awsSetupModeRef.current !== 'cloudformation' ||
-              awsCloudFormationStartRef.current ||
-              awsStartRequestRef.current !== resumeStartRequestID
-            ) {
-              return;
-            }
-            setAWSCloudFormationStart(resumed);
-            setAWSForm((current) => ({
-              ...current,
-              externalID: current.externalID || resumed.external_id
-            }));
-          } catch {
-            // Resume is a best-effort hydration; if it fails the operator
-            // can still restart the wizard manually. Do not surface an
-            // error banner for a silent background call.
-          }
-        }
+        await hydrateAWSConnectorRepair(response.connection);
       } catch (error) {
         if (isStale()) {
           return;
@@ -21997,7 +21972,7 @@ export function ProductAWSConnectPage() {
         }
       }
     },
-    [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]
+    [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, hydrateAWSConnectorRepair]
   );
 
   const refreshBaseline = useCallback(async () => {
@@ -22130,6 +22105,7 @@ export function ProductAWSConnectPage() {
     baselineRequestRef.current += 1;
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
+    awsRepairHydrationRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
     awsStackSetOnboardingRequestRef.current += 1;
     setSuccessMessage('');
@@ -22183,6 +22159,7 @@ export function ProductAWSConnectPage() {
       baselineRequestRef.current += 1;
       awsStartRequestRef.current += 1;
       awsPollRequestRef.current += 1;
+      awsRepairHydrationRequestRef.current += 1;
       awsValidationRequestRef.current += 1;
       awsStackSetOnboardingRequestRef.current += 1;
     };
@@ -22262,6 +22239,7 @@ export function ProductAWSConnectPage() {
         if (stale()) {
           return;
         }
+        awsRepairHydrationRequestRef.current += 1;
         setConnection(response.connection);
         if (response.connection.connected) {
           setSuccessMessage('AWS is connected.');
@@ -22270,6 +22248,7 @@ export function ProductAWSConnectPage() {
           return;
         }
         if (!['waiting_for_aws', 'registering', 'validating'].includes(response.connection.onboarding_status)) {
+          await hydrateAWSConnectorRepair(response.connection);
           return;
         }
       } catch (error) {
@@ -22298,6 +22277,7 @@ export function ProductAWSConnectPage() {
     scope?.tenantID,
     scope?.workspaceID,
     selectedEnvironmentID,
+    hydrateAWSConnectorRepair,
     verifyBaseline
   ]);
 

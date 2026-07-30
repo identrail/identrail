@@ -12505,6 +12505,100 @@ describe('Domain-first app routes', () => {
   expect(screen.queryByRole('button', { name: /^Validate role$/i })).not.toBeInTheDocument();
   });
 
+  it('hydrates trust-policy repair material when automatic polling reaches needs-fix', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-connector-1',
+        deployment_method: 'cloudformation',
+        scope_type: 'single_account',
+        onboarding_status: 'waiting_for_aws'
+      }
+    });
+    vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-connector-1',
+        deployment_method: 'cloudformation',
+        scope_type: 'single_account',
+        onboarding_status: 'needs_fix',
+        status: 'degraded',
+        health_status: 'error'
+      }
+    });
+    const hydrateRepair = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-connector-1',
+        deployment_method: 'cloudformation',
+        scope_type: 'single_account',
+        onboarding_status: 'needs_fix',
+        status: 'degraded',
+        health_status: 'error'
+      },
+      connector_id: 'aws-connector-1',
+      external_id: 'repair-external-id',
+      launch_url: '',
+      template_url: 'https://example.com/template.yaml',
+      role_name: 'IdentrailReadOnly',
+      stack_name: 'identrail-readonly-connector',
+      policy_hash: 'sha256:example',
+      scope_type: 'single_account',
+      deployment_method: 'cloudformation',
+      onboarding_status: 'needs_fix',
+      target_regions: ['us-east-1'],
+      target_account_ids: [],
+      target_ou_ids: [],
+      excluded_account_ids: [],
+      auto_onboard_new_accounts: false,
+      setup_summary: 'The connection needs attention.',
+      next_actions: ['repair_permissions', 'validate_role', 'refresh_status'],
+      permission_preview: [],
+      permission_tiers: []
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(api.apiClient.pollAWSConnector).toHaveBeenCalled(), { timeout: 4000 });
+    await waitFor(() =>
+      expect(hydrateRepair).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connector_id: 'aws-connector-1',
+          repair_only: true,
+          scope_type: 'single_account',
+          deployment_method: 'cloudformation'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+  });
+
   it('ignores stale AWS validation responses after switching environments', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });

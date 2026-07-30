@@ -409,10 +409,14 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 		attempt.FailureMessage = firstNonEmptyAWSValue(status.RemediationMessage, "The AWS role is missing required read-only access.")
 	}
 	_, updateErr := store.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version)
-	if updateErr != nil && !errors.Is(updateErr, db.ErrConflict) {
-		return updateErr
+	if errors.Is(updateErr, db.ErrConflict) {
+		winner, loadErr := store.GetAWSConnectorOnboardingAttempt(ctx, attempt.WorkspaceID, attempt.ProjectID, attempt.AttemptID)
+		if loadErr != nil {
+			return loadErr
+		}
+		return s.reconcileAWSConnectorFromOnboardingAttempt(ctx, winner)
 	}
-	return nil
+	return updateErr
 }
 
 func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardingAttempt, topicARN string, request awsCloudFormationCustomResourceRequest, phase string, token string) error {
@@ -423,10 +427,18 @@ func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardi
 	if !ok || region != attempt.DeploymentRegion {
 		return fmt.Errorf("registration stack mismatch")
 	}
+	boundStack := attempt.StackID != "" &&
+		attempt.StackID == request.StackID &&
+		attempt.AWSAccountID == accountID &&
+		attempt.AWSPartition == partition
+	boundLifecycleUpdate := request.RequestType == "Update" &&
+		boundStack &&
+		(attempt.Status == db.AWSConnectorOnboardingAttemptConnected ||
+			attempt.Status == db.AWSConnectorOnboardingAttemptNeedsFix)
 	if attempt.ProviderTopicARN != strings.TrimSpace(topicARN) ||
 		attempt.Status == db.AWSConnectorOnboardingAttemptExpired ||
 		attempt.Status == db.AWSConnectorOnboardingAttemptFailed ||
-		!s.Now().UTC().Before(attempt.ExpiresAt) {
+		(!s.Now().UTC().Before(attempt.ExpiresAt) && !boundLifecycleUpdate) {
 		return fmt.Errorf("registration attempt is not active")
 	}
 	if phase == "Bootstrap" {
@@ -443,7 +455,7 @@ func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardi
 	} else if phase == "Register" && attempt.BootstrapRequestID == "" {
 		return fmt.Errorf("registration bootstrap is incomplete")
 	}
-	if attempt.StackID != "" && (attempt.StackID != request.StackID || attempt.AWSAccountID != accountID || attempt.AWSPartition != partition) {
+	if attempt.StackID != "" && !boundStack {
 		return fmt.Errorf("registration stack replay")
 	}
 	return nil
@@ -638,20 +650,16 @@ func awsRegistrationProperty(properties map[string]any, key string) string {
 // and connector bound to a deleted stack as failed so the app leaves any
 // waiting/connected state and an explicit replacement can issue a fresh grant.
 func (s *Service) cancelAWSOnboardingAttemptForDeletedStack(ctx context.Context, store db.AWSConnectorOnboardingAttemptStore, attempt db.AWSConnectorOnboardingAttempt) error {
-	if !awsOnboardingAttemptCancelable(attempt.Status) {
-		return nil
-	}
 	scopedContext := db.WithScope(ctx, db.Scope{TenantID: attempt.TenantID, WorkspaceID: attempt.WorkspaceID})
-	stored, err := s.Store.GetTenancyConnector(scopedContext, attempt.WorkspaceID, attempt.ProjectID, attempt.ConnectorID)
-	if err != nil {
-		return err
-	}
-	if err := s.persistAWSRegistrationTerminalFailure(scopedContext, stored, attempt, "registration_stack_deleted", "The AWS stack was deleted. Start a new connection."); err != nil {
-		return err
-	}
 	expectedStackID := attempt.StackID
-	for updateAttempt := 0; updateAttempt < 2; updateAttempt++ {
-		if !awsOnboardingAttemptCancelable(attempt.Status) || attempt.StackID != expectedStackID {
+	for updateAttempt := 0; updateAttempt < 3; updateAttempt++ {
+		if attempt.StackID != expectedStackID {
+			return nil
+		}
+		if attempt.Status == db.AWSConnectorOnboardingAttemptFailed && attempt.FailureCode == "registration_stack_deleted" {
+			return s.reconcileAWSConnectorFromOnboardingAttempt(scopedContext, attempt)
+		}
+		if !awsOnboardingAttemptCancelable(attempt.Status) {
 			return nil
 		}
 		now := s.Now().UTC()
@@ -659,7 +667,10 @@ func (s *Service) cancelAWSOnboardingAttemptForDeletedStack(ctx context.Context,
 		attempt.FailureCode = "registration_stack_deleted"
 		attempt.FailureMessage = "The AWS stack was deleted. Start a new connection."
 		attempt.UpdatedAt = now
-		_, err = store.UpdateAWSConnectorOnboardingAttempt(scopedContext, attempt, attempt.Version)
+		updated, err := store.UpdateAWSConnectorOnboardingAttempt(scopedContext, attempt, attempt.Version)
+		if err == nil {
+			return s.reconcileAWSConnectorFromOnboardingAttempt(scopedContext, updated)
+		}
 		if !errors.Is(err, db.ErrConflict) {
 			return err
 		}
@@ -672,6 +683,60 @@ func (s *Service) cancelAWSOnboardingAttemptForDeletedStack(ctx context.Context,
 		}
 	}
 	return db.ErrConflict
+}
+
+// reconcileAWSConnectorFromOnboardingAttempt repairs the public connector
+// view after an optimistic conflict. The versioned onboarding attempt is the
+// winner, so every racing path converges the connector to that durable state.
+func (s *Service) reconcileAWSConnectorFromOnboardingAttempt(ctx context.Context, attempt db.AWSConnectorOnboardingAttempt) error {
+	stored, err := s.Store.GetTenancyConnector(ctx, attempt.WorkspaceID, attempt.ProjectID, attempt.ConnectorID)
+	if err != nil {
+		return err
+	}
+	switch attempt.Status {
+	case db.AWSConnectorOnboardingAttemptWaiting:
+		return s.persistAWSRegistrationProgress(ctx, stored, AWSConnectorOnboardingWaitingForAWS, attempt.RoleARN, attempt.AWSAccountID, attempt.DeploymentRegion)
+	case db.AWSConnectorOnboardingAttemptRegistering:
+		return s.persistAWSRegistrationProgress(ctx, stored, AWSConnectorOnboardingRegistering, attempt.RoleARN, attempt.AWSAccountID, attempt.DeploymentRegion)
+	case db.AWSConnectorOnboardingAttemptValidating:
+		return s.persistAWSRegistrationProgress(ctx, stored, AWSConnectorOnboardingValidating, attempt.RoleARN, attempt.AWSAccountID, attempt.DeploymentRegion)
+	case db.AWSConnectorOnboardingAttemptConnected:
+		return s.persistAWSRegistrationConnected(ctx, stored, attempt)
+	case db.AWSConnectorOnboardingAttemptNeedsFix:
+		return s.persistAWSRegistrationFailure(ctx, stored, attempt.RoleARN, attempt.AWSAccountID, attempt.DeploymentRegion, attempt.FailureCode, attempt.FailureMessage)
+	case db.AWSConnectorOnboardingAttemptExpired:
+		return s.persistAWSRegistrationProgress(ctx, stored, AWSConnectorOnboardingExpired, attempt.RoleARN, attempt.AWSAccountID, attempt.DeploymentRegion)
+	case db.AWSConnectorOnboardingAttemptFailed:
+		return s.persistAWSRegistrationTerminalFailure(ctx, stored, attempt, attempt.FailureCode, attempt.FailureMessage)
+	default:
+		return nil
+	}
+}
+
+func (s *Service) persistAWSRegistrationConnected(ctx context.Context, stored db.TenancyConnectorWithState, attempt db.AWSConnectorOnboardingAttempt) error {
+	metadata := copyAWSMetadata(stored.State.Metadata)
+	setup := awsMetadataSetupContract(metadata, AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation)
+	applyAWSConnectorSetupMetadata(metadata, setup, AWSConnectorOnboardingConnected)
+	if attempt.RoleARN != "" {
+		metadata["role_arn"] = attempt.RoleARN
+	}
+	if attempt.AWSAccountID != "" {
+		metadata["account_id"] = attempt.AWSAccountID
+	}
+	if attempt.DeploymentRegion != "" {
+		metadata["region"] = attempt.DeploymentRegion
+	}
+	delete(metadata, "launch_url")
+	now := s.Now().UTC()
+	stored.State.Metadata = metadata
+	stored.State.HealthStatus = "healthy"
+	stored.State.LastErrorCode = ""
+	stored.State.LastErrorMessage = ""
+	stored.State.ObservedAt = now
+	stored.State.UpdatedAt = now
+	stored.Connector.Status = domain.ConnectorStatusActive
+	stored.Connector.UpdatedAt = now
+	return s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State)
 }
 
 func (s *Service) persistAWSRegistrationTerminalFailure(ctx context.Context, stored db.TenancyConnectorWithState, attempt db.AWSConnectorOnboardingAttempt, code string, message string) error {
@@ -707,6 +772,17 @@ func awsOnboardingAttemptCancelable(status string) bool {
 		db.AWSConnectorOnboardingAttemptValidating,
 		db.AWSConnectorOnboardingAttemptConnected,
 		db.AWSConnectorOnboardingAttemptNeedsFix:
+		return true
+	default:
+		return false
+	}
+}
+
+func awsOnboardingAttemptPending(status string) bool {
+	switch status {
+	case db.AWSConnectorOnboardingAttemptWaiting,
+		db.AWSConnectorOnboardingAttemptRegistering,
+		db.AWSConnectorOnboardingAttemptValidating:
 		return true
 	default:
 		return false
