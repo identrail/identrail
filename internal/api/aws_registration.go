@@ -303,13 +303,19 @@ func (s *Service) processAWSRegistrationBootstrap(ctx context.Context, store db.
 		attempt.AWSPartition = stackPartition
 		attempt.BootstrapRequestID = request.RequestID
 		attempt.UpdatedAt = now
-		updated, updateErr := store.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version)
-		if updateErr != nil {
-			return s.failAWSCloudFormationRequest(ctx, request, "Identrail could not reserve this connection request.", updateErr)
+		// A transient database error or an optimistic conflict from a
+		// duplicate SQS delivery must NOT trigger a FAILED callback to
+		// CloudFormation — that would roll the stack back before SQS
+		// redelivery could complete the same request. Return the error
+		// unanswered so the queue's retry policy owns recovery, and
+		// treat an already-persisted matching reservation as success.
+		reserved, reserveErr := s.reserveAWSRegistrationBootstrap(ctx, store, attempt)
+		if reserveErr != nil {
+			return reserveErr
 		}
-		attempt = updated
+		attempt = reserved
 		if err := s.persistAWSRegistrationProgress(ctx, stored, AWSConnectorOnboardingRegistering, "", stackAccountID, stackRegion); err != nil {
-			return s.failAWSCloudFormationRequest(ctx, request, "Identrail could not save the AWS connection progress.", err)
+			return err
 		}
 	}
 	// NoEcho must be false: the template's IAM trust policy and the Register
@@ -367,6 +373,15 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 			attempt.RegisteredAt = &now
 		}
 		attempt.UpdatedAt = now
+		// A bound-lifecycle Update on an established stack is admitted after
+		// the original two-hour window has passed; leaving the stale
+		// ExpiresAt in place would let a concurrent PollAWSConnector mark
+		// this active attempt expired mid-validation and race the ongoing
+		// STS check. Renew the deadline for the validation window whenever
+		// the attempt was already expired when we accepted the callback.
+		if !now.Before(attempt.ExpiresAt) {
+			attempt.ExpiresAt = now.Add(awsRegistrationAttemptLifetime)
+		}
 		updated, updateErr := store.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version)
 		if updateErr != nil {
 			return updateErr
@@ -644,6 +659,43 @@ func parseAWSStackARN(stackID string) (partition string, region string, accountI
 func awsRegistrationProperty(properties map[string]any, key string) string {
 	value, _ := properties[key].(string)
 	return strings.TrimSpace(value)
+}
+
+// reserveAWSRegistrationBootstrap persists the "registering" state for a fresh
+// bootstrap. It reloads on ErrConflict so that a duplicate SQS delivery of the
+// same message (which reaches us concurrently and races on the optimistic
+// version) is treated as success: the reloaded attempt is already reserved to
+// our BootstrapRequestID and we can proceed. On any other error the caller
+// returns the error unanswered so SQS redelivery can retry the same request;
+// sending a FAILED callback here would begin a stack rollback before we could
+// recover from the transient failure.
+func (s *Service) reserveAWSRegistrationBootstrap(ctx context.Context, store db.AWSConnectorOnboardingAttemptStore, attempt db.AWSConnectorOnboardingAttempt) (db.AWSConnectorOnboardingAttempt, error) {
+	updated, err := store.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version)
+	if err == nil {
+		return updated, nil
+	}
+	if !errors.Is(err, db.ErrConflict) {
+		return db.AWSConnectorOnboardingAttempt{}, err
+	}
+	reloaded, loadErr := store.GetAWSConnectorOnboardingAttempt(ctx, attempt.WorkspaceID, attempt.ProjectID, attempt.AttemptID)
+	if loadErr != nil {
+		return db.AWSConnectorOnboardingAttempt{}, loadErr
+	}
+	// A concurrent delivery of the same CloudFormation request already
+	// reserved this bootstrap; treat that as the desired outcome so we can
+	// send SUCCESS without re-persisting.
+	if reloaded.BootstrapRequestID == attempt.BootstrapRequestID &&
+		reloaded.StackID == attempt.StackID &&
+		reloaded.AWSAccountID == attempt.AWSAccountID &&
+		reloaded.AWSPartition == attempt.AWSPartition {
+		return reloaded, nil
+	}
+	// Something else moved the attempt under us — either an unrelated
+	// bootstrap, a Delete cancellation, or an expiry terminalization.
+	// Return ErrConflict so SQS retries with fresh state; the outer
+	// replay/expiry guards will surface the correct terminal error on
+	// redelivery.
+	return db.AWSConnectorOnboardingAttempt{}, db.ErrConflict
 }
 
 // cancelAWSOnboardingAttemptForDeletedStack marks the authenticated attempt

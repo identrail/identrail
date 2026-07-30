@@ -111,6 +111,52 @@ func TestAWSRegistrationAllowsAuthenticatedBoundStackUpdateAfterAttemptExpiry(t 
 	}
 }
 
+func TestAWSRegistrationRenewsAttemptDeadlineOnBoundStackUpdate(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	_, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	initial := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
+	initial.ResourceProperties["ExternalId"] = externalID
+	initial.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	initial.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, initial)); err != nil {
+		t.Fatalf("complete initial registration: %v", err)
+	}
+
+	// Push the clock past the original two-hour deadline so the bound-Update
+	// path is exercised. A concurrent PollAWSConnector must not observe the
+	// still-expired ExpiresAt while validation is in flight.
+	pastExpiry := attempt.ExpiresAt.Add(time.Hour)
+	svc.Now = func() time.Time { return pastExpiry }
+
+	bootstrapToken, err := svc.awsRegistrationToken(attempt)
+	if err != nil {
+		t.Fatalf("derive bootstrap token: %v", err)
+	}
+	bootstrapUpdate := awsRegistrationRequest(stackID, "Update", "bootstrap-update", "Bootstrap", attempt.AttemptID)
+	bootstrapUpdate.ResourceProperties["RegistrationToken"] = bootstrapToken
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, bootstrapUpdate)); err != nil {
+		t.Fatalf("authenticated bootstrap update after onboarding window: %v", err)
+	}
+	registrationUpdate := awsRegistrationRequest(stackID, "Update", "registration-update", "Register", attempt.AttemptID)
+	registrationUpdate.ResourceProperties["ExternalId"] = externalID
+	registrationUpdate.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registrationUpdate.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registrationUpdate)); err != nil {
+		t.Fatalf("authenticated registration update after onboarding window: %v", err)
+	}
+
+	store := svc.Store.(db.AWSConnectorOnboardingAttemptStore)
+	reloaded, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload attempt: %v", err)
+	}
+	if !reloaded.ExpiresAt.After(pastExpiry) {
+		t.Fatalf("expected bound-Update to renew ExpiresAt past %s, got %s", pastExpiry, reloaded.ExpiresAt)
+	}
+}
+
 func TestAWSRegistrationRejectsUnauthenticatedBoundStackUpdateAfterAttemptExpiry(t *testing.T) {
 	svc, ctx := newAWSRegistrationTestService(t)
 	responder := &recordingAWSCloudFormationResponder{}
