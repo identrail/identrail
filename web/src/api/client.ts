@@ -9695,6 +9695,7 @@ export type AWSConnectorStartRequest = {
   target_ou_ids?: string[];
   excluded_account_ids?: string[];
   auto_onboard_new_accounts?: boolean;
+  repair_only?: boolean;
 };
 
 export type AWSConnectorScopeType = 'single_account' | 'organization' | 'selected_ous' | 'selected_accounts' | 'manual_role';
@@ -9708,10 +9709,12 @@ export type AWSConnectorOnboardingStatus =
   | 'draft'
   | 'launch_ready'
   | 'waiting_for_aws'
+  | 'registering'
   | 'validating'
   | 'connected'
   | 'partial'
   | 'needs_fix'
+  | 'expired'
   | 'failed';
 export type AWSConnectorNextAction =
   | 'launch_stack'

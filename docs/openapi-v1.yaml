@@ -3483,7 +3483,7 @@ paths:
       tags: [ProjectManagement]
       summary: Start AWS CloudFormation connector setup
       operationId: startAWSConnector
-      description: Generates a connector-specific External ID, stores it in the connector secret envelope table, and returns an AWS CloudFormation launch URL plus permission preview.
+      description: Creates or resumes an expiring, registration-aware connector attempt and returns a prefilled AWS CloudFormation launch URL. The response never includes the registration token or External ID as JSON; automatic registration and live STS validation complete asynchronously.
       requestBody:
         required: false
         content:
@@ -11410,10 +11410,12 @@ components:
         - draft
         - launch_ready
         - waiting_for_aws
+        - registering
         - validating
         - connected
         - partial
         - needs_fix
+        - expired
         - failed
     AWSConnectorNextAction:
       type: string
@@ -11477,6 +11479,9 @@ components:
         auto_onboard_new_accounts:
           type: boolean
           description: Enables service-managed StackSet automatic deployment to future accounts under targeted organization or OU scopes. Rejected for selected-account StackSets because AWS automatic deployments do not honor account filters.
+        repair_only:
+          type: boolean
+          description: Returns trust-policy repair material for an existing degraded single-account connector without creating or renewing an onboarding attempt. The app uses this only for background repair hydration; explicit launches omit it.
     AWSConnectorValidateRequest:
       type: object
       required: [role_arn]

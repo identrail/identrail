@@ -23,15 +23,28 @@ import (
 const (
 	testAWSCloudFormationTemplateChecksum = "sha256:458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2"
 	testAWSCloudFormationTemplateURL      = "https://cdn.identrail.example/connectors/aws/sha256/458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2/identrail-readonly.yaml"
+	testAWSRegistrationTopicARN           = "arn:aws:sns:us-east-1:999999999999:identrail-aws-registration"
 )
+
+func configureAWSRegistrationTestProvider(svc *Service) {
+	if svc.AWSCloudFormationTemplateSHA == "" {
+		svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	}
+	svc.AWSRegistrationTopicARNs = map[string]string{
+		"us-east-1": testAWSRegistrationTopicARN,
+		"us-west-2": "arn:aws:sns:us-west-2:999999999999:identrail-aws-registration",
+	}
+}
 
 type fakeAWSConnectorValidator struct {
 	result AWSConnectionValidationResult
 	err    error
 	seen   AWSConnectionValidationRequest
+	calls  int
 }
 
 func (f *fakeAWSConnectorValidator) ValidateAWSConnection(ctx context.Context, request AWSConnectionValidationRequest) (AWSConnectionValidationResult, error) {
+	f.calls++
 	f.seen = request
 	return f.result, f.err
 }
@@ -160,6 +173,7 @@ func TestAWSConnectorManualStartAndValidateUsesStoredExternalID(t *testing.T) {
 	svc.ConnectorSecretManager = manager
 	svc.AWSConnectorValidator = validator
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID:      "workspace-a",
@@ -237,6 +251,7 @@ func TestAWSConnectorManualStartRecoversMissingExternalIDEnvelope(t *testing.T) 
 	svc.ConnectorSecretManager = manager
 	svc.AWSConnectorValidator = validator
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID:      "workspace-a",
@@ -413,6 +428,7 @@ func TestAWSConnectorStartRejectsLegacyManualConnectorResume(t *testing.T) {
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID: "workspace-a",
 		ProjectID:   "project-1",
@@ -756,11 +772,11 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
 		t.Fatalf("decode start response: %v", err)
 	}
-	if startBody.ConnectorID == "" || startBody.ExternalID == "" || startBody.LaunchURL == "" || len(startBody.PermissionPreview) == 0 {
+	if startBody.ConnectorID == "" || startBody.LaunchURL == "" || len(startBody.PermissionPreview) == 0 {
 		t.Fatalf("expected launch data and permission preview, got %+v", startBody)
 	}
-	if !strings.Contains(startResp.Body.String(), `"external_id"`) {
-		t.Fatalf("expected start response to include one-time external id, got %s", startResp.Body.String())
+	if startBody.ExternalID != "" || strings.Contains(startResp.Body.String(), `"external_id"`) {
+		t.Fatalf("expected automatic setup to keep the external id server-side, got %s", startResp.Body.String())
 	}
 	if startBody.Connection.Status != domain.ConnectorStatusPending || !startBody.Connection.ExternalIDConfigured {
 		t.Fatalf("expected pending connector with external id configured, got %+v", startBody.Connection)
@@ -769,7 +785,7 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 		t.Fatalf("expected nested start connection to redact launch URL, got %q", startBody.Connection.LaunchURL)
 	}
 	if startBody.ScopeType != AWSConnectorScopeSingleAccount || startBody.DeploymentMethod != AWSConnectorDeploymentCloudFormation ||
-		startBody.OnboardingStatus != AWSConnectorOnboardingLaunchReady {
+		startBody.OnboardingStatus != AWSConnectorOnboardingWaitingForAWS {
 		t.Fatalf("expected single-account cloudformation launch contract, got scope=%q method=%q status=%q", startBody.ScopeType, startBody.DeploymentMethod, startBody.OnboardingStatus)
 	}
 	if len(startBody.TargetRegions) != 1 || startBody.TargetRegions[0] != "us-east-1" {
@@ -786,8 +802,8 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if strings.Contains(pollResp.Body.String(), `"external_id"`) {
 		t.Fatalf("expected poll response to hide external id, got %s", pollResp.Body.String())
 	}
-	if strings.Contains(pollResp.Body.String(), startBody.ExternalID) || strings.Contains(pollResp.Body.String(), `"launch_url"`) {
-		t.Fatalf("expected poll response to redact launch URL and external id, got %s", pollResp.Body.String())
+	if strings.Contains(pollResp.Body.String(), `"launch_url"`) {
+		t.Fatalf("expected poll response to redact launch URL, got %s", pollResp.Body.String())
 	}
 	var pollBody struct {
 		Connection AWSConnectionStatus `json:"connection"`
@@ -799,7 +815,7 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 		t.Fatalf("expected pending polled connection, got %+v", pollBody.Connection)
 	}
 	if pollBody.Connection.ScopeType != AWSConnectorScopeSingleAccount || pollBody.Connection.DeploymentMethod != AWSConnectorDeploymentCloudFormation ||
-		pollBody.Connection.OnboardingStatus != AWSConnectorOnboardingLaunchReady {
+		pollBody.Connection.OnboardingStatus != AWSConnectorOnboardingWaitingForAWS {
 		t.Fatalf("expected polled setup contract to persist, got %+v", pollBody.Connection)
 	}
 
@@ -839,8 +855,8 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if validateResp.Code != http.StatusOK {
 		t.Fatalf("expected connector validate 200, got %d body=%s", validateResp.Code, validateResp.Body.String())
 	}
-	if validator.seen.ExternalID != startBody.ExternalID {
-		t.Fatalf("expected validator to receive decrypted external id, got %q want %q", validator.seen.ExternalID, startBody.ExternalID)
+	if validator.seen.ExternalID == "" {
+		t.Fatal("expected validator to receive the server-side decrypted external id")
 	}
 	var validateBody struct {
 		Connection AWSConnectionStatus `json:"connection"`
@@ -852,7 +868,7 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 		validateBody.Connection.OnboardingStatus != AWSConnectorOnboardingConnected {
 		t.Fatalf("expected validation to preserve setup contract and mark connected, got %+v", validateBody.Connection)
 	}
-	if strings.Contains(validateResp.Body.String(), startBody.ExternalID) || strings.Contains(validateResp.Body.String(), `"launch_url"`) {
+	if strings.Contains(validateResp.Body.String(), `"external_id"`) || strings.Contains(validateResp.Body.String(), `"launch_url"`) {
 		t.Fatalf("expected validate response to redact launch URL and external id, got %s", validateResp.Body.String())
 	}
 
@@ -860,7 +876,7 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if validatedPollResp.Code != http.StatusOK {
 		t.Fatalf("expected validated connector poll 200, got %d body=%s", validatedPollResp.Code, validatedPollResp.Body.String())
 	}
-	if strings.Contains(validatedPollResp.Body.String(), startBody.ExternalID) || strings.Contains(validatedPollResp.Body.String(), `"launch_url"`) {
+	if strings.Contains(validatedPollResp.Body.String(), `"external_id"`) || strings.Contains(validatedPollResp.Body.String(), `"launch_url"`) {
 		t.Fatalf("expected validated poll response to redact launch URL and external id, got %s", validatedPollResp.Body.String())
 	}
 }
@@ -1001,6 +1017,7 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	accounts, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID:            "workspace-a",
@@ -1139,6 +1156,7 @@ func TestAWSConnectorStartRejectsStackSetResumeSetupDrift(t *testing.T) {
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID:            "workspace-a",
@@ -1223,6 +1241,7 @@ func TestAWSConnectorStartStackSetResumeAllowsUnsetChecksumForExisting(t *testin
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	request := AWSConnectorStartRequest{
 		WorkspaceID:            "workspace-a",
@@ -1276,6 +1295,7 @@ func TestAWSConnectorStartRejectsStackSetLaunchIdentityDrift(t *testing.T) {
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	base := AWSConnectorStartRequest{
 		WorkspaceID:            "workspace-a",
@@ -1375,6 +1395,7 @@ func TestAWSConnectorStartRejectsInvalidStackSetName(t *testing.T) {
 			svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 			svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 			svc.AWSAccountID = "999999999999"
+			configureAWSRegistrationTestProvider(svc)
 
 			request := AWSConnectorStartRequest{
 				WorkspaceID:      "workspace-a",
@@ -1420,6 +1441,7 @@ func TestAWSConnectorStartRejectsInvalidStackSetRoleName(t *testing.T) {
 			svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 			svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 			svc.AWSAccountID = "999999999999"
+			configureAWSRegistrationTestProvider(svc)
 
 			request := AWSConnectorStartRequest{
 				WorkspaceID:      "workspace-a",
@@ -1456,6 +1478,7 @@ func TestAWSConnectorStartRejectsInvalidStackSetNameOnResume(t *testing.T) {
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	request := AWSConnectorStartRequest{
 		WorkspaceID:      "workspace-a",
@@ -1491,6 +1514,7 @@ func TestAWSConnectorStartRejectsInvalidStackSetRoleNameOnResume(t *testing.T) {
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	request := AWSConnectorStartRequest{
 		WorkspaceID:      "workspace-a",
@@ -1538,6 +1562,7 @@ func TestAWSConnectorStartStackSetRequiresConfiguredAccountID(t *testing.T) {
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	request := AWSConnectorStartRequest{
 		WorkspaceID:      "workspace-a",
@@ -1598,6 +1623,7 @@ func TestAWSConnectorValidateRejectsSelectedAccountOutsideScope(t *testing.T) {
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID:        "workspace-a",
@@ -1673,6 +1699,7 @@ func TestAWSConnectorValidateClearsStackSetLaunchPrerequisitesWhenConnected(t *t
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID:            "workspace-a",
@@ -1907,6 +1934,7 @@ func TestAWSConnectorStartSelectedAccountsSelfManagedBlocksOnAdministrationRole(
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID:      "workspace-a",
@@ -1991,6 +2019,7 @@ func TestAWSConnectorStartStackSetRejectsMutableTemplateURL(t *testing.T) {
 	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	_, err = svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID:            "workspace-a",
@@ -2024,6 +2053,7 @@ func TestAWSConnectorStartResumesExistingCloudFormationSetup(t *testing.T) {
 	svc.ConnectorSecretManager = manager
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID: "workspace-a",
@@ -2036,6 +2066,14 @@ func TestAWSConnectorStartResumesExistingCloudFormationSetup(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("start aws connector: %v", err)
+	}
+	firstSecret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("load initial external id envelope: %v", err)
+	}
+	firstPlaintext, err := manager.Decrypt(firstSecret.Envelope, awsExternalIDAAD("tenant-a", "workspace-a", "project-1", "aws-prod"))
+	if err != nil {
+		t.Fatalf("decrypt initial external id envelope: %v", err)
 	}
 	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/new-template.yaml"
 	second, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
@@ -2051,8 +2089,8 @@ func TestAWSConnectorStartResumesExistingCloudFormationSetup(t *testing.T) {
 		t.Fatalf("resume aws connector: %v", err)
 	}
 
-	if second.ExternalID != first.ExternalID {
-		t.Fatalf("expected resume to preserve external id, first=%q second=%q", first.ExternalID, second.ExternalID)
+	if first.ExternalID != "" || second.ExternalID != "" {
+		t.Fatalf("automatic setup must keep the external id server-side, first=%q second=%q", first.ExternalID, second.ExternalID)
 	}
 	if second.LaunchURL != first.LaunchURL || second.RoleName != first.RoleName || second.StackName != first.StackName {
 		t.Fatalf("expected resume to preserve launch parameters\nfirst=%+v\nsecond=%+v", first, second)
@@ -2063,7 +2101,7 @@ func TestAWSConnectorStartResumesExistingCloudFormationSetup(t *testing.T) {
 	if second.Connection.DisplayName != "Production AWS" || second.Connection.Region != "us-east-1" {
 		t.Fatalf("expected resume to return persisted connector identity, got %+v", second.Connection)
 	}
-	if second.OnboardingStatus != AWSConnectorOnboardingLaunchReady || len(second.NextActions) == 0 || second.SetupSummary == "" {
+	if second.OnboardingStatus != AWSConnectorOnboardingWaitingForAWS || len(second.NextActions) == 0 || second.SetupSummary == "" {
 		t.Fatalf("expected resumed lifecycle fields, got %+v", second)
 	}
 
@@ -2082,12 +2120,12 @@ func TestAWSConnectorStartResumesExistingCloudFormationSetup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decrypt external id envelope: %v", err)
 	}
-	if got := strings.TrimSpace(string(plaintext)); got != first.ExternalID {
-		t.Fatalf("expected encrypted external id %q, got %q", first.ExternalID, got)
+	if got, want := strings.TrimSpace(string(plaintext)), strings.TrimSpace(string(firstPlaintext)); got == "" || got != want {
+		t.Fatalf("expected encrypted external id to remain stable, got %q want %q", got, want)
 	}
 }
 
-func TestAWSConnectorValidatePreservesCloudFormationLaunchMetadata(t *testing.T) {
+func TestAWSConnectorValidateRebuildsCloudFormationLaunchWithoutPersistingURL(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	seedDefaultProject(t, store, ctx, "project-1")
@@ -2111,8 +2149,9 @@ func TestAWSConnectorValidatePreservesCloudFormationLaunchMetadata(t *testing.T)
 	svc.ConnectorSecretManager = manager
 	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly-v1.yaml"
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
-	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+	_, err = svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID: "workspace-a",
 		ProjectID:   "project-1",
 		ConnectorID: "aws-prod",
@@ -2135,36 +2174,20 @@ func TestAWSConnectorValidatePreservesCloudFormationLaunchMetadata(t *testing.T)
 	if err != nil {
 		t.Fatalf("load validated connector: %v", err)
 	}
-	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
-		t.Fatalf("expected validation to preserve launch URL, got %q want %q", got, started.LaunchURL)
+	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != "" {
+		t.Fatalf("registration launch URLs must not be persisted, got %q", got)
 	}
-	if got := awsMetadataString(stored.State.Metadata, "template_url"); got != started.TemplateURL {
-		t.Fatalf("expected validation to preserve template URL, got %q want %q", got, started.TemplateURL)
+	if got := awsMetadataString(stored.State.Metadata, "template_url"); got != "" {
+		t.Fatalf("automatic setup must derive template state from the onboarding attempt, got persisted URL %q", got)
 	}
-	if got := awsMetadataString(stored.State.Metadata, "role_name"); got != started.RoleName {
-		t.Fatalf("expected validation to preserve role name, got %q want %q", got, started.RoleName)
-	}
-	if got := awsMetadataString(stored.State.Metadata, "stack_name"); got != started.StackName {
-		t.Fatalf("expected validation to preserve stack name, got %q want %q", got, started.StackName)
-	}
-
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly-v2.yaml"
-	resumed, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
-		WorkspaceID: "workspace-a",
-		ProjectID:   "project-1",
-		ConnectorID: "aws-prod",
-		DisplayName: "Production AWS",
-		Region:      "us-west-2",
-	})
-	if err != nil {
-		t.Fatalf("resume validated aws connector: %v", err)
-	}
-	if resumed.LaunchURL != started.LaunchURL || resumed.TemplateURL != started.TemplateURL || resumed.RoleName != started.RoleName || resumed.StackName != started.StackName {
-		t.Fatalf("expected resume after validation to keep original launch plan\nstarted=%+v\nresumed=%+v", started, resumed)
+	for _, key := range []string{"role_name", "stack_name"} {
+		if got := awsMetadataString(stored.State.Metadata, key); got != "" {
+			t.Fatalf("validated connector must not retain onboarding-only %s, got %q", key, got)
+		}
 	}
 }
 
-func TestAWSConnectorValidateDropsLaunchMetadataWhenExternalIDChanges(t *testing.T) {
+func TestAWSConnectorTroubleshootingExternalIDChangeNeverLeaksIntoLaunchURL(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	seedDefaultProject(t, store, ctx, "project-1")
@@ -2188,6 +2211,7 @@ func TestAWSConnectorValidateDropsLaunchMetadataWhenExternalIDChanges(t *testing
 	svc.ConnectorSecretManager = manager
 	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly-v1.yaml"
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID: "workspace-a",
@@ -2201,15 +2225,21 @@ func TestAWSConnectorValidateDropsLaunchMetadataWhenExternalIDChanges(t *testing
 	if err != nil {
 		t.Fatalf("start aws connector: %v", err)
 	}
-	if len(started.ExternalID) < 12 {
-		t.Fatalf("test setup expected generated external id to be long enough, got %q", started.ExternalID)
+	secret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("load initial external id envelope: %v", err)
 	}
-	newExternalID := started.ExternalID[:12]
-	if !strings.Contains(started.LaunchURL, newExternalID) {
-		t.Fatalf("test setup expected original launch URL to contain the new substring external id: %s", started.LaunchURL)
+	initialPlaintext, err := manager.Decrypt(secret.Envelope, awsExternalIDAAD("tenant-a", "workspace-a", "project-1", "aws-prod"))
+	if err != nil {
+		t.Fatalf("decrypt initial external id envelope: %v", err)
 	}
-	if awsCloudFormationLaunchURLExternalID(started.LaunchURL) != started.ExternalID {
-		t.Fatalf("test setup expected original launch URL external id %q, got %q", started.ExternalID, awsCloudFormationLaunchURLExternalID(started.LaunchURL))
+	initialExternalID := strings.TrimSpace(string(initialPlaintext))
+	if len(initialExternalID) < 12 {
+		t.Fatalf("test setup expected generated server-side external id to be long enough, got %q", initialExternalID)
+	}
+	newExternalID := initialExternalID[:12]
+	if started.ExternalID != "" || awsCloudFormationLaunchURLExternalID(started.LaunchURL) != "" || strings.Contains(started.LaunchURL, newExternalID) {
+		t.Fatalf("automatic launch URL exposed an external id: %+v", started)
 	}
 	if _, err := svc.ValidateAWSConnector(ctx, "aws-prod", AWSConnectorValidateRequest{
 		WorkspaceID: "workspace-a",
@@ -2231,7 +2261,7 @@ func TestAWSConnectorValidateDropsLaunchMetadataWhenExternalIDChanges(t *testing
 			t.Fatalf("expected validation to drop stale %s, got %q", key, got)
 		}
 	}
-	secret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	secret, err = store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
 	if err != nil {
 		t.Fatalf("load external id envelope: %v", err)
 	}
@@ -2253,11 +2283,8 @@ func TestAWSConnectorValidateDropsLaunchMetadataWhenExternalIDChanges(t *testing
 	if err != nil {
 		t.Fatalf("resume validated aws connector: %v", err)
 	}
-	if !strings.Contains(resumed.LaunchURL, newExternalID) {
-		t.Fatalf("expected rebuilt launch URL to contain updated external id %q, got %q", newExternalID, resumed.LaunchURL)
-	}
-	if strings.Contains(resumed.LaunchURL, started.ExternalID) {
-		t.Fatalf("expected rebuilt launch URL to drop original external id %q, got %q", started.ExternalID, resumed.LaunchURL)
+	if resumed.ExternalID != "" || strings.Contains(resumed.LaunchURL, newExternalID) || awsCloudFormationLaunchURLExternalID(resumed.LaunchURL) != "" {
+		t.Fatalf("rebuilt automatic launch URL exposed the troubleshooting external id: %+v", resumed)
 	}
 }
 
@@ -2273,6 +2300,7 @@ func TestAWSConnectorStartSerializesConcurrentExplicitConnectorStarts(t *testing
 	svc.ConnectorSecretManager = manager
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	const workers = 16
 	start := make(chan struct{})
@@ -2312,11 +2340,11 @@ func TestAWSConnectorStartSerializesConcurrentExplicitConnectorStarts(t *testing
 			first = response
 			continue
 		}
-		if response.ExternalID != first.ExternalID || response.LaunchURL != first.LaunchURL || response.TemplateURL != first.TemplateURL {
+		if response.ExternalID != "" || response.LaunchURL != first.LaunchURL || response.TemplateURL != first.TemplateURL {
 			t.Fatalf("expected concurrent starts to return one launch plan\nfirst=%+v\nresponse=%+v", first, response)
 		}
 	}
-	if first.ConnectorID != "aws-prod" || first.ExternalID == "" || first.LaunchURL == "" {
+	if first.ConnectorID != "aws-prod" || first.ExternalID != "" || first.LaunchURL == "" {
 		t.Fatalf("expected complete first launch response, got %+v", first)
 	}
 }
@@ -2333,6 +2361,7 @@ func TestAWSConnectorStartPersistsRecoveredExternalIDLaunchState(t *testing.T) {
 	svc.ConnectorSecretManager = manager
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID: "workspace-a",
@@ -2343,6 +2372,14 @@ func TestAWSConnectorStartPersistsRecoveredExternalIDLaunchState(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("start aws connector: %v", err)
+	}
+	initialSecret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("load initial external id envelope: %v", err)
+	}
+	initialPlaintext, err := manager.Decrypt(initialSecret.Envelope, awsExternalIDAAD("tenant-a", "workspace-a", "project-1", "aws-prod"))
+	if err != nil {
+		t.Fatalf("decrypt initial external id envelope: %v", err)
 	}
 	if err := store.DeleteTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName); err != nil {
 		t.Fatalf("delete external id envelope: %v", err)
@@ -2386,23 +2423,31 @@ func TestAWSConnectorStartPersistsRecoveredExternalIDLaunchState(t *testing.T) {
 			recovered = response
 			continue
 		}
-		if response.ExternalID != recovered.ExternalID || response.LaunchURL != recovered.LaunchURL {
+		if response.ExternalID != "" || response.LaunchURL != recovered.LaunchURL {
 			t.Fatalf("expected concurrent recovery to return one launch plan\nrecovered=%+v\nresponse=%+v", recovered, response)
 		}
 	}
-	if recovered.ExternalID == "" || recovered.ExternalID == first.ExternalID {
-		t.Fatalf("expected regenerated external id after envelope loss, first=%q recovered=%q", first.ExternalID, recovered.ExternalID)
+	if first.ExternalID != "" || recovered.ExternalID != "" {
+		t.Fatalf("automatic setup must not expose regenerated external ids, first=%q recovered=%q", first.ExternalID, recovered.ExternalID)
 	}
-	if recovered.LaunchURL == first.LaunchURL {
-		t.Fatalf("expected regenerated launch URL to carry regenerated external id")
+	recoveredSecret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("load recovered external id envelope: %v", err)
+	}
+	recoveredPlaintext, err := manager.Decrypt(recoveredSecret.Envelope, awsExternalIDAAD("tenant-a", "workspace-a", "project-1", "aws-prod"))
+	if err != nil {
+		t.Fatalf("decrypt recovered external id envelope: %v", err)
+	}
+	if bytes.Equal(bytes.TrimSpace(initialPlaintext), bytes.TrimSpace(recoveredPlaintext)) {
+		t.Fatal("expected envelope loss to rotate the server-side external id")
 	}
 
 	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
 	if err != nil {
 		t.Fatalf("load recovered connector: %v", err)
 	}
-	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != recovered.LaunchURL {
-		t.Fatalf("expected recovered launch URL to be persisted, got %q want %q", got, recovered.LaunchURL)
+	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != "" {
+		t.Fatalf("registration launch URLs must not be persisted, got %q", got)
 	}
 	if got := awsMetadataString(stored.State.Metadata, "template_url"); got != recovered.TemplateURL {
 		t.Fatalf("expected recovered template URL to be persisted, got %q want %q", got, recovered.TemplateURL)
@@ -2418,7 +2463,7 @@ func TestAWSConnectorStartPersistsRecoveredExternalIDLaunchState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resume recovered aws connector: %v", err)
 	}
-	if again.ExternalID != recovered.ExternalID || again.LaunchURL != recovered.LaunchURL {
+	if again.ExternalID != "" || again.LaunchURL != recovered.LaunchURL {
 		t.Fatalf("expected later resume to keep recovered launch state\nrecovered=%+v\nagain=%+v", recovered, again)
 	}
 }
@@ -2435,6 +2480,7 @@ func TestAWSConnectorStartFailsOnUnreadableExternalIDEnvelope(t *testing.T) {
 	svc.ConnectorSecretManager = manager
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID: "workspace-a",
@@ -2449,6 +2495,10 @@ func TestAWSConnectorStartFailsOnUnreadableExternalIDEnvelope(t *testing.T) {
 	secret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
 	if err != nil {
 		t.Fatalf("load external id envelope: %v", err)
+	}
+	originalPlaintext, err := manager.Decrypt(secret.Envelope, awsExternalIDAAD("tenant-a", "workspace-a", "project-1", "aws-prod"))
+	if err != nil {
+		t.Fatalf("decrypt initial external id envelope: %v", err)
 	}
 	secret.Envelope.Ciphertext[0] ^= 0xff
 	if err := store.UpsertTenancyConnectorSecretEnvelope(ctx, secret); err != nil {
@@ -2493,12 +2543,15 @@ func TestAWSConnectorStartFailsOnUnreadableExternalIDEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decrypt restored external id envelope: %v", err)
 	}
-	if got := strings.TrimSpace(string(plaintext)); got != started.ExternalID {
-		t.Fatalf("expected failed resume not to rotate external id, got %q want %q", got, started.ExternalID)
+	if started.ExternalID != "" {
+		t.Fatalf("automatic setup exposed external id %q", started.ExternalID)
+	}
+	if got, want := strings.TrimSpace(string(plaintext)), strings.TrimSpace(string(originalPlaintext)); got == "" || got != want {
+		t.Fatalf("expected failed resume not to rotate the server-side external id, got %q want %q", got, want)
 	}
 }
 
-func TestAWSConnectorStartPersistsRebuiltLaunchMetadataWithExistingExternalID(t *testing.T) {
+func TestAWSConnectorStartRebuildsLaunchWithoutPersistingSensitiveURL(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	seedDefaultProject(t, store, ctx, "project-1")
@@ -2510,6 +2563,7 @@ func TestAWSConnectorStartPersistsRebuiltLaunchMetadataWithExistingExternalID(t 
 	svc.ConnectorSecretManager = manager
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 
 	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID: "workspace-a",
@@ -2559,8 +2613,8 @@ func TestAWSConnectorStartPersistsRebuiltLaunchMetadataWithExistingExternalID(t 
 	if err != nil {
 		t.Fatalf("rebuild launch metadata: %v", err)
 	}
-	if recovered.ExternalID != first.ExternalID {
-		t.Fatalf("expected existing external id to be preserved, first=%q recovered=%q", first.ExternalID, recovered.ExternalID)
+	if first.ExternalID != "" || recovered.ExternalID != "" {
+		t.Fatalf("automatic setup must keep the external id server-side, first=%q recovered=%q", first.ExternalID, recovered.ExternalID)
 	}
 	if recovered.LaunchURL == "" || recovered.TemplateURL == "" {
 		t.Fatalf("expected rebuilt launch metadata, got %+v", recovered)
@@ -2570,8 +2624,11 @@ func TestAWSConnectorStartPersistsRebuiltLaunchMetadataWithExistingExternalID(t 
 	if err != nil {
 		t.Fatalf("load rebuilt connector: %v", err)
 	}
-	if got := awsMetadataString(persisted.State.Metadata, "launch_url"); got != recovered.LaunchURL {
-		t.Fatalf("expected rebuilt launch URL to persist, got %q want %q", got, recovered.LaunchURL)
+	if got := awsMetadataString(persisted.State.Metadata, "launch_url"); got != "" {
+		t.Fatalf("registration launch URLs must not be persisted, got %q", got)
+	}
+	if got := awsMetadataString(persisted.State.Metadata, "template_url"); got != "" {
+		t.Fatalf("automatic setup must derive template state from the onboarding attempt, got persisted URL %q", got)
 	}
 	if persisted.Connector.SecretRefVersion != originalSecretVersion {
 		t.Fatalf("expected metadata-only launch repair to preserve secret version, got %q want %q", persisted.Connector.SecretRefVersion, originalSecretVersion)
@@ -2589,7 +2646,7 @@ func TestAWSConnectorStartPersistsRebuiltLaunchMetadataWithExistingExternalID(t 
 	if err != nil {
 		t.Fatalf("resume rebuilt launch metadata: %v", err)
 	}
-	if again.ExternalID != recovered.ExternalID || again.LaunchURL != recovered.LaunchURL {
+	if again.ExternalID != "" || again.LaunchURL != recovered.LaunchURL {
 		t.Fatalf("expected later resume to keep rebuilt launch metadata\nrecovered=%+v\nagain=%+v", recovered, again)
 	}
 }
@@ -3019,6 +3076,7 @@ func TestAWSConnectorServiceErrorPaths(t *testing.T) {
 		t.Fatalf("expected missing account config error, got %v", err)
 	}
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{ProjectID: "missing"}); !errors.Is(err, db.ErrNotFound) {
 		t.Fatalf("expected missing project error, got %v", err)
 	}
@@ -3167,6 +3225,7 @@ func newAWSConnectorFlowTestRouter(t *testing.T, validator AWSConnectorValidator
 	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
+	configureAWSRegistrationTestProvider(svc)
 	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{8}, 32)}})
 	if err != nil {
 		t.Fatalf("build connector secret manager: %v", err)

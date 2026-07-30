@@ -2,9 +2,57 @@ package aws
 
 import (
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
+
+func TestReadOnlyTemplateAutomaticRegistrationContract(t *testing.T) {
+	templatePath := filepath.Join("..", "..", "..", "deploy", "connectors", "aws", "identrail-readonly.yaml")
+	body, err := os.ReadFile(templatePath)
+	if err != nil {
+		t.Fatalf("read CloudFormation template: %v", err)
+	}
+	var template map[string]any
+	if err := yaml.Unmarshal(body, &template); err != nil {
+		t.Fatalf("parse CloudFormation template: %v", err)
+	}
+	parameters := requireYAMLMap(t, template, "Parameters")
+	registrationToken := requireYAMLMap(t, parameters, "RegistrationToken")
+	if _, hasNoEcho := registrationToken["NoEcho"]; hasNoEcho {
+		t.Fatal("RegistrationToken must remain prefillable by AWS quick-create; it is short-lived and grants no AWS access")
+	}
+	externalID := requireYAMLMap(t, parameters, "ExternalId")
+	if externalID["NoEcho"] != true {
+		t.Fatal("troubleshooting ExternalId must remain masked")
+	}
+	resources := requireYAMLMap(t, template, "Resources")
+	bootstrap := requireYAMLMap(t, resources, "IdentrailRegistrationBootstrap")
+	bootstrapProperties := requireYAMLMap(t, bootstrap, "Properties")
+	if bootstrap["Type"] != "Custom::IdentrailAWSConnectorBootstrap" || bootstrapProperties["RegistrationToken"] == nil {
+		t.Fatalf("bootstrap must receive the one-time registration token: %+v", bootstrap)
+	}
+	registration := requireYAMLMap(t, resources, "IdentrailConnectorRegistration")
+	registrationProperties := requireYAMLMap(t, registration, "Properties")
+	if registration["Type"] != "Custom::IdentrailAWSConnectorRegistration" || registration["DependsOn"] == nil {
+		t.Fatalf("registration must wait for the role: %+v", registration)
+	}
+	if _, leaksToken := registrationProperties["RegistrationToken"]; leaksToken {
+		t.Fatal("registration phase must use the stack-bound bootstrap result, not replay the launch token")
+	}
+}
+
+func requireYAMLMap(t *testing.T, parent map[string]any, key string) map[string]any {
+	t.Helper()
+	value, ok := parent[key].(map[string]any)
+	if !ok {
+		t.Fatalf("expected %s to be a map, got %#v", key, parent[key])
+	}
+	return value
+}
 
 func TestBuildCloudFormationLaunchURL(t *testing.T) {
 	tests := []struct {
@@ -70,6 +118,37 @@ func TestBuildCloudFormationLaunchURL(t *testing.T) {
 				t.Fatalf("expected external id in fragment, got %q", parsed.Fragment)
 			}
 		})
+	}
+}
+
+func TestBuildCloudFormationLaunchURLAutomaticRegistration(t *testing.T) {
+	launchURL := BuildCloudFormationLaunchURL(CloudFormationLaunchInput{
+		TemplateURL:             "https://cdn.example.com/identrail-readonly.yaml",
+		Region:                  "us-east-1",
+		StackName:               "identrail-prod",
+		IdentrailAccountID:      "123456789012",
+		ExternalID:              "external-id-should-not-appear",
+		RoleName:                "IdentrailReadOnlyProd",
+		RegistrationProviderARN: "arn:aws:sns:us-east-1:123456789012:identrail-registration",
+		RegistrationAttemptID:   "attempt-abc-123",
+		RegistrationToken:       "token-xyz-789",
+	})
+
+	parsed, err := url.Parse(launchURL)
+	if err != nil {
+		t.Fatalf("parse launch URL: %v", err)
+	}
+	if !strings.Contains(parsed.Fragment, "param_RegistrationProviderArn=arn:aws:sns:us-east-1:123456789012:identrail-registration") {
+		t.Fatalf("expected registration provider ARN in fragment, got %q", parsed.Fragment)
+	}
+	if !strings.Contains(parsed.Fragment, "param_RegistrationAttemptId=attempt-abc-123") {
+		t.Fatalf("expected registration attempt id in fragment, got %q", parsed.Fragment)
+	}
+	if !strings.Contains(parsed.Fragment, "param_RegistrationToken=token-xyz-789") {
+		t.Fatalf("expected registration token in fragment, got %q", parsed.Fragment)
+	}
+	if strings.Contains(parsed.Fragment, "param_ExternalId") {
+		t.Fatalf("automatic registration must not surface param_ExternalId, got %q", parsed.Fragment)
 	}
 }
 

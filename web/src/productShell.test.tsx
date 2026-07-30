@@ -5877,8 +5877,8 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
-	    const getPermissionBoundaryExecutor = vi.spyOn(api.apiClient, 'getAWSProjectPermissionBoundaryExecutor').mockResolvedValue({
-	      permission_boundary_executor: {
+      const getPermissionBoundaryExecutor = vi.spyOn(api.apiClient, 'getAWSProjectPermissionBoundaryExecutor').mockResolvedValue({
+        permission_boundary_executor: {
         status: 'ready',
         entries: [
           {
@@ -6005,266 +6005,266 @@ describe('Domain-first app routes', () => {
         remediation_hints: [],
         evidence_links: [],
         coverage_gaps: [],
-	        diagnostics: []
-	      } as any
-	    });
-	    const getScpGuardrailExecutor = vi.spyOn(api.apiClient, 'getAWSProjectScpGuardrailExecutor').mockResolvedValue({
-	      scp_guardrail_executor: {
-	        status: 'ready',
-	        entries: [
-	          {
-	            execution_id: 'aws-scp-guardrail-executor:external-trust',
-	            calculation_version: 'aws-scp-guardrail-executor-v1',
-	            dry_run_id: 'aws-remediation-dry-run:external-trust',
-	            approval_id: 'aws-remediation-approval:external-trust',
-	            case_id: 'aws-remediation-case:external-trust',
-	            plan_id: 'aws-permission-boundary-scp:external-trust',
-	            source_artifact_id: 'aws-permission-boundary-scp:external-trust',
-	            state: 'projected',
-	            severity: 'high',
-	            score: 81,
-	            confidence: 0.91,
-	            title: 'SCP guardrail execution: external trust guardrail',
-	            summary: 'Approved SCP guardrail execution record for the external trust plan.',
-	            account_id: '111111111111',
-	            region: 'us-east-1',
-	            operation: 'AttachPolicy',
-	            idempotency_key: 'idempotency://external-trust',
-	            target_account_ids: [],
-	            target_ou_paths: ['/engineering'],
-	            prevented_behavior: 'Re-create the unconditioned external trust pattern.',
-	            statement_snippets: [
-	              {
-	                statement_sid: 'scp-projection',
-	                effect: 'Deny',
-	                change_kind: 'deny_external_trust',
-	                before_ref: 'evidence://trust/external',
-	                after_ref: 'scp://external/scoped-projection',
-	                denied_actions: ['iam:UpdateAssumeRolePolicy'],
-	                allowed_actions: [],
-	                resource_scope: ['arn:aws:iam::111111111111:role/orders'],
-	                rationale: 'Block re-introduction of the flagged external trust pattern.'
-	              }
-	            ],
-	            breakage_projection: {
-	              level: 'low',
-	              rationale: 'Runtime and analyzer evidence both confirm the caller set.',
-	              affected_identities: 0,
-	              affected_accounts: 2,
-	              affected_ous: 1,
-	              signals: ['affected_accounts:2', 'affected_ous:1']
-	            },
-	            intended_api_call: {
-	              service: 'organizations',
-	              operation: 'AttachPolicy',
-	              target_resource: '/engineering',
-	              parameter_refs: ['idempotency://external-trust', 'scp_ref://aws-remediation-case:external-trust/after'],
-	              idempotent: true,
-	              requires_approval: true
-	            },
-	            preconditions: [
-	              { name: 'dry_run_would_succeed', status: 'passed', rationale: 'Dry-run passed.' },
-	              { name: 'target_scope_captured', status: 'passed', rationale: 'Target scope captured.' }
-	            ],
-	            boundary_simulation: {
-	              simulation_ref: 'organizations:scp_simulate://aws-permission-boundary-scp:external-trust/scp-guardrail',
-	              outcome: 'would_attach_guardrail',
-	              before_ref: 'evidence://trust/external',
-	              after_ref: 'scp://external/scoped-projection',
-	              denied_action_count: 1,
-	              target_account_count: 0,
-	              target_ou_count: 1,
-	              signals: ['scp_guardrail', 'affected_accounts:2']
-	            },
-	            verifications: [
-	              {
-	                source: 'organizations',
-	                signal: 'effective_policy_matches',
-	                status: 'pending',
-	                description: 'Confirm the effective SCP includes the intended guardrail statement metadata ref.'
-	              }
-	            ],
-	            rollback_plan: {
-	              strategy: 'detach_scp',
-	              steps: ['Detach the projected SCP from the captured OU.'],
-	              evidence_ref: 'evidence://trust/external'
-	            },
-	            verification_plan: {
-	              strategy: 'scp_simulate',
-	              steps: ['Confirm the SCP denies the prevented behavior.'],
-	              success_signals: ['cross_account_trust:finding-resolved'],
-	              failure_signals: ['cross_account_trust:finding-unchanged'],
-	              evidence_ref: 'evidence://trust/external'
-	            },
-	            audit_trail: [],
-	            kill_switch_engaged: false,
-	            ready_for_live_apply: true,
-	            read_only_projection: true,
-	            source_signals: ['aws_permission_boundary_scp', 'scp'],
-	            evidence: [],
-	            evidence_boundary: 'metadata_only_no_rendered_policy_bodies_no_secret_values_no_workload_payloads',
-	            impacted_nodes: ['111111111111', '/engineering'],
-	            impacted_path: [],
-	            next_action: 'SCP guardrail operation=AttachPolicy is ready for the wave-8 apply runtime once its feature flag opens.',
-	            projected_at: '2026-07-01T10:00:00Z',
-	            created_at: '2026-07-01T10:00:00Z',
-	            updated_at: '2026-07-01T10:00:00Z'
-	          }
-	        ],
-	        summary: {
-	          total_entries: 1,
-	          filtered_entries: 1,
-	          state_counts: { projected: 1 },
-	          operation_counts: { AttachPolicy: 1 },
-	          severity_counts: { high: 1 },
-	          ready_for_live_apply_count: 1,
-	          kill_switch_engaged_count: 0,
-	          failed_precondition_count: 0,
-	          target_account_count: 0,
-	          target_ou_count: 1,
-	          verification_count: 1,
-	          relationship_count: 3,
-	          highest_score: 81,
-	          average_confidence_pct: 91
-	        },
-	        relationships: [],
-	        caveats: ['SCP guardrail executor entries are read-only projections.'],
-	        failure_reasons: [],
-	        remediation_hints: [],
-	        evidence_links: [],
-	        coverage_gaps: [],
-	        diagnostics: []
-	      } as any
-	    });
-	    const getPostRemediationVerification = vi.spyOn(api.apiClient, 'getAWSProjectPostRemediationVerification').mockResolvedValue({
-	      post_remediation_verification: {
-	        status: 'ready',
-	        entries: [],
-	        relationships: [],
-	        applied_filters: {},
-	        summary: {
-	          total_entries: 0,
-	          filtered_entries: 0,
-	          state_counts: {},
-	          source_type_counts: {},
-	          severity_counts: {},
-	          verified_count: 0,
-	          pending_count: 0,
-	          failed_count: 0,
-	          rollback_planned_count: 0,
-	          blocked_count: 0,
-	          kill_switch_engaged_count: 0,
-	          failed_precondition_count: 0,
-	          check_count: 0,
-	          relationship_count: 0,
-	          highest_score: 0,
-	          average_confidence_pct: 0
-	        },
-	        caveats: ['Post-remediation verification entries are read-only projections.'],
-	        failure_reasons: [],
-	        remediation_hints: [],
-	        evidence_links: [],
-	        coverage_gaps: [],
-	        diagnostics: []
-	      } as any
-	    });
-	    const getAdvisoryAuthorization = vi.spyOn(api.apiClient, 'getAWSProjectAdvisoryAuthorization').mockResolvedValue({
-	      advisory_authorization: {
-	        status: 'ready',
-	        mode: 'advisory',
-	        policy_version: 'aws-advisory-authorization-policy-v1',
-	        decisions: [],
-	        relationships: [],
-	        applied_filters: {},
-	        summary: {
-	          total_decisions: 0,
-	          filtered_decisions: 0,
-	          outcome_counts: {},
-	          severity_counts: {},
-	          source_type_counts: {},
-	          allow_count: 0,
-	          warn_count: 0,
-	          require_approval_count: 0,
-	          recommend_deny_count: 0,
-	          quarantine_count: 0,
-	          kill_switch_engaged_count: 0,
-	          relationship_count: 0,
-	          highest_score: 0,
-	          average_confidence_pct: 0
-	        },
-	        caveats: ['Advisory authorization decisions are read-only recommendations.'],
-	        failure_reasons: [],
-	        remediation_hints: [],
-	        evidence_links: [],
-	        coverage_gaps: [],
-	        diagnostics: []
-	      } as any
-	    });
-	    const getSessionPolicyRecommendations = vi.spyOn(api.apiClient, 'getAWSProjectSessionPolicyRecommendations').mockResolvedValue({
-	      session_policy_recommendations: {
-	        status: 'ready',
-	        mode: 'advisory',
-	        policy_version: 'aws-session-policy-recommendation-policy-v1',
-	        recommendations: [],
-	        relationships: [],
-	        applied_filters: {},
-	        summary: {
-	          total_recommendations: 0,
-	          filtered_recommendations: 0,
-	          decision_counts: {},
-	          severity_counts: {},
-	          allow_action_count: 0,
-	          deny_action_count: 0,
-	          observed_action_count: 0,
-	          validation_signal_count: 0,
-	          relationship_count: 0,
-	          highest_score: 0,
-	          average_confidence_pct: 0
-	        },
-	        caveats: ['Session-policy recommendations are advisory-only.'],
-	        failure_reasons: [],
-	        remediation_hints: [],
-	        evidence_links: [],
-	        coverage_gaps: [],
-	        diagnostics: []
-	      } as any
-	    });
-	    const getAgentCoreGatewayPolicyAdvisory = vi.spyOn(api.apiClient, 'getAWSProjectAgentCoreGatewayPolicyAdvisory').mockResolvedValue({
-	      agentcore_gateway_policy_advisory: {
-	        status: 'ready',
-	        mode: 'advisory',
-	        policy_version: 'aws-agentcore-gateway-policy-advisory-policy-v1',
-	        pilot_state: 'candidate',
-	        enforcement_state: 'advisory_only',
-	        advisories: [],
-	        relationships: [],
-	        applied_filters: {},
-	        summary: {
-	          total_advisories: 0,
-	          filtered_advisories: 0,
-	          outcome_counts: {},
-	          severity_counts: {},
-	          risk_type_counts: {},
-	          allow_tools_count: 0,
-	          warn_count: 0,
-	          require_approval_count: 0,
-	          restrict_tools_count: 0,
-	          block_tools_count: 0,
-	          restricted_tool_count: 0,
-	          sensitive_resource_count: 0,
-	          relationship_count: 0,
-	          highest_score: 0,
-	          average_confidence_pct: 0
-	        },
-	        caveats: ['AgentCore gateway policy advisories are read-only recommendations.'],
-	        failure_reasons: [],
-	        remediation_hints: [],
-	        evidence_links: [],
-	        coverage_gaps: [],
-	        diagnostics: []
-	      } as any
-	    });
-	    const getSecretKeyRotation = vi.spyOn(api.apiClient, 'getAWSProjectSecretKeyRotationPlans').mockResolvedValue({
+          diagnostics: []
+        } as any
+      });
+      const getScpGuardrailExecutor = vi.spyOn(api.apiClient, 'getAWSProjectScpGuardrailExecutor').mockResolvedValue({
+        scp_guardrail_executor: {
+          status: 'ready',
+          entries: [
+            {
+              execution_id: 'aws-scp-guardrail-executor:external-trust',
+              calculation_version: 'aws-scp-guardrail-executor-v1',
+              dry_run_id: 'aws-remediation-dry-run:external-trust',
+              approval_id: 'aws-remediation-approval:external-trust',
+              case_id: 'aws-remediation-case:external-trust',
+              plan_id: 'aws-permission-boundary-scp:external-trust',
+              source_artifact_id: 'aws-permission-boundary-scp:external-trust',
+              state: 'projected',
+              severity: 'high',
+              score: 81,
+              confidence: 0.91,
+              title: 'SCP guardrail execution: external trust guardrail',
+              summary: 'Approved SCP guardrail execution record for the external trust plan.',
+              account_id: '111111111111',
+              region: 'us-east-1',
+              operation: 'AttachPolicy',
+              idempotency_key: 'idempotency://external-trust',
+              target_account_ids: [],
+              target_ou_paths: ['/engineering'],
+              prevented_behavior: 'Re-create the unconditioned external trust pattern.',
+              statement_snippets: [
+                {
+                  statement_sid: 'scp-projection',
+                  effect: 'Deny',
+                  change_kind: 'deny_external_trust',
+                  before_ref: 'evidence://trust/external',
+                  after_ref: 'scp://external/scoped-projection',
+                  denied_actions: ['iam:UpdateAssumeRolePolicy'],
+                  allowed_actions: [],
+                  resource_scope: ['arn:aws:iam::111111111111:role/orders'],
+                  rationale: 'Block re-introduction of the flagged external trust pattern.'
+                }
+              ],
+              breakage_projection: {
+                level: 'low',
+                rationale: 'Runtime and analyzer evidence both confirm the caller set.',
+                affected_identities: 0,
+                affected_accounts: 2,
+                affected_ous: 1,
+                signals: ['affected_accounts:2', 'affected_ous:1']
+              },
+              intended_api_call: {
+                service: 'organizations',
+                operation: 'AttachPolicy',
+                target_resource: '/engineering',
+                parameter_refs: ['idempotency://external-trust', 'scp_ref://aws-remediation-case:external-trust/after'],
+                idempotent: true,
+                requires_approval: true
+              },
+              preconditions: [
+                { name: 'dry_run_would_succeed', status: 'passed', rationale: 'Dry-run passed.' },
+                { name: 'target_scope_captured', status: 'passed', rationale: 'Target scope captured.' }
+              ],
+              boundary_simulation: {
+                simulation_ref: 'organizations:scp_simulate://aws-permission-boundary-scp:external-trust/scp-guardrail',
+                outcome: 'would_attach_guardrail',
+                before_ref: 'evidence://trust/external',
+                after_ref: 'scp://external/scoped-projection',
+                denied_action_count: 1,
+                target_account_count: 0,
+                target_ou_count: 1,
+                signals: ['scp_guardrail', 'affected_accounts:2']
+              },
+              verifications: [
+                {
+                  source: 'organizations',
+                  signal: 'effective_policy_matches',
+                  status: 'pending',
+                  description: 'Confirm the effective SCP includes the intended guardrail statement metadata ref.'
+                }
+              ],
+              rollback_plan: {
+                strategy: 'detach_scp',
+                steps: ['Detach the projected SCP from the captured OU.'],
+                evidence_ref: 'evidence://trust/external'
+              },
+              verification_plan: {
+                strategy: 'scp_simulate',
+                steps: ['Confirm the SCP denies the prevented behavior.'],
+                success_signals: ['cross_account_trust:finding-resolved'],
+                failure_signals: ['cross_account_trust:finding-unchanged'],
+                evidence_ref: 'evidence://trust/external'
+              },
+              audit_trail: [],
+              kill_switch_engaged: false,
+              ready_for_live_apply: true,
+              read_only_projection: true,
+              source_signals: ['aws_permission_boundary_scp', 'scp'],
+              evidence: [],
+              evidence_boundary: 'metadata_only_no_rendered_policy_bodies_no_secret_values_no_workload_payloads',
+              impacted_nodes: ['111111111111', '/engineering'],
+              impacted_path: [],
+              next_action: 'SCP guardrail operation=AttachPolicy is ready for the wave-8 apply runtime once its feature flag opens.',
+              projected_at: '2026-07-01T10:00:00Z',
+              created_at: '2026-07-01T10:00:00Z',
+              updated_at: '2026-07-01T10:00:00Z'
+            }
+          ],
+          summary: {
+            total_entries: 1,
+            filtered_entries: 1,
+            state_counts: { projected: 1 },
+            operation_counts: { AttachPolicy: 1 },
+            severity_counts: { high: 1 },
+            ready_for_live_apply_count: 1,
+            kill_switch_engaged_count: 0,
+            failed_precondition_count: 0,
+            target_account_count: 0,
+            target_ou_count: 1,
+            verification_count: 1,
+            relationship_count: 3,
+            highest_score: 81,
+            average_confidence_pct: 91
+          },
+          relationships: [],
+          caveats: ['SCP guardrail executor entries are read-only projections.'],
+          failure_reasons: [],
+          remediation_hints: [],
+          evidence_links: [],
+          coverage_gaps: [],
+          diagnostics: []
+        } as any
+      });
+      const getPostRemediationVerification = vi.spyOn(api.apiClient, 'getAWSProjectPostRemediationVerification').mockResolvedValue({
+        post_remediation_verification: {
+          status: 'ready',
+          entries: [],
+          relationships: [],
+          applied_filters: {},
+          summary: {
+            total_entries: 0,
+            filtered_entries: 0,
+            state_counts: {},
+            source_type_counts: {},
+            severity_counts: {},
+            verified_count: 0,
+            pending_count: 0,
+            failed_count: 0,
+            rollback_planned_count: 0,
+            blocked_count: 0,
+            kill_switch_engaged_count: 0,
+            failed_precondition_count: 0,
+            check_count: 0,
+            relationship_count: 0,
+            highest_score: 0,
+            average_confidence_pct: 0
+          },
+          caveats: ['Post-remediation verification entries are read-only projections.'],
+          failure_reasons: [],
+          remediation_hints: [],
+          evidence_links: [],
+          coverage_gaps: [],
+          diagnostics: []
+        } as any
+      });
+      const getAdvisoryAuthorization = vi.spyOn(api.apiClient, 'getAWSProjectAdvisoryAuthorization').mockResolvedValue({
+        advisory_authorization: {
+          status: 'ready',
+          mode: 'advisory',
+          policy_version: 'aws-advisory-authorization-policy-v1',
+          decisions: [],
+          relationships: [],
+          applied_filters: {},
+          summary: {
+            total_decisions: 0,
+            filtered_decisions: 0,
+            outcome_counts: {},
+            severity_counts: {},
+            source_type_counts: {},
+            allow_count: 0,
+            warn_count: 0,
+            require_approval_count: 0,
+            recommend_deny_count: 0,
+            quarantine_count: 0,
+            kill_switch_engaged_count: 0,
+            relationship_count: 0,
+            highest_score: 0,
+            average_confidence_pct: 0
+          },
+          caveats: ['Advisory authorization decisions are read-only recommendations.'],
+          failure_reasons: [],
+          remediation_hints: [],
+          evidence_links: [],
+          coverage_gaps: [],
+          diagnostics: []
+        } as any
+      });
+      const getSessionPolicyRecommendations = vi.spyOn(api.apiClient, 'getAWSProjectSessionPolicyRecommendations').mockResolvedValue({
+        session_policy_recommendations: {
+          status: 'ready',
+          mode: 'advisory',
+          policy_version: 'aws-session-policy-recommendation-policy-v1',
+          recommendations: [],
+          relationships: [],
+          applied_filters: {},
+          summary: {
+            total_recommendations: 0,
+            filtered_recommendations: 0,
+            decision_counts: {},
+            severity_counts: {},
+            allow_action_count: 0,
+            deny_action_count: 0,
+            observed_action_count: 0,
+            validation_signal_count: 0,
+            relationship_count: 0,
+            highest_score: 0,
+            average_confidence_pct: 0
+          },
+          caveats: ['Session-policy recommendations are advisory-only.'],
+          failure_reasons: [],
+          remediation_hints: [],
+          evidence_links: [],
+          coverage_gaps: [],
+          diagnostics: []
+        } as any
+      });
+      const getAgentCoreGatewayPolicyAdvisory = vi.spyOn(api.apiClient, 'getAWSProjectAgentCoreGatewayPolicyAdvisory').mockResolvedValue({
+        agentcore_gateway_policy_advisory: {
+          status: 'ready',
+          mode: 'advisory',
+          policy_version: 'aws-agentcore-gateway-policy-advisory-policy-v1',
+          pilot_state: 'candidate',
+          enforcement_state: 'advisory_only',
+          advisories: [],
+          relationships: [],
+          applied_filters: {},
+          summary: {
+            total_advisories: 0,
+            filtered_advisories: 0,
+            outcome_counts: {},
+            severity_counts: {},
+            risk_type_counts: {},
+            allow_tools_count: 0,
+            warn_count: 0,
+            require_approval_count: 0,
+            restrict_tools_count: 0,
+            block_tools_count: 0,
+            restricted_tool_count: 0,
+            sensitive_resource_count: 0,
+            relationship_count: 0,
+            highest_score: 0,
+            average_confidence_pct: 0
+          },
+          caveats: ['AgentCore gateway policy advisories are read-only recommendations.'],
+          failure_reasons: [],
+          remediation_hints: [],
+          evidence_links: [],
+          coverage_gaps: [],
+          diagnostics: []
+        } as any
+      });
+      const getSecretKeyRotation = vi.spyOn(api.apiClient, 'getAWSProjectSecretKeyRotationPlans').mockResolvedValue({
       plans: {
         status: 'ready',
         plans: [
@@ -8320,15 +8320,14 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
-    expect(screen.getByRole('list', { name: 'AWS setup scope options' })).toHaveTextContent('This AWS account');
-    expect(screen.queryByLabelText('Stack role ARN')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
+  expect(screen.getByRole('list', { name: 'AWS setup scope options' })).toHaveTextContent('This AWS account');
+  expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production AWS' } });
     fireEvent.change(screen.getByLabelText('Home region'), { target: { value: 'ap-south-1' } });
-    fireEvent.click(screen.getAllByRole('button', { name: /Connect AWS account/i })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /Connect AWS/i })[0]);
 
     await waitFor(() =>
       expect(api.apiClient.startAWSConnector).toHaveBeenCalledWith(
@@ -8341,8 +8340,8 @@ describe('Domain-first app routes', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
-    expect(await screen.findAllByRole('link', { name: /Open AWS stack/i })).toHaveLength(2);
-    expect(screen.getByLabelText('Stack role ARN')).toHaveValue('');
+  expect(await screen.findAllByRole('link', { name: /^Open AWS$/i })).toHaveLength(1);
+    expect(screen.getByLabelText('Role ARN')).toHaveValue('');
   });
 
   it('clears prepared CloudFormation state before starting manual AWS setup', async () => {
@@ -8435,8 +8434,8 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS account/i }))[0]);
-    expect(await screen.findAllByRole('link', { name: /Open AWS stack/i })).toHaveLength(2);
+    fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS/i }))[0]);
+  expect(await screen.findAllByRole('link', { name: /^Open AWS$/i })).toHaveLength(1);
 
     fireEvent.click(screen.getByRole('button', { name: /Existing IAM role/i }));
 
@@ -8535,7 +8534,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
 
@@ -8723,8 +8722,8 @@ describe('Domain-first app routes', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /This AWS account/i }));
 
-    expect(screen.getByRole('heading', { level: 4, name: /Connect with CloudFormation/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Connect AWS account/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 4, name: /Connect this account/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Connect AWS/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue('manual-external-id-to-clear')).not.toBeInTheDocument();
   });
@@ -8838,8 +8837,7 @@ describe('Domain-first app routes', () => {
         next_actions: ['validate_role', 'refresh_status']
       }
     });
-    const refreshButtons = screen.getAllByRole('button', { name: /Refresh status/i });
-    fireEvent.click(refreshButtons[refreshButtons.length - 1]);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Refresh status$/i })[0]);
 
     await waitFor(() => expect(getAWSProjectConnection).toHaveBeenCalledTimes(2));
     await openAWSConnectionManagement();
@@ -8891,7 +8889,7 @@ describe('Domain-first app routes', () => {
 
     expect(screen.getByRole('heading', { level: 4, name: /Use an existing IAM role/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Generate External ID/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Connect AWS account/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Connect AWS/i })).not.toBeInTheDocument();
   });
 
   it('clears manual AWS setup secrets when switching environments', async () => {
@@ -9014,11 +9012,11 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 4, name: /Connect with CloudFormation/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 4, name: /Connect this account/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: /Connect AWS account/i })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /Connect AWS/i })[0]);
 
     expect(await screen.findAllByText(/AWS account connection is not enabled for this deployment/i)).toHaveLength(1);
     expect(upsertAWSProjectConnection).not.toHaveBeenCalled();
@@ -9087,6 +9085,9 @@ describe('Domain-first app routes', () => {
         ]
       }
     });
+    const hydrateRepair = vi.spyOn(api.apiClient, 'startAWSConnector').mockRejectedValue(
+      new api.ApiError('Repair hydration unavailable', 503)
+    );
     const refreshPolicy = vi.spyOn(api.apiClient, 'refreshAWSConnectorPolicy').mockResolvedValue({
       policy_hash: 'sha256:updated',
       policy_document: {},
@@ -9112,6 +9113,17 @@ describe('Domain-first app routes', () => {
     expect(within(repairList).getAllByText(/Missing Read Only Permission Tier/i)).toHaveLength(1);
     expect(screen.getByRole('link', { name: /Open runbook/i })).toHaveAttribute('href', '/docs');
     expect(screen.getByText(/Identrail will not claim coverage/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(hydrateRepair).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connector_id: 'aws-connector-1',
+          repair_only: true,
+          scope_type: 'single_account',
+          deployment_method: 'cloudformation'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /Refresh policy/i }));
 
@@ -9214,7 +9226,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS account/i }))[0]);
+    fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS/i }))[0]);
 
     expect(await screen.findAllByText('project not found')).toHaveLength(1);
     expect(screen.queryByText(/AWS account connection is not enabled for this deployment/i)).not.toBeInTheDocument();
@@ -9255,7 +9267,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS account/i }))[0]);
+    fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS/i }))[0]);
 
     expect(await screen.findAllByText(/AWS CloudFormation setup is not configured for this deployment/i)).toHaveLength(1);
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
@@ -9793,7 +9805,7 @@ describe('Domain-first app routes', () => {
         screen.getByRole('button', { name: /Prepare StackSet again|Launch StackSet setup/i })
       ).toBeDisabled()
     );
-    const links = screen.queryAllByRole('link', { name: /Open StackSet in AWS|Open AWS stack/i });
+    const links = screen.queryAllByRole('link', { name: /Open StackSet in AWS|Open AWS/i });
     for (const link of links) {
       expect(link.getAttribute('href') ?? '').not.toContain('stacksets/blocked');
     }
@@ -9884,7 +9896,7 @@ describe('Domain-first app routes', () => {
     // just removed.
     expect(screen.getByLabelText(/Target regions/i)).toHaveValue('eu-west-1');
     expect(screen.queryByRole('region', { name: /StackSet onboarding progress/i })).not.toBeInTheDocument();
-    const links = screen.queryAllByRole('link', { name: /Open StackSet in AWS|Open AWS stack/i });
+    const links = screen.queryAllByRole('link', { name: /Open StackSet in AWS|Open AWS/i });
     for (const link of links) {
       expect(link.getAttribute('href') ?? '').not.toContain('stacksets/cancel');
     }
@@ -10634,7 +10646,7 @@ describe('Domain-first app routes', () => {
 
     // The persisted self-managed launch URL must not surface anywhere on the
     // wizard, since the wizard cannot describe what it would open.
-    const links = screen.queryAllByRole('link', { name: /Open StackSet in AWS|Open AWS stack/i });
+    const links = screen.queryAllByRole('link', { name: /Open StackSet in AWS|Open AWS/i });
     for (const link of links) {
       expect(link.getAttribute('href') ?? '').not.toContain('stacksets/self-managed');
     }
@@ -10689,15 +10701,15 @@ describe('Domain-first app routes', () => {
     );
 
     // Single-account mode covers both CloudFormation and Terraform deployment
-    // methods. The verify step (Refresh status / Validate connection) must
+    // methods. The verify step (Refresh / Validate role) must
     // still be reachable for a Terraform-provisioned connector — the wizard
     // step's Refresh button clicks into pollAWSConnector, not the sidebar
     // Permission health refresh action.
     await openAWSConnectionManagement();
-    const wizardStep = await screen.findByRole('heading', { level: 4, name: /Verify the connection/i });
+    const wizardStep = await screen.findByRole('heading', { level: 4, name: /Finish in AWS/i });
     const wizardStepBody = wizardStep.closest('.idt-aws-wizard-step') as HTMLElement | null;
     expect(wizardStepBody).not.toBeNull();
-    const refreshButton = within(wizardStepBody!).getByRole('button', { name: /Refresh status/i });
+    const refreshButton = within(wizardStepBody!).getByRole('button', { name: /Refresh/i });
     expect(refreshButton).not.toBeDisabled();
 
     fireEvent.click(refreshButton);
@@ -11148,7 +11160,7 @@ describe('Domain-first app routes', () => {
     fireEvent.click(screen.getByRole('button', { name: /This AWS account/i }));
 
     // Under Single account, the persisted StackSet launch URL must not surface.
-    const links = screen.queryAllByRole('link', { name: /Open AWS stack|Open StackSet(?: in AWS)?/i });
+    const links = screen.queryAllByRole('link', { name: /Open AWS|Open StackSet(?: in AWS)?/i });
     for (const link of links) {
       expect(link.getAttribute('href') ?? '').not.toContain('stacksets/persisted');
     }
@@ -11205,7 +11217,7 @@ describe('Domain-first app routes', () => {
 
     // Selected OUs shares the stackset_ deployment method with organization,
     // but the scope type differs — the persisted URL must not leak through.
-    const links = screen.queryAllByRole('link', { name: /Open AWS stack|Open StackSet(?: in AWS)?/i });
+    const links = screen.queryAllByRole('link', { name: /Open AWS|Open StackSet(?: in AWS)?/i });
     for (const link of links) {
       expect(link.getAttribute('href') ?? '').not.toContain('stacksets/org-persisted');
     }
@@ -11631,13 +11643,13 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Manage connection/i }));
-    const roleInput = await screen.findByLabelText('Stack role ARN');
+    const roleInput = await screen.findByLabelText('Role ARN');
     fireEvent.change(roleInput, { target: { value: 'arn:aws:iam::123456789012:role/CorrectedConnectorRole' } });
-    fireEvent.click(within(screen.getByLabelText('AWS account setup')).getByRole('button', { name: /Refresh status/i }));
+    fireEvent.click(within(screen.getByLabelText('AWS account setup')).getByRole('button', { name: /Refresh/i }));
 
     await waitFor(() => expect(api.apiClient.pollAWSConnector).toHaveBeenCalled());
     expect(screen.getByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Stack role ARN')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
   });
 
   it('keeps legacy role-only AWS connections out of connector validation', async () => {
@@ -11682,9 +11694,9 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Manage connection/i }));
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Stack role ARN')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Validate connection/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^Validate role$/i })).not.toBeInTheDocument();
     expect(screen.getByText(/Start CloudFormation setup to move it onto the connector flow/i)).toBeInTheDocument();
     expect(validateAWSConnector).not.toHaveBeenCalled();
   });
@@ -12259,16 +12271,16 @@ describe('Domain-first app routes', () => {
       });
     });
 
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Stack role ARN')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Display name')).toHaveValue('');
     expect(screen.getByLabelText('Home region')).toHaveValue('us-east-1');
 
     await act(async () => {
       productionStatus.resolve({ connection: connectedAWS });
     });
-    expect(screen.queryByLabelText('Stack role ARN')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue('Production AWS')).not.toBeInTheDocument();
   });
 
@@ -12315,7 +12327,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    const launchButton = (await screen.findAllByRole('button', { name: /Connect AWS account/i }))[0];
+    const launchButton = (await screen.findAllByRole('button', { name: /Connect AWS/i }))[0];
     fireEvent.click(launchButton);
     await waitFor(() =>
       expect(api.apiClient.startAWSConnector).toHaveBeenCalledWith(
@@ -12354,7 +12366,7 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
     expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Open AWS stack/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Open AWS/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/AWS CloudFormation launch is ready/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Preview permissions/i })).not.toBeInTheDocument();
   });
@@ -12405,9 +12417,9 @@ describe('Domain-first app routes', () => {
     );
 
     await openAWSConnectionManagement();
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
     const refreshButton = within(screen.getByLabelText('AWS account setup')).getByRole('button', {
-      name: /Refresh status/i
+      name: /Refresh/i
     });
     fireEvent.click(refreshButton);
     await waitFor(() =>
@@ -12431,7 +12443,7 @@ describe('Domain-first app routes', () => {
     expect(screen.queryByText('Production poll AWS')).not.toBeInTheDocument();
   });
 
-  it('syncs the AWS role ARN returned by polling into the validation step', async () => {
+  it('automatically polls CloudFormation setup until AWS is connected', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
     const api = await import('./api/client');
@@ -12475,11 +12487,9 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    const roleInput = await screen.findByLabelText('Stack role ARN');
+    const roleInput = await screen.findByLabelText('Role ARN');
     expect(roleInput).toHaveValue('');
-    expect(screen.getByRole('button', { name: /Validate connection/i })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole('button', { name: /Refresh status/i }));
+    expect(screen.getByRole('button', { name: /^Validate role$/i })).toBeDisabled();
 
     await waitFor(() =>
       expect(api.apiClient.pollAWSConnector).toHaveBeenCalledWith(
@@ -12487,11 +12497,106 @@ describe('Domain-first app routes', () => {
         'workspace-a',
         'production',
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
+      ),
+      { timeout: 4000 }
     );
     expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
     expect(screen.queryByDisplayValue('arn:aws:iam::123456789012:role/IdentrailReadOnly')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Validate connection/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^Validate role$/i })).not.toBeInTheDocument();
+  });
+
+  it('hydrates trust-policy repair material when automatic polling reaches needs-fix', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-connector-1',
+        deployment_method: 'cloudformation',
+        scope_type: 'single_account',
+        onboarding_status: 'waiting_for_aws'
+      }
+    });
+    vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-connector-1',
+        deployment_method: 'cloudformation',
+        scope_type: 'single_account',
+        onboarding_status: 'needs_fix',
+        status: 'degraded',
+        health_status: 'error'
+      }
+    });
+    const hydrateRepair = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-connector-1',
+        deployment_method: 'cloudformation',
+        scope_type: 'single_account',
+        onboarding_status: 'needs_fix',
+        status: 'degraded',
+        health_status: 'error'
+      },
+      connector_id: 'aws-connector-1',
+      external_id: 'repair-external-id',
+      launch_url: '',
+      template_url: 'https://example.com/template.yaml',
+      role_name: 'IdentrailReadOnly',
+      stack_name: 'identrail-readonly-connector',
+      policy_hash: 'sha256:example',
+      scope_type: 'single_account',
+      deployment_method: 'cloudformation',
+      onboarding_status: 'needs_fix',
+      target_regions: ['us-east-1'],
+      target_account_ids: [],
+      target_ou_ids: [],
+      excluded_account_ids: [],
+      auto_onboard_new_accounts: false,
+      setup_summary: 'The connection needs attention.',
+      next_actions: ['repair_permissions', 'validate_role', 'refresh_status'],
+      permission_preview: [],
+      permission_tiers: []
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(api.apiClient.pollAWSConnector).toHaveBeenCalled(), { timeout: 4000 });
+    await waitFor(() =>
+      expect(hydrateRepair).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connector_id: 'aws-connector-1',
+          repair_only: true,
+          scope_type: 'single_account',
+          deployment_method: 'cloudformation'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
   });
 
   it('ignores stale AWS validation responses after switching environments', async () => {
@@ -12541,7 +12646,7 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Manage connection/i }));
-    const submitButton = await screen.findByRole('button', { name: /Validate connection/i });
+  const submitButton = await screen.findByRole('button', { name: /^Validate role$/i });
     fireEvent.click(submitButton);
     await waitFor(() =>
       expect(api.apiClient.validateAWSConnector).toHaveBeenCalledWith(
@@ -14431,10 +14536,10 @@ describe('ProductFindingsPage states', () => {
       created_at: '2026-05-17T11:07:00Z'
     }));
 
-	const { deleteRepoFindings } = await renderFindings({
-	  repoScans: [scan],
-	  listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[500]] })
-	});
+  const { deleteRepoFindings } = await renderFindings({
+    repoScans: [scan],
+    listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[500]] })
+  });
 
     expect(await screen.findByText('Large clear all finding 0')).toBeInTheDocument();
 
@@ -14530,10 +14635,10 @@ describe('ProductFindingsPage states', () => {
       }
     ];
 
-	const { deleteRepoFindings } = await renderFindings({
-	  repoScans: [scan],
-	  listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[1]] })
-	});
+  const { deleteRepoFindings } = await renderFindings({
+    repoScans: [scan],
+    listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[1]] })
+  });
     deleteRepoFindings.mockResolvedValueOnce({
       deleted: [{ finding_id: findings[0].id, repo_scan_id: scan.id }],
       failed: [{ finding_id: findings[1].id, repo_scan_id: scan.id, error: 'repo finding not found' }]

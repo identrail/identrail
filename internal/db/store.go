@@ -28,6 +28,9 @@ var ErrScopeRequired = errors.New("scope is required")
 // ErrConflict indicates the requested write conflicts with an existing record.
 var ErrConflict = errors.New("record conflict")
 
+// ErrInvalidAWSConnectorOnboardingAttempt indicates malformed persisted setup state.
+var ErrInvalidAWSConnectorOnboardingAttempt = errors.New("invalid aws connector onboarding attempt")
+
 // FindingSummaryCounts captures aggregate finding counters for one scoped workspace.
 type FindingSummaryCounts struct {
 	Total      int
@@ -1150,6 +1153,59 @@ type TenancyConnectorState struct {
 type TenancyConnectorWithState struct {
 	Connector TenancyConnector      `json:"connector"`
 	State     TenancyConnectorState `json:"state"`
+}
+
+const (
+	AWSConnectorOnboardingAttemptWaiting     = "waiting_for_aws"
+	AWSConnectorOnboardingAttemptRegistering = "registering"
+	AWSConnectorOnboardingAttemptValidating  = "validating"
+	AWSConnectorOnboardingAttemptConnected   = "connected"
+	AWSConnectorOnboardingAttemptNeedsFix    = "needs_fix"
+	AWSConnectorOnboardingAttemptExpired     = "expired"
+	AWSConnectorOnboardingAttemptFailed      = "failed"
+)
+
+// AWSConnectorOnboardingAttempt is the server-side registration contract for
+// one CloudFormation launch. TokenHash is the only persisted representation of
+// the browser-delivered, one-time registration capability.
+type AWSConnectorOnboardingAttempt struct {
+	AttemptID          string     `json:"attempt_id"`
+	TenantID           string     `json:"tenant_id"`
+	WorkspaceID        string     `json:"workspace_id"`
+	ProjectID          string     `json:"project_id"`
+	ConnectorID        string     `json:"connector_id"`
+	Status             string     `json:"status"`
+	TokenHash          []byte     `json:"-"`
+	TokenKeyVersion    string     `json:"-"`
+	ProviderTopicARN   string     `json:"provider_topic_arn"`
+	TemplateVersion    string     `json:"template_version"`
+	TemplateChecksum   string     `json:"template_checksum"`
+	DeploymentRegion   string     `json:"deployment_region"`
+	StackID            string     `json:"stack_id,omitempty"`
+	AWSAccountID       string     `json:"aws_account_id,omitempty"`
+	AWSPartition       string     `json:"aws_partition,omitempty"`
+	RoleARN            string     `json:"role_arn,omitempty"`
+	BootstrapRequestID string     `json:"bootstrap_request_id,omitempty"`
+	RegisterRequestID  string     `json:"register_request_id,omitempty"`
+	FailureCode        string     `json:"failure_code,omitempty"`
+	FailureMessage     string     `json:"failure_message,omitempty"`
+	ExpiresAt          time.Time  `json:"expires_at"`
+	RegisteredAt       *time.Time `json:"registered_at,omitempty"`
+	ValidatedAt        *time.Time `json:"validated_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	Version            int64      `json:"version"`
+}
+
+// AWSConnectorOnboardingAttemptStore is deliberately separate from Store so
+// internal registration processing can evolve without widening every test
+// adapter that implements the main persistence contract.
+type AWSConnectorOnboardingAttemptStore interface {
+	CreateAWSConnectorOnboardingAttempt(ctx context.Context, attempt AWSConnectorOnboardingAttempt) (AWSConnectorOnboardingAttempt, error)
+	GetAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, attemptID string) (AWSConnectorOnboardingAttempt, error)
+	GetAWSConnectorOnboardingAttemptAnyScope(ctx context.Context, attemptID string) (AWSConnectorOnboardingAttempt, error)
+	GetActiveAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, connectorID string) (AWSConnectorOnboardingAttempt, error)
+	UpdateAWSConnectorOnboardingAttempt(ctx context.Context, attempt AWSConnectorOnboardingAttempt, expectedVersion int64) (AWSConnectorOnboardingAttempt, error)
 }
 
 const (

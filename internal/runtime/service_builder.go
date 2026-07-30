@@ -260,6 +260,10 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	svc.AWSCloudFormationTemplateURL = cfg.AWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = cfg.AWSCloudFormationTemplateSHA
 	svc.AWSAccountID = cfg.AWSAccountID
+	svc.AWSRegistrationTopicARNs = make(map[string]string, len(cfg.AWSRegistrationTopicARNs))
+	for region, topicARN := range cfg.AWSRegistrationTopicARNs {
+		svc.AWSRegistrationTopicARNs[region] = topicARN
+	}
 	svc.AWSBaselineGitSHA = cfg.BaselineGitSHA
 	svc.AWSBaselineSourceMode = cfg.AWSSource
 	svc.AWSBaselineFixturePaths = append([]string(nil), cfg.AWSFixturePath...)

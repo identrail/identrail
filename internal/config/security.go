@@ -95,6 +95,7 @@ var placeholderDefaultScopeIDs = map[string]struct{}{
 var scopeIdentifierPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$`)
 var oidcClaimNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9._:-]{0,127}$`)
 var awsTemplateSHA256Pattern = regexp.MustCompile(`(?i)^(sha256:)?[a-f0-9]{64}$`)
+var awsRegistrationTopicARNPattern = regexp.MustCompile(`^arn:(aws|aws-us-gov|aws-cn):sns:([a-z0-9-]+):([0-9]{12}):[A-Za-z0-9_-]{1,256}$`)
 
 // ValidateSecurity checks hard-fail security misconfigurations.
 func ValidateSecurity(cfg Config) error {
@@ -296,6 +297,12 @@ func ValidateSecurity(cfg Config) error {
 		}
 		if strings.TrimSpace(cfg.DatabaseURL) != "" && strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
 			return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS must be set when IDENTRAIL_FEATURE_CONNECTOR_AWS=true and IDENTRAIL_DATABASE_URL is configured")
+		}
+		for region, topicARN := range cfg.AWSRegistrationTopicARNs {
+			matches := awsRegistrationTopicARNPattern.FindStringSubmatch(strings.TrimSpace(topicARN))
+			if len(matches) != 4 || matches[2] != region {
+				return fmt.Errorf("IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS contains an invalid regional SNS topic ARN")
+			}
 		}
 	}
 	if cfg.FeatureConnectorGitHubV2 {

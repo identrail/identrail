@@ -117,6 +117,11 @@ identrail aws-status \
   --project-id production
 ```
 
+The app's single-account path opens a prefilled read-only CloudFormation stack.
+After the AWS administrator approves it, Identrail registers and validates the
+role automatically; no role ARN, External ID, access key, or secret key is
+copied into the app.
+
 ### 4. Scan Kubernetes
 
 Make sure `kubectl` can reach the cluster:

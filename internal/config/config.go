@@ -106,6 +106,9 @@ type Config struct {
 	AWSCloudFormationTemplateURL  string
 	AWSCloudFormationTemplateSHA  string
 	AWSAccountID                  string
+	AWSRegistrationTopicARNs      map[string]string
+	AWSRegistrationQueueURL       string
+	AWSRegistrationQueueRegion    string
 	AWSCloudTrailS3Bucket         string
 	AWSCloudTrailS3Prefix         string
 	AWSCloudTrailEventBridgeQueue string
@@ -273,6 +276,10 @@ func Load() Config {
 	if apiKeyScopeBindingsError != "" {
 		parseErrors = append(parseErrors, "invalid IDENTRAIL_API_KEY_SCOPE_BINDINGS: "+apiKeyScopeBindingsError)
 	}
+	awsRegistrationTopicARNs, awsRegistrationTopicARNsError := parseAWSRegistrationTopicARNs(getEnv("IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS", ""))
+	if awsRegistrationTopicARNsError != "" {
+		parseErrors = append(parseErrors, "invalid IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS: "+awsRegistrationTopicARNsError)
+	}
 	featureNativeSSO := boolEnv("IDENTRAIL_FEATURE_NATIVE_SSO", defaultFeatureNativeSSO)
 	if strings.TrimSpace(os.Getenv("IDENTRAIL_ENABLE_NATIVE_SSO")) != "" {
 		featureNativeSSO = boolEnv("IDENTRAIL_ENABLE_NATIVE_SSO", featureNativeSSO)
@@ -294,6 +301,9 @@ func Load() Config {
 		AWSCloudFormationTemplateURL:  getEnv("IDENTRAIL_AWS_CFN_TEMPLATE_URL", ""),
 		AWSCloudFormationTemplateSHA:  getEnv("IDENTRAIL_AWS_CFN_TEMPLATE_SHA256", ""),
 		AWSAccountID:                  getEnv("IDENTRAIL_AWS_ACCOUNT_ID", ""),
+		AWSRegistrationTopicARNs:      awsRegistrationTopicARNs,
+		AWSRegistrationQueueURL:       strings.TrimSpace(getEnv("IDENTRAIL_AWS_REGISTRATION_QUEUE_URL", "")),
+		AWSRegistrationQueueRegion:    strings.TrimSpace(getEnv("IDENTRAIL_AWS_REGISTRATION_QUEUE_REGION", getEnv("IDENTRAIL_AWS_REGION", defaultAWSRegion))),
 		AWSCloudTrailS3Bucket:         strings.TrimSpace(getEnv("IDENTRAIL_AWS_CLOUDTRAIL_S3_BUCKET", "")),
 		AWSCloudTrailS3Prefix:         strings.TrimSpace(getEnv("IDENTRAIL_AWS_CLOUDTRAIL_S3_PREFIX", "")),
 		AWSCloudTrailEventBridgeQueue: strings.TrimSpace(getEnv("IDENTRAIL_AWS_CLOUDTRAIL_EVENTBRIDGE_QUEUE_URL", "")),
@@ -510,6 +520,30 @@ func parseIntAllowZero(value string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func parseAWSRegistrationTopicARNs(value string) (map[string]string, string) {
+	result := map[string]string{}
+	for index, entry := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' }) {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			continue
+		}
+		parts := strings.SplitN(trimmed, "=", 2)
+		if len(parts) != 2 {
+			return result, "entry " + strconv.Itoa(index+1) + " must use region=topic-arn format"
+		}
+		region := strings.ToLower(strings.TrimSpace(parts[0]))
+		topicARN := strings.TrimSpace(parts[1])
+		if region == "" || topicARN == "" {
+			return result, "entry " + strconv.Itoa(index+1) + " must include a region and topic ARN"
+		}
+		if _, exists := result[region]; exists {
+			return result, "entry " + strconv.Itoa(index+1) + " duplicates region " + region
+		}
+		result[region] = topicARN
+	}
+	return result, ""
 }
 
 func parseKeyScopes(value string) (map[string][]string, string) {

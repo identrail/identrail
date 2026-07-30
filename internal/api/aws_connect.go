@@ -85,10 +85,12 @@ const (
 	AWSConnectorOnboardingDraft         AWSConnectorOnboardingStatus = "draft"
 	AWSConnectorOnboardingLaunchReady   AWSConnectorOnboardingStatus = "launch_ready"
 	AWSConnectorOnboardingWaitingForAWS AWSConnectorOnboardingStatus = "waiting_for_aws"
+	AWSConnectorOnboardingRegistering   AWSConnectorOnboardingStatus = "registering"
 	AWSConnectorOnboardingValidating    AWSConnectorOnboardingStatus = "validating"
 	AWSConnectorOnboardingConnected     AWSConnectorOnboardingStatus = "connected"
 	AWSConnectorOnboardingPartial       AWSConnectorOnboardingStatus = "partial"
 	AWSConnectorOnboardingNeedsFix      AWSConnectorOnboardingStatus = "needs_fix"
+	AWSConnectorOnboardingExpired       AWSConnectorOnboardingStatus = "expired"
 	AWSConnectorOnboardingFailed        AWSConnectorOnboardingStatus = "failed"
 )
 
@@ -152,6 +154,7 @@ type AWSConnectorStartRequest struct {
 	TargetOUIDs            []string                     `json:"target_ou_ids,omitempty"`
 	ExcludedAccountIDs     []string                     `json:"excluded_account_ids,omitempty"`
 	AutoOnboardNewAccounts bool                         `json:"auto_onboard_new_accounts,omitempty"`
+	RepairOnly             bool                         `json:"repair_only,omitempty"`
 }
 
 // AWSConnectorValidateRequest validates a CloudFormation-created AWS connector role.
@@ -196,7 +199,7 @@ type AWSConnectorTargetSummary struct {
 type AWSConnectorStartResponse struct {
 	Connection             AWSConnectionStatus                     `json:"connection"`
 	ConnectorID            string                                  `json:"connector_id"`
-	ExternalID             string                                  `json:"external_id"`
+	ExternalID             string                                  `json:"external_id,omitempty"`
 	LaunchURL              string                                  `json:"launch_url"`
 	TemplateURL            string                                  `json:"template_url"`
 	IdentrailAccountID     string                                  `json:"identrail_account_id,omitempty"`
@@ -378,6 +381,9 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	if err != nil {
 		return AWSConnectorStartResponse{}, err
 	}
+	if request.RepairOnly && (setup.ScopeType != AWSConnectorScopeSingleAccount || setup.DeploymentMethod != AWSConnectorDeploymentCloudFormation) {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
 	if setup.ScopeType == AWSConnectorScopeManualRole && setup.DeploymentMethod == AWSConnectorDeploymentManual {
 		return s.startAWSManualConnector(ctx, project, scope, request, setup)
 	}
@@ -389,10 +395,14 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	}
 	templateURL := strings.TrimSpace(s.AWSCloudFormationTemplateURL)
 	accountID := strings.TrimSpace(s.AWSAccountID)
-	if templateURL == "" || accountID == "" {
+	templateChecksum := normalizeAWSConnectorTemplateChecksum(s.AWSCloudFormationTemplateSHA)
+	if templateURL == "" || accountID == "" || templateChecksum == "" {
 		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
 	}
 	connectorID := strings.TrimSpace(request.ConnectorID)
+	if request.RepairOnly && connectorID == "" {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
 	if connectorID == "" {
 		connectorID = "aws-" + uuid.NewString()
 	} else {
@@ -402,6 +412,9 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 		}
 		if !errors.Is(err, db.ErrNotFound) {
 			return AWSConnectorStartResponse{}, err
+		}
+		if request.RepairOnly {
+			return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 		}
 	}
 	displayName := strings.TrimSpace(request.DisplayName)
@@ -417,16 +430,12 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	}
 	now := s.Now().UTC()
 	region := setup.TargetRegions[0]
+	registrationProviderARN := s.awsRegistrationTopicARN(region)
+	if registrationProviderARN == "" {
+		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
+	}
 	roleName := firstNonEmptyAWSValue(strings.TrimSpace(request.RoleName), "IdentrailReadOnly")
 	stackName := firstNonEmptyAWSValue(strings.TrimSpace(request.StackName), "identrail-readonly-connector")
-	launchURL := awsconnector.BuildCloudFormationLaunchURL(awsconnector.CloudFormationLaunchInput{
-		TemplateURL:        templateURL,
-		Region:             region,
-		StackName:          stackName,
-		IdentrailAccountID: accountID,
-		ExternalID:         externalID,
-		RoleName:           roleName,
-	})
 	policyHash, err := awsconnector.ReadOnlyPolicyHash()
 	if err != nil {
 		return AWSConnectorStartResponse{}, err
@@ -440,14 +449,16 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 		return AWSConnectorStartResponse{}, err
 	}
 
-	onboardingStatus := AWSConnectorOnboardingLaunchReady
+	onboardingStatus := AWSConnectorOnboardingWaitingForAWS
 	metadata := map[string]any{
 		"external_id_configured": true,
 		"region":                 region,
 		"role_name":              roleName,
 		"stack_name":             stackName,
 		"template_url":           templateURL,
-		"launch_url":             launchURL,
+		"template_checksum":      templateChecksum,
+		"template_version":       awsConnectorTemplateVersion,
+		"registration_provider":  registrationProviderARN,
 		"policy_hash":            policyHash,
 		"permission_checks":      []AWSConnectionPermissionCheck{},
 		"diagnostics":            []AWSConnectionDiagnostic{},
@@ -490,9 +501,23 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	if !created {
 		return s.resumeAWSConnectorStart(ctx, stored, setup, request, templateURL, accountID)
 	}
+	attempt, registrationToken, err := s.activeOrNewAWSConnectorOnboardingAttempt(ctx, stored, registrationProviderARN, templateChecksum, region)
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	launchURL := awsconnector.BuildCloudFormationLaunchURL(awsconnector.CloudFormationLaunchInput{
+		TemplateURL:             templateURL,
+		Region:                  region,
+		StackName:               stackName,
+		IdentrailAccountID:      accountID,
+		RoleName:                roleName,
+		RegistrationProviderARN: registrationProviderARN,
+		RegistrationAttemptID:   attempt.AttemptID,
+		RegistrationToken:       registrationToken,
+	})
 	status := s.awsConnectionStatusFromStored(ctx, stored)
-	status.ExternalID = externalID
-	return awsConnectorStartResponse(status, externalID, launchURL, templateURL, accountID, roleName, stackName, policyHash), nil
+	status.TemplateChecksum = templateChecksum
+	return awsConnectorStartResponse(status, "", launchURL, templateURL, accountID, roleName, stackName, policyHash), nil
 }
 
 func (s *Service) startAWSStackSetConnector(
@@ -1005,39 +1030,151 @@ func (s *Service) resumeAWSConnectorStart(
 		}
 		policyHash = hash
 	}
-	launchURL := ""
-	if !generatedExternalID {
-		launchURL = awsMetadataString(stored.State.Metadata, "launch_url")
+	storedTemplateChecksum := normalizeAWSConnectorTemplateChecksum(awsMetadataString(stored.State.Metadata, "template_checksum"))
+	templateChecksum := firstNonEmptyAWSValue(storedTemplateChecksum, normalizeAWSConnectorTemplateChecksum(s.AWSCloudFormationTemplateSHA))
+	registrationProviderARN := s.awsRegistrationTopicARN(region)
+	if templateChecksum == "" || registrationProviderARN == "" {
+		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
 	}
-	rebuiltLaunchMetadata := launchURL == "" || (externalID != "" && !awsCloudFormationLaunchURLMatchesExternalID(launchURL, externalID))
-	if rebuiltLaunchMetadata {
-		launchURL = awsconnector.BuildCloudFormationLaunchURL(awsconnector.CloudFormationLaunchInput{
-			TemplateURL:        templateURL,
-			Region:             region,
-			StackName:          stackName,
-			IdentrailAccountID: accountID,
-			ExternalID:         externalID,
-			RoleName:           roleName,
-		})
+	// A legacy connector persisted before the automatic-registration template
+	// (v2.x) has an old `template_url` in metadata but no `template_checksum`.
+	// Pairing that legacy URL with the newly configured v2 checksum would
+	// launch a template without the registration parameters, so the connector
+	// could never complete automatic registration. Prefer the configured URL
+	// whenever the stored metadata predates registration.
+	storedTemplateURL := templateURL
+	if storedTemplateChecksum != "" {
+		storedTemplateURL = firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "template_url"), templateURL)
 	}
-	if generatedExternalID || rebuiltLaunchMetadata {
+	if generatedExternalID {
 		if rotatedAt.IsZero() {
 			rotatedAt = s.Now().UTC()
 		}
-		stored = persistRecoveredAWSConnectorLaunchState(stored, externalID, region, roleName, stackName, templateURL, launchURL, policyHash, s.connectorSecretManager().ActiveKeyVersion(), rotatedAt, generatedExternalID)
+		stored = persistRecoveredAWSConnectorLaunchState(stored, externalID, region, roleName, stackName, templateURL, "", policyHash, s.connectorSecretManager().ActiveKeyVersion(), rotatedAt, true)
+		stored.State.Metadata["template_checksum"] = templateChecksum
+		stored.State.Metadata["template_version"] = awsConnectorTemplateVersion
+		stored.State.Metadata["registration_provider"] = registrationProviderARN
+		delete(stored.State.Metadata, "launch_url")
 		if err := s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
 			return AWSConnectorStartResponse{}, fmt.Errorf("persist recovered aws connector launch state: %w", err)
 		}
 	}
+	if request.RepairOnly {
+		if !awsConnectorNeedsTrustPolicyRepair(stored) {
+			return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+		}
+		status := s.awsConnectionStatusFromStored(ctx, stored)
+		status.ExternalIDConfigured = true
+		status.Region = firstNonEmptyAWSValue(status.Region, region)
+		status.TemplateURL = firstNonEmptyAWSValue(status.TemplateURL, templateURL)
+		status.PolicyHash = firstNonEmptyAWSValue(status.PolicyHash, policyHash)
+		status.TemplateChecksum = templateChecksum
+		return awsConnectorStartResponse(status, externalID, "", storedTemplateURL, accountID, roleName, stackName, policyHash), nil
+	}
+	attempt, registrationToken, err := s.activeOrNewAWSConnectorOnboardingAttempt(ctx, stored, registrationProviderARN, templateChecksum, region)
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	// Explicitly restarting an expired/failed/needs_fix connector issues a fresh
+	// registration grant, but the stored setup metadata still carries the
+	// prior terminal onboarding_status — so the UI would continue to show
+	// "Start again" instead of waiting for AWS. Reset the setup metadata to
+	// waiting_for_aws once we have a fresh attempt in that state.
+	if attempt.Status == db.AWSConnectorOnboardingAttemptWaiting && attempt.BootstrapRequestID == "" {
+		if err := s.resetAWSConnectorSetupToWaiting(ctx, &stored, setup, region, roleName, stackName, storedTemplateURL, templateChecksum, registrationProviderARN, policyHash); err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+	}
+	launchURL := awsconnector.BuildCloudFormationLaunchURL(awsconnector.CloudFormationLaunchInput{
+		TemplateURL:             storedTemplateURL,
+		Region:                  region,
+		StackName:               stackName,
+		IdentrailAccountID:      accountID,
+		RoleName:                roleName,
+		RegistrationProviderARN: registrationProviderARN,
+		RegistrationAttemptID:   attempt.AttemptID,
+		RegistrationToken:       registrationToken,
+	})
 
 	status := s.awsConnectionStatusFromStored(ctx, stored)
-	status.ExternalID = externalID
 	status.ExternalIDConfigured = true
 	status.Region = firstNonEmptyAWSValue(status.Region, region)
-	status.LaunchURL = firstNonEmptyAWSValue(launchURL, status.LaunchURL)
 	status.TemplateURL = firstNonEmptyAWSValue(status.TemplateURL, templateURL)
 	status.PolicyHash = firstNonEmptyAWSValue(status.PolicyHash, policyHash)
-	return awsConnectorStartResponse(status, externalID, launchURL, status.TemplateURL, accountID, roleName, stackName, policyHash), nil
+	status.TemplateChecksum = templateChecksum
+	// A healthy or waiting CloudFormation connector keeps the External ID
+	// server-side. A degraded connector needs it exposed so the guided
+	// `assume_role_failed` repair can render a `copy_trust_policy` action —
+	// otherwise the operator sees an empty trust policy and cannot fix the
+	// trust misconfiguration.
+	responseExternalID := ""
+	if awsConnectorNeedsTrustPolicyRepair(stored) {
+		responseExternalID = externalID
+	}
+	return awsConnectorStartResponse(status, responseExternalID, launchURL, storedTemplateURL, accountID, roleName, stackName, policyHash), nil
+}
+
+func awsConnectorNeedsTrustPolicyRepair(stored db.TenancyConnectorWithState) bool {
+	if stored.Connector.Status == domain.ConnectorStatusDegraded {
+		return true
+	}
+	if stored.State.HealthStatus == "error" {
+		return true
+	}
+	switch awsMetadataOnboardingStatus(stored.State.Metadata, "onboarding_status") {
+	case AWSConnectorOnboardingNeedsFix, AWSConnectorOnboardingFailed, AWSConnectorOnboardingPartial:
+		return true
+	}
+	return false
+}
+
+// resetAWSConnectorSetupToWaiting flips a terminal or degraded connector back
+// to the waiting_for_aws onboarding state so a freshly issued registration
+// attempt is reflected consistently in the API and UI.
+func (s *Service) resetAWSConnectorSetupToWaiting(
+	ctx context.Context,
+	stored *db.TenancyConnectorWithState,
+	setup awsConnectorSetupContract,
+	region string,
+	roleName string,
+	stackName string,
+	templateURL string,
+	templateChecksum string,
+	registrationProviderARN string,
+	policyHash string,
+) error {
+	current := awsMetadataOnboardingStatus(stored.State.Metadata, "onboarding_status")
+	// If we're already in a pre-registration state, no reset is required.
+	switch current {
+	case AWSConnectorOnboardingWaitingForAWS, AWSConnectorOnboardingRegistering, AWSConnectorOnboardingValidating, AWSConnectorOnboardingConnected:
+		return nil
+	}
+	metadata := copyAWSMetadata(stored.State.Metadata)
+	metadata["region"] = region
+	metadata["role_name"] = roleName
+	metadata["stack_name"] = stackName
+	metadata["template_url"] = templateURL
+	metadata["template_checksum"] = templateChecksum
+	metadata["template_version"] = awsConnectorTemplateVersion
+	metadata["registration_provider"] = registrationProviderARN
+	if policyHash != "" {
+		metadata["policy_hash"] = policyHash
+	}
+	delete(metadata, "launch_url")
+	applyAWSConnectorSetupMetadata(metadata, setup, AWSConnectorOnboardingWaitingForAWS)
+	now := s.Now().UTC()
+	stored.State.Metadata = metadata
+	stored.State.HealthStatus = "unknown"
+	stored.State.LastErrorCode = ""
+	stored.State.LastErrorMessage = ""
+	stored.State.ObservedAt = now
+	stored.State.UpdatedAt = now
+	stored.Connector.Status = domain.ConnectorStatusPending
+	stored.Connector.UpdatedAt = now
+	if err := s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+		return fmt.Errorf("reset aws connector setup to waiting: %w", err)
+	}
+	return nil
 }
 
 func persistRecoveredAWSConnectorLaunchState(
@@ -1337,6 +1474,57 @@ func (s *Service) PollAWSConnector(ctx context.Context, connectorID string, requ
 	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID))
 	if err != nil {
 		return AWSConnectionStatus{}, err
+	}
+	if attemptStore, ok := s.Store.(db.AWSConnectorOnboardingAttemptStore); ok {
+		attempt, attemptErr := attemptStore.GetActiveAWSConnectorOnboardingAttempt(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID))
+		if attemptErr == nil && !s.Now().UTC().Before(attempt.ExpiresAt) {
+			// Persist connector state first, then terminalize the attempt. If
+			// the attempt update fails, the connector shows expired but the
+			// attempt remains active, so a subsequent poll converges. If we
+			// terminalized first, a transient state-write failure would leave
+			// the attempt terminal (invisible to GetActive) with the
+			// connector permanently `waiting_for_aws`.
+			if err := s.persistAWSRegistrationProgress(ctx, stored, AWSConnectorOnboardingExpired, "", "", ""); err != nil {
+				return AWSConnectionStatus{}, err
+			}
+			for updateAttempt := 0; updateAttempt < 3; updateAttempt++ {
+				if !awsOnboardingAttemptPending(attempt.Status) || s.Now().UTC().Before(attempt.ExpiresAt) {
+					if err := s.reconcileAWSConnectorFromOnboardingAttempt(ctx, attempt); err != nil {
+						return AWSConnectionStatus{}, err
+					}
+					break
+				}
+				attempt.Status = db.AWSConnectorOnboardingAttemptExpired
+				attempt.FailureCode = "registration_expired"
+				attempt.FailureMessage = "The AWS connection window expired. Start a new connection."
+				attempt.UpdatedAt = s.Now().UTC()
+				updated, updateErr := attemptStore.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version)
+				if updateErr == nil {
+					attempt = updated
+					break
+				}
+				if !errors.Is(updateErr, db.ErrConflict) {
+					return AWSConnectionStatus{}, updateErr
+				}
+				attempt, updateErr = attemptStore.GetAWSConnectorOnboardingAttempt(ctx, project.WorkspaceID, project.ProjectID, attempt.AttemptID)
+				if updateErr != nil {
+					return AWSConnectionStatus{}, updateErr
+				}
+				if !awsOnboardingAttemptPending(attempt.Status) {
+					if err := s.reconcileAWSConnectorFromOnboardingAttempt(ctx, attempt); err != nil {
+						return AWSConnectionStatus{}, err
+					}
+					break
+				}
+				if updateAttempt == 2 {
+					return AWSConnectionStatus{}, db.ErrConflict
+				}
+			}
+			stored, err = s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID))
+			if err != nil {
+				return AWSConnectionStatus{}, err
+			}
+		}
 	}
 	return awsConnectorSetupPublicConnectionStatus(s.awsConnectionStatusFromStored(ctx, stored)), nil
 }
@@ -2236,11 +2424,19 @@ func applyAWSConnectorSetupMetadata(metadata map[string]any, setup awsConnectorS
 }
 
 func awsConnectorSetupSummary(setup awsConnectorSetupContract, onboardingStatus AWSConnectorOnboardingStatus) string {
-	if onboardingStatus == AWSConnectorOnboardingConnected {
-		return "AWS connector is connected and ready for discovery."
-	}
-	if onboardingStatus == AWSConnectorOnboardingNeedsFix || onboardingStatus == AWSConnectorOnboardingFailed {
-		return "AWS connector setup needs attention before Identrail can use it."
+	switch onboardingStatus {
+	case AWSConnectorOnboardingConnected:
+		return "Connected and ready for discovery."
+	case AWSConnectorOnboardingWaitingForAWS:
+		return "Waiting for AWS stack approval."
+	case AWSConnectorOnboardingRegistering:
+		return "AWS is creating the read-only connection."
+	case AWSConnectorOnboardingValidating:
+		return "Verifying read-only access."
+	case AWSConnectorOnboardingExpired:
+		return "The connection window expired. Start again."
+	case AWSConnectorOnboardingNeedsFix, AWSConnectorOnboardingFailed:
+		return "The connection needs attention."
 	}
 	switch setup.ScopeType {
 	case AWSConnectorScopeManualRole:
@@ -2252,7 +2448,7 @@ func awsConnectorSetupSummary(setup awsConnectorSetupContract, onboardingStatus 
 	case AWSConnectorScopeSelectedAccounts:
 		return "Selected AWS accounts setup planned through CloudFormation StackSets."
 	default:
-		return "Single AWS account read-only setup through CloudFormation."
+		return "One AWS account through CloudFormation."
 	}
 }
 
@@ -2262,8 +2458,10 @@ func awsConnectorNextActions(setup awsConnectorSetupContract, onboardingStatus A
 		return []AWSConnectorNextAction{AWSConnectorNextActionStartIntelligence, AWSConnectorNextActionRefreshStatus}
 	case AWSConnectorOnboardingNeedsFix, AWSConnectorOnboardingFailed, AWSConnectorOnboardingPartial:
 		return []AWSConnectorNextAction{AWSConnectorNextActionRepairPermissions, AWSConnectorNextActionValidateRole, AWSConnectorNextActionRefreshStatus}
-	case AWSConnectorOnboardingWaitingForAWS:
-		return []AWSConnectorNextAction{AWSConnectorNextActionRefreshStatus, AWSConnectorNextActionValidateRole}
+	case AWSConnectorOnboardingWaitingForAWS, AWSConnectorOnboardingRegistering, AWSConnectorOnboardingValidating:
+		return []AWSConnectorNextAction{AWSConnectorNextActionRefreshStatus}
+	case AWSConnectorOnboardingExpired:
+		return []AWSConnectorNextAction{AWSConnectorNextActionLaunchStack}
 	}
 	if awsConnectorDeploymentIsStackSet(setup.DeploymentMethod) {
 		return []AWSConnectorNextAction{AWSConnectorNextActionOpenStackSet, AWSConnectorNextActionRefreshStatus}
@@ -2324,10 +2522,6 @@ func awsConnectionStatusFromStored(stored db.TenancyConnectorWithState) AWSConne
 	createdAt := stored.Connector.CreatedAt
 	updatedAt := stored.Connector.UpdatedAt
 	validatedAt := awsMetadataTime(metadata, "last_validated_at")
-	if validatedAt == nil && !stored.State.ObservedAt.IsZero() {
-		observed := stored.State.ObservedAt
-		validatedAt = &observed
-	}
 	defaultScope, defaultDeployment := awsMetadataSetupFallback(metadata)
 	setup := awsMetadataSetupContract(metadata, defaultScope, defaultDeployment)
 	onboardingStatus := awsMetadataOnboardingStatus(metadata, "onboarding_status")

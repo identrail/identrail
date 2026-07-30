@@ -47,3 +47,14 @@ output "worker_service_name" {
   description = "ECS service name for the worker service when worker hosting is enabled."
   value       = try(aws_ecs_service.worker[0].name, local.worker_service_name)
 }
+
+output "aws_connector_registration_topic_arn" {
+  description = "Regional SNS custom-resource provider ARN configured in the Identrail API."
+  value       = try(aws_sns_topic.aws_connector_registration[0].arn, null)
+}
+
+output "aws_connector_registration_queue_url" {
+  description = "Private SQS queue consumed by the Identrail worker for AWS connector registration."
+  value       = try(aws_sqs_queue.aws_connector_registration[0].url, null)
+  sensitive   = true
+}

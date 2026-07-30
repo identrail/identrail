@@ -219,6 +219,8 @@ type Service struct {
 	AWSCloudFormationTemplateURL       string
 	AWSCloudFormationTemplateSHA       string
 	AWSAccountID                       string
+	AWSRegistrationTopicARNs           map[string]string
+	AWSCloudFormationResponder         AWSCloudFormationResponder
 	AWSBaselineGitSHA                  string
 	AWSBaselineSourceMode              string
 	AWSBaselineFixturePaths            []string

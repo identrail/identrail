@@ -172,6 +172,17 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 			},
 		)
 	}
+	var awsRegistrationTrigger func(context.Context) error
+	if strings.TrimSpace(cfg.AWSRegistrationQueueURL) != "" {
+		registrationRunner, runnerErr := newAWSRegistrationQueueRunner(ctx, svc, cfg.AWSRegistrationQueueURL, cfg.AWSRegistrationQueueRegion, cfg.AWSProfile)
+		if runnerErr != nil {
+			return runnerErr
+		}
+		awsRegistrationTrigger = func(runCtx context.Context) error {
+			writeHeartbeat()
+			return registrationRunner.RunOnce(runCtx)
+		}
+	}
 	userPurgeRunner := &userpurge.Runner{
 		Store:     svc.Store,
 		Now:       svc.Now,
@@ -382,6 +393,31 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 				OnError: func(_ context.Context, err error) {
 					metrics.WorkerRetriesTotal.WithLabelValues("api_queue").Inc()
 					logger.Error("api queue runner iteration failed", telemetry.ZapError(err))
+				},
+			},
+		})
+	}
+	if awsRegistrationTrigger != nil {
+		// Do not run at startup: a poison or transient SQS registration message
+		// would propagate its error out of the startup pass and take down the
+		// whole worker. Let the scheduled interval handle failures — those log
+		// and retry rather than propagating.
+		runners = append(runners, scheduledRunner{
+			name:   "aws-registration",
+			runNow: false,
+			runner: scheduler.Runner{
+				Interval:     time.Second,
+				Key:          "aws-connector-registration",
+				Trigger:      awsRegistrationTrigger,
+				MaxAttempts:  defaultWorkerQueueMaxAttempts,
+				RetryBackoff: defaultWorkerRetryBackoff,
+				OnDeadLetter: func(_ context.Context, err error) {
+					metrics.WorkerDeadLettersTotal.WithLabelValues("aws_registration").Inc()
+					logger.Error("aws registration queue pass failed", telemetry.ZapError(err))
+				},
+				OnError: func(_ context.Context, err error) {
+					metrics.WorkerRetriesTotal.WithLabelValues("aws_registration").Inc()
+					logger.Error("aws registration queue retry scheduled", telemetry.ZapError(err))
 				},
 			},
 		})
