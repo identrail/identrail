@@ -358,8 +358,31 @@ const DOCS_FEATURED_GUIDES = [
     eyebrow: 'Architecture map',
     title: 'Understand the trust graph engine',
     description:
-      'See how source collection, repository exposure, graph construction, and finding analysis fit together.',
+      'See how ingestion, repository exposure, graph construction, and authorization controls work as one system.',
     href: 'https://github.com/identrail/identrail/blob/dev/docs/architecture.md'
+  }
+] as const;
+
+const DIFFERENTIATION_ROWS = [
+  {
+    area: 'Trust-path explainability',
+    identrail: 'Shows full identity chain with policy evidence and affected resources',
+    closed: 'Often returns abstract risk findings without chain-level context'
+  },
+  {
+    area: 'Rollout safety',
+    identrail: 'Read-only collection, simulation-first remediation, staged enforcement',
+    closed: 'Policy hardening usually relies on external tooling and manual checks'
+  },
+  {
+    area: 'Open-core transparency',
+    identrail: 'Public repository, documentation, and release history',
+    closed: 'Limited implementation visibility and slower verification by engineers'
+  },
+  {
+    area: 'Developer and platform fit',
+    identrail: 'Built for security + platform collaboration with inspectable outputs',
+    closed: 'Security-only workflows can be harder for platform teams to operationalize'
   }
 ] as const;
 
@@ -502,6 +525,18 @@ const INTEGRATION_ROWS = [
     signals: 'Workflow identities, OIDC trust, repository exposure telemetry',
     depth: 'Deep',
     status: 'GA'
+  },
+  {
+    source: 'OpenID Connect',
+    signals: 'Provider trust boundaries and subject claim controls',
+    depth: 'Focused',
+    status: 'GA'
+  },
+  {
+    source: 'Prometheus',
+    signals: 'Operational metrics for scans, workers, and authz policy telemetry',
+    depth: 'Focused',
+    status: 'GA'
   }
 ] as const;
 
@@ -512,13 +547,13 @@ const READ_ONLY_CONTROL_ROWS = [
     excluded: 'No secret material ingestion, no credential writeback'
   },
   {
-    area: 'Finding analysis',
-    access: 'Detection and graph analysis run against collected identity metadata',
-    excluded: 'No direct access changes during analysis'
+    area: 'Policy simulation',
+    access: 'Simulation engine evaluates proposed changes against collected graph state',
+    excluded: 'No direct policy mutation during simulation'
   },
   {
-    area: 'Review workflow',
-    access: 'Evidence, ownership, and remediation context stay attached to each finding',
+    area: 'Remediation workflow',
+    access: 'Action plans and exportable recommendations',
     excluded: 'No automatic enforcement without explicit operator action'
   }
 ] as const;
@@ -533,7 +568,7 @@ const FEATURE_DEEP_PAGES = [
     bullets: [
       'Map every role assumption chain and transitive trust path across accounts',
       'Prioritize overprivileged IAM paths by reachable sensitive resources',
-      'Review trust-policy evidence before a production change'
+      'Preview trust-policy hardening before production rollout'
     ],
     outcomes: [
       'Faster IAM triage for security engineering teams',
@@ -550,7 +585,7 @@ const FEATURE_DEEP_PAGES = [
     bullets: [
       'Trace namespace and cluster-level escalation paths from service accounts',
       'Understand cluster-to-cloud trust bridges through OIDC federation',
-      'Review RBAC exposure with cluster and workload context'
+      'Simulate RBAC hardening changes to avoid workload breakage'
     ],
     outcomes: [
       'Lower RBAC drift and accidental privilege growth',
@@ -600,16 +635,16 @@ const SOLUTION_DEEP_PAGES = [
     navLabel: 'AWS',
     heroTitle: 'Solution for AWS security teams',
     description:
-      'Reduce IAM blast radius with explainable trust paths, prioritized findings, and evidence your team can review.',
+      'Reduce IAM blast radius with explainable trust paths, prioritized exposure queues, and rollout-safe least-privilege workflows.',
     bullets: [
       'Continuously discover machine identities and trust relationships in AWS',
       'Detect high-impact assumption chains and overprivileged role paths',
       'Coordinate remediation with platform teams through shared graph evidence'
     ],
     outcomes: [
-      'Faster IAM triage for security engineering teams',
-      'Clear ownership for platform remediation',
-      'Evidence-backed review of trust policy changes'
+      '60-90% reduction in overprivileged IAM role exposure',
+      'Faster incident-response triage for identity pathways',
+      'Audit-ready visibility into trust policy changes'
     ]
   },
   {
@@ -617,11 +652,11 @@ const SOLUTION_DEEP_PAGES = [
     navLabel: 'Kubernetes',
     heroTitle: 'Solution for Kubernetes platform teams',
     description:
-      'Understand service-account and RBAC exposure in production clusters without losing workload context.',
+      'Control service-account and RBAC risk in production clusters without slowing down release velocity.',
     bullets: [
       'Expose hidden service-account privilege escalation paths',
       'Correlate RBAC risk with cloud permissions and federated trust',
-      'Review RBAC changes with source and workload evidence'
+      'Roll out safer RBAC policy controls with staged validation'
     ],
     outcomes: [
       'Reduced cluster authorization incidents',
@@ -631,19 +666,19 @@ const SOLUTION_DEEP_PAGES = [
   },
   {
     slug: 'multi-cloud',
-    navLabel: 'Multiple environments',
-    heroTitle: 'Solution for AWS organizations and shared clusters',
+    navLabel: 'Multi-cloud',
+    heroTitle: 'Solution for multi-cloud machine identity operations',
     description:
-      'Keep identity findings consistent across AWS accounts and shared Kubernetes environments with one review model.',
+      'Unify fragmented identity posture and trust-path analysis across cloud and cluster boundaries with one operating model.',
     bullets: [
-      'Connect AWS and Kubernetes sources in one findings workflow',
-      'Apply consistent evidence and ownership criteria across environments',
-      'Keep source context attached as findings move between teams'
+      'Normalize machine identity telemetry into one graph-backed workflow',
+      'Apply consistent triage criteria across environments',
+      'Track policy and exposure changes with centralized evidence'
     ],
     outcomes: [
-      'One review model across accounts and clusters',
-      'Less context switching during triage',
-      'Clearer handoffs between security and platform teams'
+      'Unified identity risk visibility across environments',
+      'Lower operational overhead for security operations',
+      'Improved governance consistency for compliance programs'
     ]
   },
   {
@@ -651,10 +686,10 @@ const SOLUTION_DEEP_PAGES = [
     navLabel: 'Platform Engineering',
     heroTitle: 'Solution for platform engineering organizations',
     description:
-      'Give platform teams the context to review identity findings and make focused authorization changes.',
+      'Ship authorization changes faster with simulation and staged rollout controls that protect production reliability.',
     bullets: [
-      'See which workloads and resources a finding can reach',
-      'Review source evidence before changing authorization',
+      'Preview policy impact before enforcement',
+      'Run controlled rollouts with rollback safety rails',
       'Share remediation context directly with service owners'
     ],
     outcomes: [
@@ -1803,7 +1838,7 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
       </div>
 
       {viewMode === 'graph' ? (
-        <div id={graphPanelId} role="tabpanel" aria-labelledby={graphTabId} className="idt-demo-graph" aria-label="Interactive trust graph preview">
+        <div id={graphPanelId} role="tabpanel" aria-labelledby={graphTabId} className="idt-demo-graph" aria-label="Interactive trust graph simulation">
           <svg className="idt-demo-edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             <defs>
               <linearGradient id={`idt-demo-edge-base-gradient-${variant}`} x1="0%" y1="0%" x2="100%" y2="100%">
@@ -2354,12 +2389,12 @@ function FaqPage() {
 
 function HomePage() {
   const seo: SeoConfig = {
-    title: 'Open-Source Machine Identity Security | Identrail',
+    title: 'Machine Identity Trust Graph | AWS IAM, Kubernetes, OIDC | Identrail',
     description:
-      'Identrail scans GitHub, AWS, and Kubernetes to show which machine identity paths can reach sensitive resources, with evidence your team can act on.',
+      'Identrail is the trust graph for machine identity security across AWS IAM, Kubernetes, GitHub/OIDC, and repository exposure signals with read-only evidence and safe remediation.',
     path: '/',
     keywords:
-      'machine identity security, AWS IAM, Kubernetes RBAC, GitHub security, trust paths, repository exposure',
+      'machine identity security, AWS IAM trust path analysis, Kubernetes service account risk, OIDC security, cloud identity blast radius reduction, GitHub trust path risk',
     schemaType: 'WebPage'
   };
   useSeo(seo);
@@ -2369,13 +2404,13 @@ function HomePage() {
       <section className="idt-hero">
         <div className="idt-shell idt-hero-grid">
           <div className="idt-hero-copy">
-            <p className="idt-eyebrow">Open-source machine identity security</p>
+            <p className="idt-eyebrow">Machine identity trust graph</p>
             <h1>
-              Find the access paths that can reach <span>production</span>.
+              See every machine identity path before it becomes <span>risk</span>.
             </h1>
             <p className="idt-lead idt-lead-body">
-              Identrail scans GitHub, AWS, and Kubernetes to show which machine identities can reach sensitive resources—then
-              gives your team the evidence to decide what to fix.
+              Identrail connects cloud, cluster, repository, and OIDC identity signals into one live risk graph so teams can
+              prioritize exposure and ship safer access changes.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
               <ScanIntakeCTA className="idt-btn idt-btn-primary" />
@@ -2388,17 +2423,18 @@ function HomePage() {
               </div>
               <div>
                 <dt>Coverage</dt>
-                <dd>GitHub, AWS, Kubernetes</dd>
+                <dd>AWS, K8s, GitHub, OIDC</dd>
               </div>
               <div>
                 <dt>Output</dt>
-                <dd>Evidence-backed findings</dd>
+                <dd>Prioritized risk graph</dd>
               </div>
             </dl>
             <ul className="idt-hero-trust-cues" aria-label="Evaluation trust cues">
-              <li>Open source under Apache-2.0</li>
-              <li>No write access during scans</li>
-              <li>CLI, Docker, and hosted workflows</li>
+              <li>Open-core under Apache-2.0</li>
+              <li>Read-only onboarding model</li>
+              <li>Self-hosted and hosted paths</li>
+              <li>Public docs and release history</li>
             </ul>
           </div>
           <HeroProductReveal />
@@ -2412,22 +2448,47 @@ function HomePage() {
 
         <CommandCenterSection />
 
+        <ProductTourSection />
+
         <HowItWorksSection />
+
+        <DeploymentPathBanner />
+
+        <section className="idt-section idt-home-compare-section">
+          <SectionTitle
+            eyebrow="Comparison"
+            title="Why teams choose Identrail over closed black-box workflows"
+          />
+          <div className="idt-table-wrap idt-home-compare">
+            <table className="idt-compare-table">
+              <thead>
+                <tr>
+                  <th scope="col">Category</th>
+                  <th scope="col">Identrail</th>
+                  <th scope="col">Typical closed alternatives</th>
+                </tr>
+              </thead>
+              <tbody>
+                {DIFFERENTIATION_ROWS.map((row) => (
+                  <tr key={row.area}>
+                    <th scope="row">{row.area}</th>
+                    <td>{row.identrail}</td>
+                    <td>{row.closed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         <section className="idt-section idt-final-cta idt-home-final-cta" id="enterprise-procurement">
           <SectionTitle
-            eyebrow="Start with one source"
-            title="See what your first finding looks like."
-            body="Connect a repository, AWS account, or Kubernetes cluster in read-only mode. Review the evidence, then choose the right deployment path."
+            eyebrow="Ready to evaluate"
+            title="Map your first production trust path in minutes"
+            body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
           />
           <div className="idt-inline-actions">
-            <ScanIntakeCTA className="idt-btn idt-btn-primary">Request a review</ScanIntakeCTA>
-            <Link to="/docs" className="idt-btn idt-btn-dark">
-              Read the docs
-            </Link>
-            <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
-              View on GitHub
-            </SafeLink>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary idt-home-demo-cta">Book Demo</ScanIntakeCTA>
           </div>
         </section>
       </div>
@@ -2809,7 +2870,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
                     <ul>
                       <li>Prioritized trust path findings with severity and impact context</li>
                       <li>Reachable blast-radius summary for your selected environment</li>
-                      <li>Evidence-backed remediation starting point</li>
+                      <li>Rollout-safe remediation sequence for first actions</li>
                     </ul>
                   </article>
                 </div>
@@ -2909,7 +2970,7 @@ function ProductPage() {
   useSeo({
     title: 'Product | Identrail Machine Identity Security Platform',
     description:
-      'Scan GitHub, AWS, and Kubernetes with Identrail to map machine identity paths, investigate risk, and hand off evidence-backed fixes.',
+      'Discover machine identities across AWS and Kubernetes, map trust paths, detect risk, and enforce safer authorization controls with Identrail.',
     path: '/product',
     schemaType: 'Product'
   });
@@ -2919,10 +2980,10 @@ function ProductPage() {
       <section className="idt-product-hero-full">
         <div className="idt-product-hero-copy">
           <p className="idt-eyebrow">Product</p>
-          <h1>Machine identity risk, with the path attached</h1>
+          <h1>Machine identity risk, mapped end to end</h1>
           <p>
-            Identrail connects GitHub exposure, AWS IAM relationships, and Kubernetes RBAC into findings your team can
-            investigate and explain.
+            Identrail unifies IAM graph discovery, repository exposure scanning, and rollout-safe authorization
+            workflows into one operator-grade platform.
           </p>
           <div className="idt-inline-actions">
             <ScanIntakeCTA className="idt-btn idt-btn-primary" />
@@ -2937,37 +2998,47 @@ function ProductPage() {
       <section className="idt-product-capability-band" aria-labelledby="product-capabilities-title">
         <div className="idt-product-section-heading">
           <p className="idt-eyebrow">Platform map</p>
-          <h2 id="product-capabilities-title">Three steps from source to decision.</h2>
+          <h2 id="product-capabilities-title">Four product surfaces in one workflow.</h2>
         </div>
         <div className="idt-product-capability-grid">
           <article>
             <span>01</span>
-            <h2>Connect sources</h2>
-            <p>Bring GitHub, AWS, and Kubernetes identity signals together in read-only mode.</p>
+            <h2>Trust Graph Explorer</h2>
+            <p>Interactive mapping of principals, assumptions, actions, and reachable resources across cloud and Kubernetes.</p>
             <ul>
-              <li>Scope the sources you own</li>
-              <li>Keep collection read-only</li>
-              <li>Preserve source evidence</li>
+              <li>Trace blast radius from any machine identity</li>
+              <li>Explain each trust edge with source policy evidence</li>
+              <li>Compare current and proposed policy states</li>
             </ul>
           </article>
           <article>
             <span>02</span>
-            <h2>Trace exposure</h2>
-            <p>Follow the identity path to the resource and see why the finding matters.</p>
+            <h2>Detection and Triage Engine</h2>
+            <p>High-signal detections for overprivileged paths, stale credentials, and risky identity chains.</p>
             <ul>
-              <li>Map identity relationships</li>
-              <li>Attach policy and workload context</li>
-              <li>Prioritize reachable sensitive resources</li>
+              <li>Risk scoring with business context</li>
+              <li>Actionable remediation guidance</li>
+              <li>Ticket and workflow integrations</li>
             </ul>
           </article>
           <article>
             <span>03</span>
-            <h2>Review the fix</h2>
-            <p>Give owners the evidence and next step needed to make a focused change.</p>
+            <h2>Repo Exposure Scanner</h2>
+            <p>Continuously scan source repositories and CI artifacts for leaked credentials and unsafe patterns.</p>
             <ul>
-              <li>Assign the responsible owner</li>
-              <li>Share the source proof</li>
-              <li>Track the next decision</li>
+              <li>Built-in and custom detectors</li>
+              <li>Git-aware triage with finding history</li>
+              <li>Correlates secret leaks to trust paths</li>
+            </ul>
+          </article>
+          <article>
+            <span>04</span>
+            <h2>Rollout-Safe Authorization Controls</h2>
+            <p>Enforce least privilege with policy simulation, staged rollout, and fast rollback safety rails.</p>
+            <ul>
+              <li>Policy impact simulation before deploy</li>
+              <li>Progressive rollout controls</li>
+              <li>Kill switch and audit trail support</li>
             </ul>
           </article>
         </div>
@@ -2976,10 +3047,10 @@ function ProductPage() {
       <section className="idt-product-graph-band">
         <div className="idt-product-section-heading">
           <p className="idt-eyebrow">Hero feature</p>
-          <h2>See the path behind the finding.</h2>
+          <h2>The Trust Graph is the control plane for machine identity risk.</h2>
           <p>
-            Investigate the relationship from source identity to sensitive resource with explainable graph evidence and
-            owner context.
+            Investigate every risky path from source identity to sensitive resource with explainable graph evidence and
+            owner-ready remediation.
           </p>
         </div>
         <TrustGraphDemo variant="full" />
@@ -2988,26 +3059,26 @@ function ProductPage() {
       <section className="idt-product-workflow-band" aria-labelledby="product-workflow-title">
         <div className="idt-product-section-heading">
           <p className="idt-eyebrow">Workflow</p>
-          <h2 id="product-workflow-title">From discovery to review without losing context.</h2>
+          <h2 id="product-workflow-title">From discovery to fix without collapsing the context.</h2>
         </div>
         <div className="idt-product-workflow-grid">
           <article>
-            <span>Connect</span>
-            <strong>Collect GitHub, AWS, and Kubernetes identity metadata in read-only mode.</strong>
+            <span>Discover</span>
+            <strong>Map the reachable identity graph across repositories, cloud roles, and Kubernetes workloads.</strong>
           </article>
           <article>
-            <span>Investigate</span>
-            <strong>Separate noisy permissions from paths that can reach sensitive resources.</strong>
+            <span>Prioritize</span>
+            <strong>Separate noisy permissions from the paths that can actually reach sensitive resources.</strong>
           </article>
           <article>
-            <span>Review</span>
-            <strong>Share source evidence and ownership context before making the next change.</strong>
+            <span>Control</span>
+            <strong>Ship least-privilege fixes with simulation, audit history, and rollback-ready guardrails.</strong>
           </article>
         </div>
         <div className="idt-product-cta-row">
           <div>
             <p className="idt-eyebrow">Technical walkthrough</p>
-            <h2>Bring one source. Leave with a finding you can explain.</h2>
+            <h2>Bring one risky path. Leave with the evidence and rollout plan.</h2>
           </div>
           <div className="idt-inline-actions">
             <ScanIntakeCTA className="idt-btn idt-btn-primary" />
@@ -3025,7 +3096,7 @@ function FeaturesPage() {
   useSeo({
     title: 'Features | AWS IAM, Kubernetes RBAC, Git Scanner, Trust Graph',
     description:
-      'Explore Identrail coverage for AWS machine identities, Kubernetes RBAC exposure, GitHub repository scanning, and trust-path analysis.',
+      'Explore Identrail features for AWS machine identities, Kubernetes RBAC visibility, Git exposure scanning, and interactive trust graph analysis.',
     path: '/features'
   });
 
@@ -3049,7 +3120,7 @@ function FeaturesPage() {
       bullets: [
         'Identify namespace and cluster-level privilege escalation paths',
         'Trace service account to cloud-role federation',
-        'Review RBAC exposure with cluster and workload context'
+        'Simulate RBAC control tightening before rollout'
       ]
     },
     {
@@ -3060,7 +3131,7 @@ function FeaturesPage() {
       bullets: [
         'Continuous and historical scan support',
         'Policy-backed detector tuning',
-        'Findings linked directly to trust-path context'
+        'Findings linked directly to trust graph context'
       ]
     },
     {
@@ -3080,8 +3151,8 @@ function FeaturesPage() {
     <div className="idt-marketing-page idt-modern-public-page idt-features-page">
       <PageHero
         eyebrow="Features"
-        title="Focused coverage for machine identity risk"
-        body="Connect GitHub, AWS, and Kubernetes signals, then investigate the paths that matter."
+        title="Built for cloud-native machine identity security at scale"
+        body="Deep technical workflows for security and platform teams, from discovery to rollout-safe control."
         variant="product"
         actions={
           <>
@@ -3139,7 +3210,7 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
               View Docs
             </Link>
             <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
-              View on GitHub
+              Star on GitHub
             </SafeLink>
           </>
         }
@@ -3175,35 +3246,35 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
 
 function SolutionsPage() {
   useSeo({
-    title: 'Solutions | Security and Platform Teams | Identrail',
+    title: 'Solutions | AWS, Kubernetes, Multi-cloud, Security and Platform Teams',
     description:
-      'Current solution patterns for teams investigating machine identity paths across GitHub, AWS, and Kubernetes.',
+      'Solution patterns for AWS IAM, Kubernetes RBAC, multi-cloud identities, platform engineering teams, and security operations.',
     path: '/solutions'
   });
 
   const solutions = [
     {
       title: 'AWS Security Teams',
-      body: 'Reduce IAM blast radius with trust-path evidence, role-chain analysis, and clear ownership.',
-      metric: 'Faster triage with the affected path attached',
+      body: 'Reduce IAM blast radius with trust path evidence, role chain analysis, and policy simulations.',
+      metric: 'Cut overprivileged role exposure by 60-90%',
       href: '/solutions/aws'
     },
     {
       title: 'Kubernetes Platform Teams',
-      body: 'Understand service-account privileges and RBAC exposure with workload context.',
-      metric: 'Review cluster findings with source evidence',
+      body: 'Gain visibility into service account privileges and prevent RBAC drift before incidents happen.',
+      metric: 'Reduce cluster authz incidents with staged controls',
       href: '/solutions/kubernetes'
     },
     {
-      title: 'AWS Organizations and shared clusters',
-      body: 'Keep findings consistent across AWS accounts and shared Kubernetes environments.',
-      metric: 'One review model across accounts and clusters',
+      title: 'Multi-cloud Environments',
+      body: 'Normalize machine identity data across providers with one operational control layer.',
+      metric: 'Unify remediation workflows across clouds',
       href: '/solutions/multi-cloud'
     },
     {
       title: 'Platform Engineering',
-      body: 'Give platform teams the path, evidence, and owner context behind each finding.',
-      metric: 'Make focused changes without losing context',
+      body: 'Ship authorization changes faster with simulation, rollout safety, and clear policy traceability.',
+      metric: 'Deliver identity controls without release friction',
       href: '/solutions/platform-engineering'
     },
     {
@@ -3629,9 +3700,9 @@ function DeploymentModelsPage() {
 
 function IntegrationsPage() {
   useSeo({
-    title: 'Integrations | GitHub, AWS, and Kubernetes | Identrail',
+    title: 'Integrations | Machine Identity Signal Coverage',
     description:
-      'Connect GitHub, AWS IAM, and Kubernetes to map machine identity paths and review evidence in one workflow.',
+      'Review Identrail integration coverage across AWS IAM, Kubernetes, GitHub, OpenID Connect, and Prometheus with depth and signal details.',
     path: '/integrations'
   });
 
@@ -3639,8 +3710,8 @@ function IntegrationsPage() {
     <div className="idt-marketing-page idt-modern-public-page idt-integrations-page">
       <PageHero
         eyebrow="Integrations"
-        title="Connect the sources behind machine identity risk"
-        body="Identrail collects GitHub, AWS IAM, and Kubernetes signals in read-only mode, then links them into findings your team can review."
+        title="Identity signal coverage across cloud, cluster, and code workflows"
+        body="Identrail unifies machine identity telemetry into one trust-path analysis model. Use this page to verify connector depth before rollout."
         variant="product"
         actions={
           <>

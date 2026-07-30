@@ -393,28 +393,27 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Find the access paths that can reach production/i
+        name: /See every machine identity path/i
       })
     ).toBeInTheDocument();
 
     const scanButtons = screen.getAllByRole('button', { name: 'Request Trust Path Review' });
     expect(scanButtons.length).toBeGreaterThan(0);
-    expect(document.querySelectorAll('.idt-logo-cloud-group')).toHaveLength(1);
-    expect(document.querySelectorAll('.idt-logo-cloud-group .idt-logo-cloud-item')).toHaveLength(3);
-    expect(screen.getByRole('heading', { level: 2, name: /A role, repo, or service account/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: /One finding, with the whole path attached/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: /From source connection to owner-ready evidence/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: /See what your first finding looks like/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'View Identrail on GitHub' })).toHaveAttribute(
-      'href',
-      'https://github.com/identrail/identrail'
-    );
+    expect(document.querySelectorAll('.idt-logo-cloud-group')).toHaveLength(2);
+    expect(document.querySelectorAll('.idt-logo-cloud-group:first-child .idt-logo-cloud-item')).toHaveLength(8);
     fireEvent.click(scanButtons[0]);
     expect(screen.getByRole('dialog', { name: /Verify company identity/i })).toBeInTheDocument();
     expect(screen.queryByText('Read-only trust review')).not.toBeInTheDocument();
     expect(screen.queryByText(/Need enterprise procurement/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole('heading', { level: 2, name: /Connect sources, trace risk/i })
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Book Demo/i }).length).toBeGreaterThan(0);
     expect(document.querySelector('#risk-scan-form')).not.toBeInTheDocument();
     expect(document.querySelector('.idt-trust-strip + .idt-home-after-stack')).toBeInTheDocument();
+    expect(document.querySelector('.idt-home-after-stack .idt-shell')).not.toBeInTheDocument();
   });
 
 
@@ -560,13 +559,13 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Machine identity risk, with the path attached/i
+        name: /Machine identity risk, mapped end to end/i
       })
     ).toBeInTheDocument();
 
-    expect(screen.getByRole('heading', { level: 2, name: /Three steps from source to decision/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: /See the path behind the finding/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: /From discovery to review/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /Four product surfaces/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /The Trust Graph is the control plane/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /From discovery to fix/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /Request Trust Path Review/i }).length).toBeGreaterThan(0);
     expect(document.querySelector('main main')).not.toBeInTheDocument();
     expect(document.querySelector('.idt-product-hero-visual')).toHaveAttribute('aria-hidden', 'true');
@@ -738,7 +737,7 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Connect the sources behind machine identity risk/i
+        name: /Identity signal coverage across cloud, cluster, and code workflows/i
       })
     ).toBeInTheDocument();
   });

@@ -32,7 +32,7 @@ export const HOME_FAQ_ITEMS: FaqItem[] = [
   {
     question: 'Is the scan read-only?',
     answer:
-      'Yes. Identrail discovery connectors collect identity and trust-path metadata without mutating your cloud, cluster, or repository state.'
+      'Yes. Identrail discovery connectors are built for read-only collection of identity and trust-path metadata. You control write actions separately through staged policy workflows.'
   },
   {
     question: 'How does Identrail access AWS, Kubernetes, and GitHub data?',
@@ -50,14 +50,14 @@ export const HOME_FAQ_ITEMS: FaqItem[] = [
       'Yes. The open-source core is designed for self-hosted evaluation and production environments. Teams can later adopt hosted SaaS or enterprise deployment models without re-platforming.'
   },
   {
-    question: 'How does Identrail keep scans safe?',
+    question: 'How does policy simulation avoid breaking production?',
     answer:
-      'Identrail keeps discovery read-only. It collects the metadata needed to analyze identity paths and leaves access changes to your existing change-control process.'
+      'Policy simulation shows which workloads and trust paths would be affected before enforcement. Teams can roll out in stages, monitor impact, and use rollback controls if needed.'
   },
   {
     question: 'What integrations are supported?',
     answer:
-      'Identrail supports AWS IAM, Kubernetes identities and RBAC, and GitHub repository and workflow telemetry, including the OIDC relationships used by GitHub Actions.'
+      'Identrail supports AWS IAM, Kubernetes identities and RBAC, OIDC trust relationships, and Git-based repository/workflow telemetry. Enterprise workflows can connect ticketing and operational controls.'
   }
 ];
 
@@ -203,7 +203,7 @@ export const BLOG_POSTS: BlogPost[] = [
     title: 'Kubernetes Machine Identity: RBAC Risk Paths You Can Actually Fix',
     slug: 'kubernetes-machine-identity-rbac-risk-paths',
     description:
-      'How to map service-account privilege paths and give owners the evidence to make focused RBAC changes.',
+      'How to map service account privilege escalations and implement rollout-safe policy tightening without downtime.',
     category: 'Kubernetes Security',
     readTime: '9 min',
     intro: [
@@ -395,7 +395,7 @@ export const BLOG_POSTS: BlogPost[] = [
     title: 'How to Prove Least Privilege for Non-Human Identities to Auditors',
     slug: 'least-privilege-evidence-for-non-human-identities',
     description:
-      'Generate evidence for SOC 2 and ISO 27001 with trust-path snapshots, ownership records, and remediation trails.',
+      'Generate evidence for SOC 2 and ISO 27001 with trust graph snapshots, policy simulations, and remediation trails.',
     category: 'Compliance',
     readTime: '11 min',
     intro: [
@@ -406,7 +406,7 @@ export const BLOG_POSTS: BlogPost[] = [
       {
         heading: 'What evidence is actually useful',
         paragraphs: [
-          'Useful least-privilege evidence combines current state, ownership, and proof of review. A trust graph snapshot shows current reachability. Source policy and workload context explain why the path exists. A remediation trail shows the finding was closed intentionally rather than accidentally disappearing from a dashboard.',
+          'Useful least-privilege evidence combines current state, change control, and proof of review. A trust graph snapshot shows current reachability. A simulation or validation artifact shows how a change was tested before rollout. A remediation trail shows the finding was closed intentionally rather than accidentally disappearing from a dashboard.',
           'This is why flat entitlement exports are rarely persuasive on their own. They list permissions, but they do not show the path from identity to sensitive target or the operational process used to reduce that path.'
         ],
         bullets: [
@@ -424,17 +424,17 @@ export const BLOG_POSTS: BlogPost[] = [
         ]
       },
       {
-        heading: 'Why evidence matters',
+        heading: 'Why simulation matters',
         paragraphs: [
-          'Auditors increasingly care about control effectiveness, not just the existence of a policy. If a team can show the identity path, reachable resource, owner, and review decision, that demonstrates a stronger control process than a one-time manual edit.',
-          'It also makes the evidence more believable. Least privilege is easier to defend when the organization can explain what it found, what it changed, and why the remaining access is intentional.'
+          'Auditors increasingly care about control effectiveness, not just the existence of a policy. If a team can show that a trust change was simulated, staged, and reviewed before enforcement, that demonstrates a stronger control process than a one-time manual edit.',
+          'It also makes the evidence more believable. Least privilege is easier to defend when you can show how the organization reduces access without breaking production.'
         ]
       },
       {
         heading: 'Where Identrail fits',
         paragraphs: [
-          'Identrail turns least-privilege evidence into an operational artifact. It shows which machine identity path exists today, why it is risky, and which owner has the context to review the next change.',
-          'Security gets defensible evidence, while platform teams get a focused starting point for tightening access through their existing change process.'
+          'Identrail turns least-privilege evidence into an operational artifact. It shows which machine identity path exists today, why it is risky, and what control change is being proposed before the change is enforced.',
+          'That makes the same system useful for both sides of the house: security gets defensible evidence, and platform teams get a safer workflow for tightening access over time.'
         ]
       }
     ],
@@ -461,7 +461,7 @@ export const BLOG_POSTS: BlogPost[] = [
     title: 'Designing Rollout-Safe Authorization Controls for Platform Teams',
     slug: 'rollout-safe-authorization-controls',
     description:
-      'Evidence, ownership, and review patterns that help platform teams reduce authorization risk in production.',
+      'Staged policy rollouts, simulation gates, and kill-switch patterns that reduce authz outage risk in production.',
     category: 'Platform Engineering',
     readTime: '8 min',
     intro: [
@@ -499,8 +499,8 @@ export const BLOG_POSTS: BlogPost[] = [
       {
         heading: 'Where Identrail fits',
         paragraphs: [
-          'Identrail gives teams the evidence needed before a control change: the identity path, reachable resource, source context, and responsible owner. It helps security and platform teams agree on the next action without losing the original finding context.',
-          'That matters because the hardest part of authorization is not seeing the risk. It is making a focused change without breaking the system that depends on it.'
+          'Identrail is designed around rollout-safe control changes. It does not stop at surfacing a risky path. It helps teams inspect the path, understand the likely impact of tightening it, and sequence the remediation in a way engineering can actually execute.',
+          'That matters because the hardest part of authorization is not seeing the risk. It is removing the risk without breaking the system that depends on it.'
         ]
       }
     ],

@@ -18,19 +18,19 @@ const identitySignals = [
 
 const storyStages = [
   {
-    label: 'Separate findings',
-    title: 'Each system reports its own permissions',
-    detail: 'The path between a repository, workload, role, and sensitive resource stays hidden.'
+    label: 'Before',
+    title: 'Isolated alerts',
+    detail: 'Each control plane looks acceptable until the machine identity path crosses boundaries.'
   },
   {
-    label: 'Evidence connected',
-    title: 'Join the identity signals',
-    detail: 'Identrail correlates GitHub, AWS, and Kubernetes evidence into one machine identity path.'
+    label: 'During',
+    title: 'Evidence stitching',
+    detail: 'Identity collection joins IAM, Kubernetes, repository, and OIDC signals into one chain.'
   },
   {
-    label: 'A fix you can explain',
-    title: 'Hand off the next decision',
-    detail: 'Owners get the affected resource, source evidence, and a clear remediation starting point.'
+    label: 'After',
+    title: 'Safe remediation',
+    detail: 'Owners get the affected workload, blast-radius context, and a recommended next step.'
   }
 ];
 
@@ -39,11 +39,12 @@ export function ProblemFramingSection() {
     <section className="idt-section idt-problem-frame" aria-labelledby="problem-frame-title">
       <div className="idt-problem-frame-grid">
         <div className="idt-problem-copy">
-          <p className="idt-eyebrow">The problem</p>
-          <h2 id="problem-frame-title">A role, repo, or service account is only part of the story.</h2>
+          <p className="idt-eyebrow">Why teams miss machine identity risk</p>
+          <h2 id="problem-frame-title">Signals only matter when they reveal the path.</h2>
           <p>
-            Identrail connects GitHub workflow exposure, AWS IAM relationships, and Kubernetes RBAC so teams can see
-            which machine identity paths reach sensitive resources. Start with evidence, then decide what to fix.
+            IAM policies, Kubernetes RBAC, repository exposure, and OIDC workflow identities are reviewed in separate
+            tools. Identrail connects them into one operating view, then shows blast radius, ownership, and the next
+            action.
           </p>
         </div>
 

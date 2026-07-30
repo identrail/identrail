@@ -45,7 +45,7 @@ const KUBERNETES_STEPS = [
   },
   {
     title: 'Evidence ready',
-    detail: 'Owner note drafted with the next review step'
+    detail: 'Owner note drafted with first safe fix'
   }
 ] as const;
 const MOBILE_REVIEW_STEPS = KUBERNETES_STEPS.slice(0, 3);
@@ -163,9 +163,9 @@ export function HeroProductReveal() {
                 <small>prod-billing / read-write eligible path</small>
               </div>
               <div>
-                Review next action
+                Owner-ready fix
                 <span>Restrict `sub` and namespace tags</span>
-                <small>Source evidence attached for owner review</small>
+                <small>Simulation reports no workload breakage</small>
               </div>
             </div>
 

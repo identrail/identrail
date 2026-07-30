@@ -15599,7 +15599,7 @@ html[data-theme='light'] .idt-problem-map-core div span {
   }
 
   .idt-hero-copy h1 {
-    max-width: 18ch;
+    max-width: 8.7ch;
     font-size: clamp(3.05rem, 15.1vw, 4.35rem);
   }
 
@@ -15754,7 +15754,7 @@ html[data-theme='light'] .idt-problem-map-core div span {
 
 @media (max-width: 520px) {
   .idt-hero-copy h1 {
-    max-width: 18ch;
+    max-width: 8.45ch;
   }
 
   .idt-hero-admin-window {
@@ -19501,7 +19501,7 @@ html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-inline-l
 @media (max-width: 820px) {
   .idt-hero-copy h1,
   html[data-theme='light'] .idt-hero-copy h1 {
-    max-width: 18ch;
+    max-width: 9.6ch;
     font-size: clamp(2.65rem, 12vw, 3.35rem);
     line-height: 1;
   }
@@ -33224,69 +33224,6 @@ html[data-theme='light'] .idt-danger-modal-body {
 
 html[data-theme='light'] .idt-danger-modal .idt-danger-modal-help {
   color: #e0e4ec;
-}
-
-/* Keep the open-source proof compact: one metric plus a quiet GitHub mark. */
-.idt-hero-proof-github {
-  display: inline-grid;
-  width: 3.25rem;
-  min-width: 3.25rem;
-  height: 3.25rem;
-  place-items: center;
-  border: 1px solid rgba(17, 24, 39, 0.1);
-  border-radius: 999px;
-  background: #ffffff;
-  color: #111827;
-  box-shadow: 0 12px 28px rgba(17, 24, 39, 0.06);
-  transition:
-    transform var(--idt-hover-duration) var(--idt-hover-ease),
-    box-shadow var(--idt-hover-duration) var(--idt-hover-ease),
-    border-color var(--idt-hover-duration) var(--idt-hover-ease);
-}
-
-.idt-hero-proof-github img {
-  width: 1.16rem;
-  height: 1.16rem;
-}
-
-.idt-hero-proof-github:hover,
-.idt-hero-proof-github:focus-visible {
-  transform: translateY(-1px);
-  border-color: rgba(17, 24, 39, 0.24);
-  box-shadow: 0 16px 30px rgba(17, 24, 39, 0.12);
-}
-
-.idt-logo-cloud-track {
-  width: 100%;
-  justify-content: center;
-  animation: none;
-}
-
-.idt-logo-cloud-group {
-  width: 100%;
-  justify-content: center;
-  padding-right: 0;
-}
-
-@media (max-width: 720px) {
-  .idt-hero-proof-pills {
-    display: flex;
-    align-items: stretch;
-    gap: 0.55rem;
-  }
-
-  .idt-hero-proof-pill {
-    flex: 1 1 auto;
-  }
-
-  .idt-hero-proof-github {
-    flex: 0 0 3.25rem;
-  }
-
-  .idt-logo-cloud-group {
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
 }
 
 html[data-theme='light'] .idt-danger-modal-typed input {
