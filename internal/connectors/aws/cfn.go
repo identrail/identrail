@@ -76,6 +76,13 @@ const defaultStackSetName = "identrail-readonly-connector-stackset"
 // StackSet launch URL. The URL never carries AWS credentials or customer secret
 // values; it carries only setup parameters such as the generated external ID,
 // pinned template URL, permission model, and target metadata.
+//
+// Rollout* fields are only populated for organization-scale rollouts. When any
+// rollout field is set, the launch URL emits the CFN template's
+// UseRolloutRegistration parameters so every member-account stack instance can
+// authenticate its registration event back to the Identrail rollout envelope.
+// The RolloutRegistrationSecret is derived server-side and delivered inside
+// the AWS console URL; it is never persisted in plaintext.
 type CloudFormationStackSetLaunchInput struct {
 	TemplateURL                  string
 	Region                       string
@@ -90,6 +97,13 @@ type CloudFormationStackSetLaunchInput struct {
 	TargetRegions                []string
 	AutoDeploymentEnabled        *bool
 	RetainStacksOnAccountRemoval bool
+
+	RegistrationProviderARN     string
+	RolloutID                   string
+	RolloutRegistrationSecret   string
+	RolloutOrganizationID       string
+	RolloutManagementAccountID  string
+	RolloutStackSetNameOverride string
 }
 
 // BuildCloudFormationStackSetLaunchURL creates an AWS console deep link for
@@ -120,8 +134,34 @@ func BuildCloudFormationStackSetLaunchURL(input CloudFormationStackSetLaunchInpu
 	values.Set("stackSetName", stackSetName)
 	values.Set("permissionModel", permissionModel)
 	values.Set("param_IdentrailAccountId", strings.TrimSpace(input.IdentrailAccountID))
-	values.Set("param_ExternalId", strings.TrimSpace(input.ExternalID))
 	values.Set("param_RoleName", roleName)
+	// Rollout parameters take precedence over the manual External ID: the CFN
+	// template's UseRolloutRegistration condition depends on RolloutId +
+	// RolloutRegistrationSecret + RegistrationProviderArn all being present.
+	// When they are, param_ExternalId is left empty so the trust policy
+	// resolves sts:ExternalId from the rollout secret instead.
+	rolloutID := strings.TrimSpace(input.RolloutID)
+	rolloutSecret := strings.TrimSpace(input.RolloutRegistrationSecret)
+	rolloutProviderARN := strings.TrimSpace(input.RegistrationProviderARN)
+	if rolloutID != "" && rolloutSecret != "" && rolloutProviderARN != "" {
+		values.Set("param_ExternalId", "")
+		values.Set("param_RegistrationProviderArn", rolloutProviderARN)
+		values.Set("param_RolloutId", rolloutID)
+		values.Set("param_RolloutRegistrationSecret", rolloutSecret)
+		if organizationID := strings.TrimSpace(input.RolloutOrganizationID); organizationID != "" {
+			values.Set("param_RolloutOrganizationId", organizationID)
+		}
+		if managementAccountID := strings.TrimSpace(input.RolloutManagementAccountID); managementAccountID != "" {
+			values.Set("param_RolloutManagementAccountId", managementAccountID)
+		}
+		rolloutStackSetName := strings.TrimSpace(input.RolloutStackSetNameOverride)
+		if rolloutStackSetName == "" {
+			rolloutStackSetName = stackSetName
+		}
+		values.Set("param_RolloutStackSetName", rolloutStackSetName)
+	} else {
+		values.Set("param_ExternalId", strings.TrimSpace(input.ExternalID))
+	}
 	if len(input.OrganizationalUnitIDs) > 0 {
 		values.Set("organizationalUnitIds", strings.Join(input.OrganizationalUnitIDs, ","))
 	}

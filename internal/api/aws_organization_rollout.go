@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +28,25 @@ const (
 // must connect and validate that connector before an organization-scale
 // rollout can be approved.
 var ErrAWSOrganizationRolloutControllingUnready = errors.New("aws controlling account is not validated")
+
+// ErrAWSOrganizationRolloutOUMembershipUnsupported reports that an OU-only
+// rollout was requested. Slice 1 does not resolve OU membership from AWS
+// Organizations; without an expected-target expansion, an OU-only rollout
+// would admit any non-excluded account callback and could not tell the
+// operator which accounts to expect. The next slice adds the membership
+// resolver alongside the reconciliation loop; today the caller must also
+// supply selected_account_ids.
+var ErrAWSOrganizationRolloutOUMembershipUnsupported = errors.New("aws rollout ou membership resolver unavailable")
+
+// ErrAWSOrganizationRolloutMixedPartition reports that the requested
+// TargetRegions span more than one AWS partition. Every rollout is bound to a
+// single partition so member-account stack ARNs, role ARNs, and permission
+// checks stay consistent; a rollout that mixes commercial and GovCloud (or
+// China) regions would be authenticated against the wrong partition on
+// half of its members.
+var ErrAWSOrganizationRolloutMixedPartition = errors.New("aws rollout target regions span multiple partitions")
+
+var awsOrganizationRolloutAccountIDPattern = regexp.MustCompile(`^[0-9]{12}$`)
 
 // AWSOrganizationRolloutStartRequest is the operator-approved request to open
 // a scoped organization rollout envelope from a validated controlling
@@ -145,12 +165,16 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 	}
 	organizationID := strings.TrimSpace(request.OrganizationID)
 	managementAccountID := strings.TrimSpace(request.ManagementAccountID)
-	if organizationID == "" || len(managementAccountID) != 12 {
+	if organizationID == "" || !awsOrganizationRolloutAccountIDPattern.MatchString(managementAccountID) {
 		return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
 	}
 	regions := trimAndLowerAWSStringSlice(request.TargetRegions)
 	if len(regions) == 0 {
 		return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
+	}
+	partition, err := awsOrganizationRolloutPartitionForRegions(regions)
+	if err != nil {
+		return AWSOrganizationRolloutStatus{}, err
 	}
 
 	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, controllingConnectorID)
@@ -193,8 +217,21 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 	selectedOUs := trimAndDedupeAWSStringSlice(request.SelectedOUIDs)
 	selectedAccounts := trimAndDedupeAWSStringSlice(request.SelectedAccountIDs)
 	excludedAccounts := trimAndDedupeAWSStringSlice(request.ExcludedAccountIDs)
+	// Slice 1 does not expand OU membership from AWS Organizations. Without
+	// that expansion, an OU-only rollout would seed only the management
+	// account and admit any non-excluded caller, which cannot honestly report
+	// coverage. The reconciliation slice adds the membership resolver;
+	// today the operator must also list the accounts explicitly.
+	if len(selectedOUs) > 0 && len(selectedAccounts) == 0 {
+		return AWSOrganizationRolloutStatus{}, ErrAWSOrganizationRolloutOUMembershipUnsupported
+	}
+	if err := awsOrganizationRolloutValidateAccountIDs(selectedAccounts); err != nil {
+		return AWSOrganizationRolloutStatus{}, err
+	}
+	if err := awsOrganizationRolloutValidateAccountIDs(excludedAccounts); err != nil {
+		return AWSOrganizationRolloutStatus{}, err
+	}
 
-	partition := awsStackSetPartition(regions[0])
 	templateChecksum := strings.TrimSpace(s.AWSCloudFormationTemplateSHA)
 	if templateChecksum == "" {
 		templateChecksum = "sha256:fixture-rollout"
@@ -248,11 +285,31 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 	expected := expectedAWSOrganizationRolloutTargets(created, managementAccountID)
 	for _, seed := range expected {
 		if _, upsertErr := store.UpsertAWSOrganizationRolloutTarget(ctx, seed); upsertErr != nil {
+			// A seed failure must not leave a live envelope holding the
+			// one-active-per-controlling-connector lock: the operator would
+			// then be blocked from opening a fresh rollout for the full
+			// envelope lifetime (24h) even though nothing was actually
+			// launched. Terminalize the envelope so a retry is possible.
+			s.markAWSOrganizationRolloutFailed(ctx, store, created, "rollout_seed_failed", "Identrail could not persist the expected target set. Start a new rollout to retry.")
 			return AWSOrganizationRolloutStatus{}, fmt.Errorf("seed rollout target %s/%s: %w", seed.AccountID, seed.Region, upsertErr)
 		}
 	}
 
 	return s.buildAWSOrganizationRolloutStatus(ctx, store, created)
+}
+
+// markAWSOrganizationRolloutFailed best-effort terminalizes an envelope after
+// a mid-create failure so the one-active-per-controlling-connector uniqueness
+// lock does not permanently block retries. On optimistic-conflict or
+// persistence failure it is a no-op: subsequent status reads will still
+// reflect the mid-flight state, and the 24h expiry eventually reclaims the
+// lock.
+func (s *Service) markAWSOrganizationRolloutFailed(ctx context.Context, store db.AWSOrganizationRolloutStore, rollout db.AWSOrganizationRollout, code string, message string) {
+	rollout.Status = db.AWSOrganizationRolloutStatusFailed
+	rollout.FailureCode = code
+	rollout.FailureMessage = message
+	rollout.UpdatedAt = s.Now().UTC()
+	_, _ = store.UpdateAWSOrganizationRollout(ctx, rollout, rollout.Version)
 }
 
 // GetAWSOrganizationRolloutStatus returns the current rollout + per-target
@@ -316,18 +373,33 @@ func (s *Service) buildAWSOrganizationRolloutStatus(ctx context.Context, store d
 	if summary.ExpectedTargets > 0 {
 		summary.ConnectedPercent = float64(summary.ConnectedTargets) / float64(summary.ExpectedTargets)
 	}
-	launchURL := awsconnector.BuildCloudFormationStackSetLaunchURL(awsconnector.CloudFormationStackSetLaunchInput{
-		TemplateURL:           strings.TrimSpace(s.AWSCloudFormationTemplateURL),
-		Region:                firstNonEmptyAWSValue(regionOrEmpty(rollout.TargetRegions)),
-		StackSetName:          rollout.StackSetName,
-		IdentrailAccountID:    strings.TrimSpace(s.AWSAccountID),
-		ExternalID:            "",
-		RoleName:              rollout.ExpectedRoleName,
-		PermissionModel:       awsOrganizationRolloutPermissionModel(rollout.DeploymentMode),
-		OrganizationalUnitIDs: rollout.SelectedOUIDs,
-		TargetAccountIDs:      rollout.SelectedAccountIDs,
-		TargetRegions:         rollout.TargetRegions,
-	})
+	launchURL := ""
+	// The launch URL must carry the rollout registration parameters so every
+	// member-account stack instance can authenticate its callback into this
+	// exact envelope. Without them, the CFN template's UseRolloutRegistration
+	// condition never fires and members never send registration events.
+	rolloutSecret, secretErr := s.awsOrganizationRolloutSecret(rollout)
+	if secretErr == nil {
+		launchURL = awsconnector.BuildCloudFormationStackSetLaunchURL(awsconnector.CloudFormationStackSetLaunchInput{
+			TemplateURL:                 strings.TrimSpace(s.AWSCloudFormationTemplateURL),
+			Region:                      firstNonEmptyAWSValue(regionOrEmpty(rollout.TargetRegions)),
+			StackSetName:                rollout.StackSetName,
+			IdentrailAccountID:          strings.TrimSpace(s.AWSAccountID),
+			ExternalID:                  "",
+			RoleName:                    rollout.ExpectedRoleName,
+			PermissionModel:             awsOrganizationRolloutPermissionModel(rollout.DeploymentMode),
+			OrganizationalUnitIDs:       rollout.SelectedOUIDs,
+			TargetAccountIDs:            rollout.SelectedAccountIDs,
+			ExcludedAccountIDs:          rollout.ExcludedAccountIDs,
+			TargetRegions:               rollout.TargetRegions,
+			RegistrationProviderARN:     s.awsRegistrationTopicARN(firstNonEmptyAWSValue(regionOrEmpty(rollout.TargetRegions))),
+			RolloutID:                   rollout.RolloutID,
+			RolloutRegistrationSecret:   rolloutSecret,
+			RolloutOrganizationID:       rollout.OrganizationID,
+			RolloutManagementAccountID:  rollout.ManagementAccountID,
+			RolloutStackSetNameOverride: rollout.StackSetName,
+		})
+	}
 	sort.SliceStable(views, func(i, j int) bool {
 		if views[i].IsManagement != views[j].IsManagement {
 			return views[i].IsManagement
@@ -453,6 +525,40 @@ func regionOrEmpty(regions []string) string {
 		return ""
 	}
 	return regions[0]
+}
+
+// awsOrganizationRolloutPartitionForRegions returns the AWS partition shared
+// by every requested region, or an error if the request mixes partitions.
+// Every rollout is bound to a single partition; a mixed request would emit a
+// launch URL and a StackSet template that cannot both be valid in commercial
+// and GovCloud (or China) simultaneously, and every affected member would
+// fail registration.
+func awsOrganizationRolloutPartitionForRegions(regions []string) (string, error) {
+	if len(regions) == 0 {
+		return "", ErrInvalidAWSConnectionRequest
+	}
+	first := awsStackSetPartition(regions[0])
+	for _, region := range regions[1:] {
+		if awsStackSetPartition(region) != first {
+			return "", ErrAWSOrganizationRolloutMixedPartition
+		}
+	}
+	return first, nil
+}
+
+// awsOrganizationRolloutValidateAccountIDs rejects an account list containing
+// anything that is not a syntactically valid 12-digit AWS account ID. This
+// mirrors the CHECK constraint on the target table so bad input is refused at
+// request normalization rather than at seed time (which would waste an
+// envelope) or at StackSet launch time (where the operator has already
+// authorized a bogus target set).
+func awsOrganizationRolloutValidateAccountIDs(ids []string) error {
+	for _, id := range ids {
+		if !awsOrganizationRolloutAccountIDPattern.MatchString(id) {
+			return ErrInvalidAWSConnectionRequest
+		}
+	}
+	return nil
 }
 
 func trimAndDedupeAWSStringSlice(values []string) []string {

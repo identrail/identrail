@@ -21778,6 +21778,9 @@ function AWSOrganizationRolloutPanel({
   const [rollout, setRollout] = useState<AWSOrganizationRolloutResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [pollExhausted, setPollExhausted] = useState(false);
+  const [manualRefreshBusy, setManualRefreshBusy] = useState(false);
+  const [pollEpoch, setPollEpoch] = useState(0);
   const pollGeneration = useRef(0);
   const readyToLaunch =
     Boolean(controllingConnectorID) &&
@@ -21786,6 +21789,14 @@ function AWSOrganizationRolloutPanel({
     controllingConnected &&
     targetRegions.length > 0;
 
+  // Bounded polling budget. 30 successful ticks at 12s ≈ 6 minutes of active
+  // watching, with three additional 20s tries after a transient network
+  // failure. After exhaustion the panel surfaces a manual refresh button so
+  // the user can pull the current state on demand instead of the page
+  // making background requests for its entire lifetime.
+  const maxPollAttempts = 30;
+  const maxErrorAttempts = 3;
+
   useEffect(() => {
     if (!rollout || !workspaceID || !projectID) {
       return;
@@ -21793,6 +21804,8 @@ function AWSOrganizationRolloutPanel({
     const generation = ++pollGeneration.current;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let successAttempts = 0;
+    let errorAttempts = 0;
     const poll = async () => {
       try {
         const response = await apiClient.getAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id);
@@ -21800,21 +21813,32 @@ function AWSOrganizationRolloutPanel({
           return;
         }
         setRollout(response.rollout);
+        errorAttempts = 0;
         const terminal =
           response.rollout.status === 'completed' ||
           response.rollout.status === 'partial' ||
           response.rollout.status === 'failed' ||
           response.rollout.status === 'expired' ||
           response.rollout.status === 'canceled';
-        if (!terminal) {
-          timer = setTimeout(poll, 12000);
+        if (terminal) {
+          return;
         }
+        successAttempts += 1;
+        if (successAttempts >= maxPollAttempts) {
+          setPollExhausted(true);
+          return;
+        }
+        timer = setTimeout(poll, 12000);
       } catch (_err) {
-        // Swallow polling errors so a transient network failure doesn't
-        // permanently stop status updates; the next timer tick retries.
-        if (!cancelled && generation === pollGeneration.current) {
-          timer = setTimeout(poll, 20000);
+        if (cancelled || generation !== pollGeneration.current) {
+          return;
         }
+        errorAttempts += 1;
+        if (errorAttempts >= maxErrorAttempts) {
+          setPollExhausted(true);
+          return;
+        }
+        timer = setTimeout(poll, 20000);
       }
     };
     timer = setTimeout(poll, 6000);
@@ -21825,7 +21849,26 @@ function AWSOrganizationRolloutPanel({
         clearTimeout(timer);
       }
     };
-  }, [rollout, workspaceID, projectID]);
+  }, [rollout, workspaceID, projectID, pollEpoch]);
+
+  const handleManualRefresh = useCallback(async () => {
+    if (!rollout || !workspaceID || !projectID || manualRefreshBusy) {
+      return;
+    }
+    setManualRefreshBusy(true);
+    setErrorMessage('');
+    try {
+      const response = await apiClient.getAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id);
+      setRollout(response.rollout);
+      setPollExhausted(false);
+      setPollEpoch((epoch) => epoch + 1);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to refresh rollout';
+      setErrorMessage(message);
+    } finally {
+      setManualRefreshBusy(false);
+    }
+  }, [rollout, workspaceID, projectID, manualRefreshBusy]);
 
   const handleStart = useCallback(async () => {
     if (!readyToLaunch || busy) {
@@ -21900,11 +21943,31 @@ function AWSOrganizationRolloutPanel({
             {busy ? 'Starting…' : 'Start rollout'}
           </button>
         ) : (
-          <span className={`idt-domain-status-badge is-${rollout.status === 'in_progress' ? 'ready' : 'blocked'}`}>
-            {rollout.status.replace(/_/g, ' ')}
-          </span>
+          <div className="idt-aws-rollout-status">
+            <span className={`idt-domain-status-badge is-${rollout.status === 'in_progress' ? 'ready' : 'blocked'}`}>
+              {rollout.status.replace(/_/g, ' ')}
+            </span>
+            {pollExhausted ? (
+              <button
+                className="idt-btn idt-btn-secondary"
+                type="button"
+                onClick={() => {
+                  void handleManualRefresh();
+                }}
+                disabled={manualRefreshBusy}
+              >
+                {manualRefreshBusy ? 'Refreshing…' : 'Refresh status'}
+              </button>
+            ) : null}
+          </div>
         )}
       </header>
+      {pollExhausted ? (
+        <p className="idt-aws-stackset-coverage-line" role="status">
+          Automatic status refresh is paused after a bounded polling window so this page does not keep making background
+          requests. Use "Refresh status" to pull the latest state.
+        </p>
+      ) : null}
       {!controllingConnected ? (
         <p className="idt-aws-stackset-coverage-line" role="alert">
           The controlling (management or delegated-admin) connector must be validated before Identrail will approve an

@@ -70,6 +70,15 @@ func (s *Service) processAWSOrganizationRolloutMemberRegistration(
 	if accountIDFromRoleARN(roleARN) != accountID {
 		return s.failAWSCloudFormationRequest(ctx, request, "The AWS role does not belong to the reporting account.", fmt.Errorf("rollout role account mismatch"))
 	}
+	// Bind RoleArn to the exact role name the rollout expects. Without this
+	// check, a member-account operator (or an attacker with StackSet-instance
+	// write in that account) could substitute another same-account role and
+	// Identrail would validate that substituted trust policy on the next STS
+	// pass, breaking the "same rollout secret authenticates the same read-only
+	// role" invariant.
+	if !awsOrganizationRolloutRoleARNMatchesExpectedName(roleARN, rollout.ExpectedRoleName) {
+		return s.failAWSCloudFormationRequest(ctx, request, "The AWS role name does not match the rollout's expected role.", fmt.Errorf("rollout role name mismatch"))
+	}
 
 	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: rollout.TenantID, WorkspaceID: rollout.WorkspaceID})
 
@@ -95,10 +104,15 @@ func (s *Service) processAWSOrganizationRolloutMemberRegistration(
 		// could complete the same event.
 		return err
 	}
-	if err := s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, map[string]any{"Registration": "accepted"}); err != nil {
+	// Advance the envelope out of `created`/`launching` BEFORE the SUCCESS
+	// callback so a status-write failure surfaces as a retryable error to SQS.
+	// The previous order sent SUCCESS first and then attempted the envelope
+	// update; if that update failed and its retries exhausted, the envelope
+	// stayed at `created` forever even though a member had authenticated.
+	if err := s.progressAWSOrganizationRolloutStatusFromTarget(scopedCtx, store, rollout); err != nil {
 		return err
 	}
-	return s.progressAWSOrganizationRolloutStatusFromTarget(scopedCtx, store, rollout)
+	return s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, map[string]any{"Registration": "accepted"})
 }
 
 // progressAWSOrganizationRolloutStatusFromTarget advances the rollout envelope
@@ -146,7 +160,9 @@ func (s *Service) validateAWSOrganizationRolloutRegistration(
 	}
 	if rollout.Status == db.AWSOrganizationRolloutStatusCanceled ||
 		rollout.Status == db.AWSOrganizationRolloutStatusExpired ||
-		rollout.Status == db.AWSOrganizationRolloutStatusFailed {
+		rollout.Status == db.AWSOrganizationRolloutStatusFailed ||
+		rollout.Status == db.AWSOrganizationRolloutStatusCompleted ||
+		rollout.Status == db.AWSOrganizationRolloutStatusPartial {
 		return fmt.Errorf("rollout is not active")
 	}
 	hash := sha256.Sum256([]byte(secret))
@@ -179,17 +195,33 @@ func awsOrganizationRolloutAccountAllowed(rollout db.AWSOrganizationRollout, acc
 	if accountID == rollout.ManagementAccountID {
 		return true
 	}
-	// A selected-accounts rollout must list the account explicitly. An
-	// OU-based rollout with no explicit selected accounts admits any
-	// non-excluded account; OU-membership verification is a reconciliation
-	// concern and lands in the next slice.
-	if len(rollout.SelectedAccountIDs) == 0 {
-		return true
-	}
+	// Slice 1 does not resolve OU membership from AWS Organizations, so the
+	// operator must always list target accounts explicitly. StartAWSOrganizationRollout
+	// enforces that at request time; this check keeps the same invariant on
+	// the ingestion path so a stray callback for an unlisted account cannot
+	// be admitted just because the rollout also names OUs.
 	for _, selected := range rollout.SelectedAccountIDs {
 		if selected == accountID {
 			return true
 		}
 	}
 	return false
+}
+
+// awsOrganizationRolloutRoleARNMatchesExpectedName returns true only when the
+// role ARN's role name equals the rollout's ExpectedRoleName. The role ARN
+// format is arn:PARTITION:iam::ACCOUNT:role/ROLE_NAME (with optional path
+// prefixes), so we compare the last segment after the final "/". The expected
+// name is compared case-sensitive because IAM role names are case-sensitive.
+func awsOrganizationRolloutRoleARNMatchesExpectedName(roleARN string, expected string) bool {
+	expected = strings.TrimSpace(expected)
+	if expected == "" {
+		return false
+	}
+	trimmed := strings.TrimSpace(roleARN)
+	slash := strings.LastIndex(trimmed, "/")
+	if slash < 0 || slash == len(trimmed)-1 {
+		return false
+	}
+	return trimmed[slash+1:] == expected
 }

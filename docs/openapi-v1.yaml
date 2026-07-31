@@ -8873,6 +8873,12 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+        "503":
+          description: AWS rollout storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/workspaces/{workspace_id}/projects/{project_id}/aws/dynamodb-rds-reachability:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"

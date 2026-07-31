@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS aws_organization_rollouts (
     CHECK (version > 0),
     CHECK (controlling_role IN ('management', 'delegated_admin')),
     CHECK (deployment_mode IN ('service_managed', 'self_managed')),
+    CHECK (management_account_id ~ '^[0-9]{12}$'),
     CHECK (status IN (
         'created',
         'launching',
@@ -63,7 +64,13 @@ CREATE TABLE IF NOT EXISTS aws_organization_rollouts (
         'failed',
         'expired',
         'canceled'
-    ))
+    )),
+    -- The composite scope key is what the target FK below references so
+    -- (rollout_id, tenant_id, workspace_id, project_id) cannot diverge from
+    -- the parent envelope. Without this, a target row could persist under an
+    -- unrelated project/workspace even with a valid rollout_id.
+    CONSTRAINT aws_organization_rollouts_scope_uniq
+        UNIQUE (rollout_id, tenant_id, workspace_id, project_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_aws_organization_rollouts_scope
@@ -112,10 +119,14 @@ CREATE TABLE IF NOT EXISTS aws_organization_rollout_targets (
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     version               BIGINT NOT NULL DEFAULT 1,
     PRIMARY KEY (rollout_id, account_id, region),
-    FOREIGN KEY (rollout_id)
-        REFERENCES aws_organization_rollouts(rollout_id)
+    -- The composite FK binds every target row to its parent's complete scope
+    -- (rollout_id + tenant + workspace + project). Without this an insert
+    -- with a valid rollout_id but the wrong scope would silently succeed and
+    -- desynchronize scoped status queries from persisted state.
+    FOREIGN KEY (rollout_id, tenant_id, workspace_id, project_id)
+        REFERENCES aws_organization_rollouts(rollout_id, tenant_id, workspace_id, project_id)
         ON DELETE CASCADE,
-    CHECK (LENGTH(TRIM(account_id)) = 12),
+    CHECK (account_id ~ '^[0-9]{12}$'),
     CHECK (LENGTH(TRIM(region)) > 0),
     CHECK (version > 0),
     CHECK (state IN (

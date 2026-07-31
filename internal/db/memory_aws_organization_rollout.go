@@ -92,8 +92,15 @@ func (m *MemoryStore) ListAWSOrganizationRollouts(ctx context.Context, workspace
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
+	// Mirror the Postgres store's default (50) and cap (200) so tests written
+	// against the memory adapter cannot pass under a limit that will be
+	// silently truncated by Postgres in production.
+	effectiveLimit := limit
+	if effectiveLimit <= 0 || effectiveLimit > 200 {
+		effectiveLimit = 50
+	}
+	if len(out) > effectiveLimit {
+		out = out[:effectiveLimit]
 	}
 	return out, nil
 }
@@ -165,6 +172,33 @@ func (m *MemoryStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, ta
 			normalized.LastTransitionAt = now
 		} else if normalized.LastTransitionAt.IsZero() {
 			normalized.LastTransitionAt = existing.LastTransitionAt
+		}
+		// Mirror the Postgres upsert's COALESCE behavior: a caller updating
+		// state without re-supplying every optional field must not erase
+		// prior evidence (account name, OU path, stack IDs, role ARN,
+		// evidence ref, last validation timestamp). A registration event and
+		// a later reconciliation update carry different fields, and both
+		// paths need to converge to a durable, cumulative view.
+		if normalized.AccountName == "" {
+			normalized.AccountName = existing.AccountName
+		}
+		if normalized.OUPath == "" {
+			normalized.OUPath = existing.OUPath
+		}
+		if normalized.StackInstanceID == "" {
+			normalized.StackInstanceID = existing.StackInstanceID
+		}
+		if normalized.StackID == "" {
+			normalized.StackID = existing.StackID
+		}
+		if normalized.RoleARN == "" {
+			normalized.RoleARN = existing.RoleARN
+		}
+		if normalized.EvidenceRef == "" {
+			normalized.EvidenceRef = existing.EvidenceRef
+		}
+		if normalized.LastValidationAt == nil {
+			normalized.LastValidationAt = existing.LastValidationAt
 		}
 	} else {
 		if normalized.CreatedAt.IsZero() {
