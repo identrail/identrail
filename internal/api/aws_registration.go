@@ -251,6 +251,15 @@ func (s *Service) ProcessAWSConnectorRegistrationMessage(ctx context.Context, bo
 		return s.processAWSRegistrationDelete(ctx, envelope.TopicARN, request, phase)
 	}
 
+	// Member-account StackSet registrations are routed by presence of a
+	// RolloutId in the custom-resource properties. Rollout events share the
+	// same SNS/SQS envelope, authenticator, and topic-ARN allowlist as
+	// single-account registration; only the persistence target differs so a
+	// rollout does not require its own AWS delivery infrastructure.
+	if awsRegistrationProperty(request.ResourceProperties, "RolloutId") != "" {
+		return s.processAWSOrganizationRolloutMemberRegistration(ctx, envelope.TopicARN, request, phase)
+	}
+
 	attemptID := awsRegistrationProperty(request.ResourceProperties, "AttemptId")
 	token := awsRegistrationProperty(request.ResourceProperties, "RegistrationToken")
 	store, err := s.awsOnboardingAttemptStore()

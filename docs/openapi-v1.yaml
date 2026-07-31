@@ -812,6 +812,16 @@ x-identrail-route-authorizations:
     action: tenancy.read
     resource_type: project
     resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/rollouts
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/rollouts/{rollout_id}
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
   - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secrets-manager-metadata
     action: tenancy.read
@@ -8725,6 +8735,138 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/rollouts:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [ProjectManagement]
+      summary: Start an AWS Organization rollout
+      operationId: startAWSOrganizationRollout
+      description: Opens a scoped rollout envelope from a validated controlling (management or delegated-admin) AWS connector. The envelope is bound to the exact organization, selected OUs, selected accounts, exclusions, regions, and stack-set name approved by the operator, plus a hashed one-time registration secret every member-account stack instance must present in its authenticated registration event. Refuses to open if the controlling connector is not Connected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - controlling_connector_id
+                - organization_id
+                - management_account_id
+                - target_regions
+              properties:
+                controlling_connector_id:
+                  type: string
+                  description: AWS connector that has been validated for the management or delegated-admin account approving this rollout.
+                controlling_role:
+                  type: string
+                  enum: [management, delegated_admin]
+                  description: Whether the controlling account is the organization management account or a delegated administrator.
+                organization_id:
+                  type: string
+                  description: AWS Organization identifier (o-xxxxxxxxxx) this rollout targets.
+                management_account_id:
+                  type: string
+                  description: 12-digit AWS account ID of the management or delegated-admin account approving the rollout.
+                deployment_mode:
+                  type: string
+                  enum: [service_managed, self_managed]
+                stack_set_name:
+                  type: string
+                selected_ou_ids:
+                  type: array
+                  items: { type: string }
+                selected_account_ids:
+                  type: array
+                  items: { type: string }
+                excluded_account_ids:
+                  type: array
+                  items: { type: string }
+                target_regions:
+                  type: array
+                  items: { type: string }
+                auto_deploy_new_accounts:
+                  type: boolean
+      responses:
+        "200":
+          description: Rollout envelope created and seeded with expected targets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rollout:
+                    $ref: "#/components/schemas/AWSOrganizationRolloutResult"
+        "400":
+          description: Invalid AWS rollout request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Controlling connector is not validated or an active rollout already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          description: AWS rollout storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/rollouts/{rollout_id}:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: rollout_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS Organization rollout status
+      operationId: getAWSOrganizationRollout
+      description: Returns the current rollout envelope, exact per-account and per-region target counts, and the honest state of every expected target. Coverage counts come from authenticated registration events and persisted state - never from a StackSet operation result alone.
+      responses:
+        "200":
+          description: AWS Organization rollout status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rollout:
+                    $ref: "#/components/schemas/AWSOrganizationRolloutResult"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -23762,6 +23904,103 @@ components:
         updated_at:
           type: string
           format: date-time
+    AWSOrganizationRolloutSummary:
+      type: object
+      properties:
+        expected_targets: { type: integer }
+        pending_targets: { type: integer }
+        deploying_targets: { type: integer }
+        registering_targets: { type: integer }
+        validating_targets: { type: integer }
+        connected_targets: { type: integer }
+        partial_targets: { type: integer }
+        failed_targets: { type: integer }
+        excluded_targets: { type: integer }
+        suspended_targets: { type: integer }
+        removed_targets: { type: integer }
+        state_counts:
+          type: object
+          additionalProperties: { type: integer }
+        connected_percent: { type: number }
+    AWSOrganizationRolloutTargetView:
+      type: object
+      properties:
+        account_id: { type: string }
+        region: { type: string }
+        account_name: { type: string }
+        ou_path: { type: string }
+        is_management: { type: boolean }
+        state:
+          type: string
+          enum: [pending, deploying, registering, validating, connected, partial, failed, excluded, suspended, removed]
+        stack_instance_id: { type: string }
+        stack_id: { type: string }
+        role_arn: { type: string }
+        failure_code: { type: string }
+        failure_message: { type: string }
+        retryable: { type: boolean }
+        evidence_ref: { type: string }
+        last_transition_at:
+          type: string
+          format: date-time
+        last_validation_at:
+          type: string
+          format: date-time
+    AWSOrganizationRolloutResult:
+      type: object
+      properties:
+        rollout_id: { type: string }
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        controlling_connector_id: { type: string }
+        controlling_role:
+          type: string
+          enum: [management, delegated_admin]
+        organization_id: { type: string }
+        management_account_id: { type: string }
+        partition: { type: string }
+        deployment_mode:
+          type: string
+          enum: [service_managed, self_managed]
+        stack_set_name: { type: string }
+        expected_role_name: { type: string }
+        template_version: { type: string }
+        template_checksum: { type: string }
+        selected_ou_ids:
+          type: array
+          items: { type: string }
+        selected_account_ids:
+          type: array
+          items: { type: string }
+        excluded_account_ids:
+          type: array
+          items: { type: string }
+        target_regions:
+          type: array
+          items: { type: string }
+        auto_deploy_new_accounts: { type: boolean }
+        status:
+          type: string
+          enum: [created, launching, in_progress, reconciling, completed, partial, failed, expired, canceled]
+        failure_code: { type: string }
+        failure_message: { type: string }
+        launch_url: { type: string }
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        summary:
+          $ref: "#/components/schemas/AWSOrganizationRolloutSummary"
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSOrganizationRolloutTargetView"
     AWSDynamoDBRDSReachabilityInventoryResult:
       type: object
       properties:

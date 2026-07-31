@@ -1,0 +1,378 @@
+package api
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/secretstore"
+)
+
+func newAWSOrganizationRolloutTestService(t *testing.T) (*Service, context.Context) {
+	t.Helper()
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{9}, 32)}})
+	if err != nil {
+		t.Fatalf("create secret manager: %v", err)
+	}
+	now := time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC)
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+	svc.AWSRegistrationTopicARNs = map[string]string{"us-east-1": testAWSRegistrationTopicARN}
+	return svc, ctx
+}
+
+func seedAWSRolloutControllingConnector(t *testing.T, store db.Store, ctx context.Context, connectorID string, accountID string, health string, connectorStatus domain.ConnectorStatus, updatedAt time.Time) {
+	t.Helper()
+	scope, err := db.RequireScope(ctx)
+	if err != nil {
+		t.Fatalf("resolve scope: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(ctx, db.TenancyConnector{
+		TenantID:    scope.TenantID,
+		WorkspaceID: scope.WorkspaceID,
+		ProjectID:   "project-1",
+		ConnectorID: connectorID,
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "AWS " + connectorID,
+		Status:      connectorStatus,
+		CreatedAt:   updatedAt,
+		UpdatedAt:   updatedAt,
+	}, db.TenancyConnectorState{
+		TenantID:     scope.TenantID,
+		WorkspaceID:  scope.WorkspaceID,
+		ProjectID:    "project-1",
+		ConnectorID:  connectorID,
+		HealthStatus: health,
+		Metadata: map[string]any{
+			"role_arn":   "arn:aws:iam::" + accountID + ":role/IdentrailReadOnly",
+			"region":     "us-east-1",
+			"account_id": accountID,
+		},
+		ObservedAt: updatedAt,
+		UpdatedAt:  updatedAt,
+	}); err != nil {
+		t.Fatalf("seed controlling connector: %v", err)
+	}
+}
+
+func TestStartAWSOrganizationRolloutRefusesUnvalidatedControllingConnector(t *testing.T) {
+	svc, ctx := newAWSOrganizationRolloutTestService(t)
+	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "unknown", domain.ConnectorStatusPending, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
+
+	_, err := svc.StartAWSOrganizationRollout(ctx, AWSOrganizationRolloutStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ControllingConnectorID: "aws-mgmt",
+		OrganizationID:         "o-fixture01",
+		ManagementAccountID:    "111111111111",
+		TargetRegions:          []string{"us-east-1"},
+	})
+	if !errors.Is(err, ErrAWSOrganizationRolloutControllingUnready) {
+		t.Fatalf("expected ErrAWSOrganizationRolloutControllingUnready, got %v", err)
+	}
+}
+
+func TestStartAWSOrganizationRolloutRefusesMismatchedManagementAccount(t *testing.T) {
+	svc, ctx := newAWSOrganizationRolloutTestService(t)
+	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
+
+	_, err := svc.StartAWSOrganizationRollout(ctx, AWSOrganizationRolloutStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ControllingConnectorID: "aws-mgmt",
+		OrganizationID:         "o-fixture01",
+		ManagementAccountID:    "222222222222",
+		TargetRegions:          []string{"us-east-1"},
+	})
+	if !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("expected ErrInvalidAWSConnectionRequest, got %v", err)
+	}
+}
+
+func TestStartAWSOrganizationRolloutSeedsExpectedTargets(t *testing.T) {
+	svc, ctx := newAWSOrganizationRolloutTestService(t)
+	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
+
+	status, err := svc.StartAWSOrganizationRollout(ctx, AWSOrganizationRolloutStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ControllingConnectorID: "aws-mgmt",
+		OrganizationID:         "o-fixture01",
+		ManagementAccountID:    "111111111111",
+		SelectedAccountIDs:     []string{"222222222222", "333333333333"},
+		ExcludedAccountIDs:     []string{"333333333333"},
+		TargetRegions:          []string{"us-east-1", "us-west-2"},
+	})
+	if err != nil {
+		t.Fatalf("start rollout: %v", err)
+	}
+	if status.Status != db.AWSOrganizationRolloutStatusCreated {
+		t.Fatalf("expected created status, got %q", status.Status)
+	}
+	// Management + two selected = 3 accounts * 2 regions = 6 targets.
+	if status.Summary.ExpectedTargets != 6 {
+		t.Fatalf("expected 6 expected targets, got %d", status.Summary.ExpectedTargets)
+	}
+	excluded := 0
+	pending := 0
+	for _, target := range status.Targets {
+		if target.State == db.AWSOrganizationRolloutTargetExcluded {
+			excluded++
+		}
+		if target.State == db.AWSOrganizationRolloutTargetPending {
+			pending++
+		}
+	}
+	if excluded != 2 {
+		t.Fatalf("expected 2 excluded targets (excluded account across both regions), got %d", excluded)
+	}
+	if pending != 4 {
+		t.Fatalf("expected 4 pending targets, got %d", pending)
+	}
+	// Management target is present and marked management.
+	foundManagement := false
+	for _, target := range status.Targets {
+		if target.AccountID == "111111111111" && target.IsManagement {
+			foundManagement = true
+			break
+		}
+	}
+	if !foundManagement {
+		t.Fatal("expected management account seeded as its own target")
+	}
+	if status.LaunchURL == "" {
+		t.Fatal("expected launch URL to be populated")
+	}
+}
+
+func TestStartAWSOrganizationRolloutRejectsSecondActiveRollout(t *testing.T) {
+	svc, ctx := newAWSOrganizationRolloutTestService(t)
+	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
+
+	request := AWSOrganizationRolloutStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ControllingConnectorID: "aws-mgmt",
+		OrganizationID:         "o-fixture01",
+		ManagementAccountID:    "111111111111",
+		SelectedAccountIDs:     []string{"222222222222"},
+		TargetRegions:          []string{"us-east-1"},
+	}
+	if _, err := svc.StartAWSOrganizationRollout(ctx, request); err != nil {
+		t.Fatalf("first rollout: %v", err)
+	}
+	_, err := svc.StartAWSOrganizationRollout(ctx, request)
+	if err == nil {
+		t.Fatal("expected second active rollout to be rejected")
+	}
+}
+
+func TestProcessAWSOrganizationRolloutMemberRegistrationValidatesTarget(t *testing.T) {
+	svc, ctx := newAWSOrganizationRolloutTestService(t)
+	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
+	svc.AWSCloudFormationResponder = newRecordingCFNResponder()
+
+	status, err := svc.StartAWSOrganizationRollout(ctx, AWSOrganizationRolloutStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ControllingConnectorID: "aws-mgmt",
+		OrganizationID:         "o-fixture01",
+		ManagementAccountID:    "111111111111",
+		SelectedAccountIDs:     []string{"222222222222"},
+		TargetRegions:          []string{"us-east-1"},
+	})
+	if err != nil {
+		t.Fatalf("start rollout: %v", err)
+	}
+
+	rolloutStore, _ := svc.Store.(db.AWSOrganizationRolloutStore)
+	rollout, err := rolloutStore.GetAWSOrganizationRolloutAnyScope(ctx, status.RolloutID)
+	if err != nil {
+		t.Fatalf("load rollout: %v", err)
+	}
+	secret, err := svc.AWSOrganizationRolloutSecretForRollout(rollout)
+	if err != nil {
+		t.Fatalf("derive secret: %v", err)
+	}
+	// The persisted hash must equal SHA-256(secret) so registration is
+	// authenticated by exact match and never by prefix or timing side channel.
+	sum := sha256.Sum256([]byte(secret))
+	if !bytes.Equal(sum[:], rollout.RegistrationSecretHash) {
+		t.Fatal("registration secret hash mismatch with derived secret")
+	}
+
+	body := awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, awsCloudFormationCustomResourceRequest{
+		RequestType:       "Create",
+		ResponseURL:       "https://cloudformation-custom-resource-response-us-east-1.s3.amazonaws.com/response",
+		StackID:           "arn:aws:cloudformation:us-east-1:222222222222:stack/identrail-readonly-connector-stackset/uuid-1",
+		RequestID:         "req-1",
+		LogicalResourceID: "IdentrailRolloutRegistration",
+		ResourceType:      "Custom::IdentrailAWSConnectorRegistration",
+		ResourceProperties: map[string]any{
+			"Phase":               "Register",
+			"RolloutId":           rollout.RolloutID,
+			"RegistrationSecret":  secret,
+			"OrganizationId":      rollout.OrganizationID,
+			"StackSetName":        rollout.StackSetName,
+			"ManagementAccountId": rollout.ManagementAccountID,
+			"RoleArn":             "arn:aws:iam::222222222222:role/IdentrailReadOnly",
+			"TemplateVersion":     awsConnectorTemplateVersion,
+		},
+	})
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, body); err != nil {
+		t.Fatalf("process member registration: %v", err)
+	}
+
+	target, err := rolloutStore.GetAWSOrganizationRolloutTarget(ctx, rollout.RolloutID, "222222222222", "us-east-1")
+	if err != nil {
+		t.Fatalf("load target: %v", err)
+	}
+	if target.State != db.AWSOrganizationRolloutTargetValidating {
+		t.Fatalf("expected target validating, got %q", target.State)
+	}
+	if target.RoleARN != "arn:aws:iam::222222222222:role/IdentrailReadOnly" {
+		t.Fatalf("expected role arn persisted, got %q", target.RoleARN)
+	}
+
+	// Duplicate delivery must not fork a second target row.
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, body); err != nil {
+		t.Fatalf("duplicate member registration: %v", err)
+	}
+	target2, err := rolloutStore.GetAWSOrganizationRolloutTarget(ctx, rollout.RolloutID, "222222222222", "us-east-1")
+	if err != nil {
+		t.Fatalf("load target after replay: %v", err)
+	}
+	if target2.Version < target.Version {
+		t.Fatalf("expected non-decreasing version on replay")
+	}
+
+	// Rollout must have progressed out of `created` once an event landed.
+	rolloutAfter, err := rolloutStore.GetAWSOrganizationRolloutAnyScope(ctx, rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reload rollout: %v", err)
+	}
+	if rolloutAfter.Status != db.AWSOrganizationRolloutStatusInProgress {
+		t.Fatalf("expected rollout in_progress, got %q", rolloutAfter.Status)
+	}
+}
+
+func TestProcessAWSOrganizationRolloutMemberRegistrationRejectsUnrelatedAccount(t *testing.T) {
+	svc, ctx := newAWSOrganizationRolloutTestService(t)
+	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
+	svc.AWSCloudFormationResponder = newRecordingCFNResponder()
+
+	status, err := svc.StartAWSOrganizationRollout(ctx, AWSOrganizationRolloutStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ControllingConnectorID: "aws-mgmt",
+		OrganizationID:         "o-fixture01",
+		ManagementAccountID:    "111111111111",
+		SelectedAccountIDs:     []string{"222222222222"},
+		TargetRegions:          []string{"us-east-1"},
+	})
+	if err != nil {
+		t.Fatalf("start rollout: %v", err)
+	}
+	rolloutStore, _ := svc.Store.(db.AWSOrganizationRolloutStore)
+	rollout, err := rolloutStore.GetAWSOrganizationRolloutAnyScope(ctx, status.RolloutID)
+	if err != nil {
+		t.Fatalf("load rollout: %v", err)
+	}
+	secret, err := svc.AWSOrganizationRolloutSecretForRollout(rollout)
+	if err != nil {
+		t.Fatalf("derive secret: %v", err)
+	}
+
+	body := awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, awsCloudFormationCustomResourceRequest{
+		RequestType:       "Create",
+		ResponseURL:       "https://cloudformation-custom-resource-response-us-east-1.s3.amazonaws.com/response",
+		StackID:           "arn:aws:cloudformation:us-east-1:444444444444:stack/identrail-readonly-connector-stackset/uuid-4",
+		RequestID:         "req-4",
+		LogicalResourceID: "IdentrailRolloutRegistration",
+		ResourceType:      "Custom::IdentrailAWSConnectorRegistration",
+		ResourceProperties: map[string]any{
+			"Phase":              "Register",
+			"RolloutId":          rollout.RolloutID,
+			"RegistrationSecret": secret,
+			"OrganizationId":     rollout.OrganizationID,
+			"StackSetName":       rollout.StackSetName,
+			"RoleArn":            "arn:aws:iam::444444444444:role/IdentrailReadOnly",
+			"TemplateVersion":    awsConnectorTemplateVersion,
+		},
+	})
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, body); err == nil {
+		t.Fatal("expected registration from unrelated account to be rejected")
+	}
+}
+
+func TestProcessAWSOrganizationRolloutMemberRegistrationRejectsBadSecret(t *testing.T) {
+	svc, ctx := newAWSOrganizationRolloutTestService(t)
+	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
+	svc.AWSCloudFormationResponder = newRecordingCFNResponder()
+
+	status, err := svc.StartAWSOrganizationRollout(ctx, AWSOrganizationRolloutStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ControllingConnectorID: "aws-mgmt",
+		OrganizationID:         "o-fixture01",
+		ManagementAccountID:    "111111111111",
+		SelectedAccountIDs:     []string{"222222222222"},
+		TargetRegions:          []string{"us-east-1"},
+	})
+	if err != nil {
+		t.Fatalf("start rollout: %v", err)
+	}
+
+	body := awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, awsCloudFormationCustomResourceRequest{
+		RequestType:       "Create",
+		ResponseURL:       "https://cloudformation-custom-resource-response-us-east-1.s3.amazonaws.com/response",
+		StackID:           "arn:aws:cloudformation:us-east-1:222222222222:stack/identrail-readonly-connector-stackset/uuid-1",
+		RequestID:         "req-1",
+		LogicalResourceID: "IdentrailRolloutRegistration",
+		ResourceType:      "Custom::IdentrailAWSConnectorRegistration",
+		ResourceProperties: map[string]any{
+			"Phase":              "Register",
+			"RolloutId":          status.RolloutID,
+			"RegistrationSecret": base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("A", 32))),
+			"OrganizationId":     status.OrganizationID,
+			"StackSetName":       status.StackSetName,
+			"RoleArn":            "arn:aws:iam::222222222222:role/IdentrailReadOnly",
+			"TemplateVersion":    awsConnectorTemplateVersion,
+		},
+	})
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, body); err == nil {
+		t.Fatal("expected registration with wrong secret to be rejected")
+	}
+}
+
+// recordingCFNResponder swallows CloudFormation callback deliveries so
+// registration flows can be exercised without any outbound HTTP.
+type recordingCFNResponder struct {
+	entries []awsCloudFormationCustomResourceResponse
+}
+
+func newRecordingCFNResponder() *recordingCFNResponder {
+	return &recordingCFNResponder{}
+}
+
+func (r *recordingCFNResponder) Respond(_ context.Context, _ string, response awsCloudFormationCustomResourceResponse) error {
+	r.entries = append(r.entries, response)
+	return nil
+}
+
+var _ = json.Marshal // json import is referenced elsewhere; keep the reference explicit for future edits.

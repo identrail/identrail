@@ -1208,6 +1208,122 @@ type AWSConnectorOnboardingAttemptStore interface {
 	UpdateAWSConnectorOnboardingAttempt(ctx context.Context, attempt AWSConnectorOnboardingAttempt, expectedVersion int64) (AWSConnectorOnboardingAttempt, error)
 }
 
+// ErrInvalidAWSOrganizationRollout indicates a malformed persisted rollout row.
+var ErrInvalidAWSOrganizationRollout = errors.New("invalid aws organization rollout")
+
+// ErrInvalidAWSOrganizationRolloutTarget indicates a malformed persisted target.
+var ErrInvalidAWSOrganizationRolloutTarget = errors.New("invalid aws organization rollout target")
+
+const (
+	AWSOrganizationRolloutControllingManagement     = "management"
+	AWSOrganizationRolloutControllingDelegatedAdmin = "delegated_admin"
+
+	AWSOrganizationRolloutDeploymentServiceManaged = "service_managed"
+	AWSOrganizationRolloutDeploymentSelfManaged    = "self_managed"
+
+	AWSOrganizationRolloutStatusCreated     = "created"
+	AWSOrganizationRolloutStatusLaunching   = "launching"
+	AWSOrganizationRolloutStatusInProgress  = "in_progress"
+	AWSOrganizationRolloutStatusReconciling = "reconciling"
+	AWSOrganizationRolloutStatusCompleted   = "completed"
+	AWSOrganizationRolloutStatusPartial     = "partial"
+	AWSOrganizationRolloutStatusFailed      = "failed"
+	AWSOrganizationRolloutStatusExpired     = "expired"
+	AWSOrganizationRolloutStatusCanceled    = "canceled"
+
+	AWSOrganizationRolloutTargetPending     = "pending"
+	AWSOrganizationRolloutTargetDeploying   = "deploying"
+	AWSOrganizationRolloutTargetRegistering = "registering"
+	AWSOrganizationRolloutTargetValidating  = "validating"
+	AWSOrganizationRolloutTargetConnected   = "connected"
+	AWSOrganizationRolloutTargetPartial     = "partial"
+	AWSOrganizationRolloutTargetFailed      = "failed"
+	AWSOrganizationRolloutTargetExcluded    = "excluded"
+	AWSOrganizationRolloutTargetSuspended   = "suspended"
+	AWSOrganizationRolloutTargetRemoved     = "removed"
+)
+
+// AWSOrganizationRollout persists one approved StackSet rollout envelope so
+// AWS-originated registration events for its member accounts can be
+// authenticated, deduplicated, and reconciled independently of any single
+// account's outcome. The registration secret is never persisted; only its
+// SHA-256 hash is, and it authenticates every member-account event alongside
+// the rollout's organization/stack-set binding.
+type AWSOrganizationRollout struct {
+	RolloutID                    string    `json:"rollout_id"`
+	TenantID                     string    `json:"tenant_id"`
+	WorkspaceID                  string    `json:"workspace_id"`
+	ProjectID                    string    `json:"project_id"`
+	ControllingConnectorID       string    `json:"controlling_connector_id"`
+	ControllingRole              string    `json:"controlling_role"`
+	OrganizationID               string    `json:"organization_id"`
+	ManagementAccountID          string    `json:"management_account_id"`
+	Partition                    string    `json:"partition"`
+	DeploymentMode               string    `json:"deployment_mode"`
+	StackSetName                 string    `json:"stack_set_name"`
+	ExpectedRoleName             string    `json:"expected_role_name"`
+	TemplateVersion              string    `json:"template_version"`
+	TemplateChecksum             string    `json:"template_checksum"`
+	RegistrationSecretHash       []byte    `json:"-"`
+	RegistrationSecretKeyVersion string    `json:"-"`
+	SelectedOUIDs                []string  `json:"selected_ou_ids"`
+	SelectedAccountIDs           []string  `json:"selected_account_ids"`
+	ExcludedAccountIDs           []string  `json:"excluded_account_ids"`
+	TargetRegions                []string  `json:"target_regions"`
+	AutoDeployNewAccounts        bool      `json:"auto_deploy_new_accounts"`
+	Status                       string    `json:"status"`
+	FailureCode                  string    `json:"failure_code,omitempty"`
+	FailureMessage               string    `json:"failure_message,omitempty"`
+	ExpiresAt                    time.Time `json:"expires_at"`
+	CreatedAt                    time.Time `json:"created_at"`
+	UpdatedAt                    time.Time `json:"updated_at"`
+	Version                      int64     `json:"version"`
+}
+
+// AWSOrganizationRolloutTarget is one (account, region) pair a rollout intends
+// to cover. It is upserted from the expected target set at rollout creation
+// and transitioned as authenticated AWS events arrive. Each row carries its
+// own honest state so partial success is preserved.
+type AWSOrganizationRolloutTarget struct {
+	RolloutID        string     `json:"rollout_id"`
+	AccountID        string     `json:"account_id"`
+	Region           string     `json:"region"`
+	TenantID         string     `json:"tenant_id"`
+	WorkspaceID      string     `json:"workspace_id"`
+	ProjectID        string     `json:"project_id"`
+	AccountName      string     `json:"account_name,omitempty"`
+	OUPath           string     `json:"ou_path,omitempty"`
+	IsManagement     bool       `json:"is_management"`
+	State            string     `json:"state"`
+	StackInstanceID  string     `json:"stack_instance_id,omitempty"`
+	StackID          string     `json:"stack_id,omitempty"`
+	RoleARN          string     `json:"role_arn,omitempty"`
+	FailureCode      string     `json:"failure_code,omitempty"`
+	FailureMessage   string     `json:"failure_message,omitempty"`
+	Retryable        bool       `json:"retryable"`
+	EvidenceRef      string     `json:"evidence_ref,omitempty"`
+	LastTransitionAt time.Time  `json:"last_transition_at"`
+	LastValidationAt *time.Time `json:"last_validation_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	Version          int64      `json:"version"`
+}
+
+// AWSOrganizationRolloutStore is a narrow persistence contract for rollouts
+// and their per-target state so registration and reconciliation code paths
+// can be tested against a memory adapter without pulling the full Store.
+type AWSOrganizationRolloutStore interface {
+	CreateAWSOrganizationRollout(ctx context.Context, rollout AWSOrganizationRollout) (AWSOrganizationRollout, error)
+	GetAWSOrganizationRollout(ctx context.Context, workspaceID string, projectID string, rolloutID string) (AWSOrganizationRollout, error)
+	GetAWSOrganizationRolloutAnyScope(ctx context.Context, rolloutID string) (AWSOrganizationRollout, error)
+	ListAWSOrganizationRollouts(ctx context.Context, workspaceID string, projectID string, connectorID string, limit int) ([]AWSOrganizationRollout, error)
+	UpdateAWSOrganizationRollout(ctx context.Context, rollout AWSOrganizationRollout, expectedVersion int64) (AWSOrganizationRollout, error)
+
+	UpsertAWSOrganizationRolloutTarget(ctx context.Context, target AWSOrganizationRolloutTarget) (AWSOrganizationRolloutTarget, error)
+	GetAWSOrganizationRolloutTarget(ctx context.Context, rolloutID string, accountID string, region string) (AWSOrganizationRolloutTarget, error)
+	ListAWSOrganizationRolloutTargets(ctx context.Context, workspaceID string, projectID string, rolloutID string) ([]AWSOrganizationRolloutTarget, error)
+}
+
 const (
 	AWSAccountRegionCoverageUnknown     = "unknown"
 	AWSAccountRegionCoveragePending     = "pending"

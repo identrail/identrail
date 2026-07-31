@@ -153,6 +153,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AWS SSM parameter metadata: `aws-ssm-parameter-metadata.md`
 - AWS Connect troubleshooting: `aws-connect-troubleshooting.md`
 - AWS StackSet onboarding: `aws-stackset-onboarding.md`
+- AWS Organization rollout automation: `aws-organization-rollout.md`
 - AWS Step Functions state machine roles: `aws-stepfunctions-state-machine-roles.md`
 - AWS approved trust-policy hardening executor: `aws-trust-policy-hardening-executor.md`
 - AWS trust policy hardening planner: `aws-trust-policy-hardening-planner.md`

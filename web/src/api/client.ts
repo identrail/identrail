@@ -9141,6 +9141,110 @@ export type AWSStackSetOnboardingResult = {
   updated_at: string;
 };
 
+export type AWSOrganizationRolloutControllingRole = 'management' | 'delegated_admin';
+
+export type AWSOrganizationRolloutStatus =
+  | 'created'
+  | 'launching'
+  | 'in_progress'
+  | 'reconciling'
+  | 'completed'
+  | 'partial'
+  | 'failed'
+  | 'expired'
+  | 'canceled';
+
+export type AWSOrganizationRolloutTargetState =
+  | 'pending'
+  | 'deploying'
+  | 'registering'
+  | 'validating'
+  | 'connected'
+  | 'partial'
+  | 'failed'
+  | 'excluded'
+  | 'suspended'
+  | 'removed';
+
+export type AWSOrganizationRolloutTargetView = {
+  account_id: string;
+  region: string;
+  account_name?: string;
+  ou_path?: string;
+  is_management: boolean;
+  state: AWSOrganizationRolloutTargetState;
+  stack_instance_id?: string;
+  stack_id?: string;
+  role_arn?: string;
+  failure_code?: string;
+  failure_message?: string;
+  retryable: boolean;
+  evidence_ref?: string;
+  last_transition_at: string;
+  last_validation_at?: string;
+};
+
+export type AWSOrganizationRolloutSummary = {
+  expected_targets: number;
+  pending_targets: number;
+  deploying_targets: number;
+  registering_targets: number;
+  validating_targets: number;
+  connected_targets: number;
+  partial_targets: number;
+  failed_targets: number;
+  excluded_targets: number;
+  suspended_targets: number;
+  removed_targets: number;
+  state_counts: Record<AWSOrganizationRolloutTargetState, number> & Record<string, number>;
+  connected_percent: number;
+};
+
+export type AWSOrganizationRolloutResult = {
+  rollout_id: string;
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  controlling_connector_id: string;
+  controlling_role: AWSOrganizationRolloutControllingRole;
+  organization_id: string;
+  management_account_id: string;
+  partition: string;
+  deployment_mode: AWSStackSetDeploymentMode;
+  stack_set_name: string;
+  expected_role_name: string;
+  template_version: string;
+  template_checksum: string;
+  selected_ou_ids: string[];
+  selected_account_ids: string[];
+  excluded_account_ids: string[];
+  target_regions: string[];
+  auto_deploy_new_accounts: boolean;
+  status: AWSOrganizationRolloutStatus;
+  failure_code?: string;
+  failure_message?: string;
+  launch_url?: string;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+  summary: AWSOrganizationRolloutSummary;
+  targets: AWSOrganizationRolloutTargetView[];
+};
+
+export type AWSOrganizationRolloutStartRequest = {
+  controlling_connector_id: string;
+  controlling_role?: AWSOrganizationRolloutControllingRole;
+  organization_id: string;
+  management_account_id: string;
+  deployment_mode?: AWSStackSetDeploymentMode;
+  stack_set_name?: string;
+  selected_ou_ids?: string[];
+  selected_account_ids?: string[];
+  excluded_account_ids?: string[];
+  target_regions: string[];
+  auto_deploy_new_accounts?: boolean;
+};
+
 export type AWSDynamoDBRDSReachabilityInventoryResult = {
   tenant_id: string;
   workspace_id: string;
@@ -12111,6 +12215,32 @@ export const apiClient = {
       method: 'POST',
       body: JSON.stringify(payload)
     });
+  },
+  startAWSOrganizationRollout(
+    workspaceID: string,
+    projectID: string,
+    payload: AWSOrganizationRolloutStartRequest,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ rollout: AWSOrganizationRolloutResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/rollouts`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    );
+  },
+  getAWSOrganizationRollout(
+    workspaceID: string,
+    projectID: string,
+    rolloutID: string,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ rollout: AWSOrganizationRolloutResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/rollouts/${encodeURIComponent(rolloutID)}`,
+      auth
+    );
   },
   pollAWSConnector(connectorID: string, workspaceID: string, projectID: string, auth?: RequestAuthContext) {
     return request<{ connection: AWSConnectionStatus }>(

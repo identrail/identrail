@@ -1,6 +1,24 @@
 # Changelog
 
 ## Unreleased
+- Ship first slice of **AWS Organization / StackSet rollout automation**
+  (#1788). One approved rollout from a validated management or
+  delegated-administrator connector opens a scoped envelope with a hashed
+  one-time secret and seeds an honest per-target state row for every
+  expected `(account, region)` pair. Member-account StackSet stack instances
+  publish to the existing regional Identrail registration channel from
+  #1787; the API routes on the presence of `RolloutId` in the CloudFormation
+  custom-resource properties, authenticates the secret, verifies scope
+  binding (organization, stack-set name, template version, partition,
+  allowed regions, allowed accounts), and upserts the target row
+  idempotently. A new `POST /aws/rollouts` and `GET /aws/rollouts/{id}`
+  return exact aggregate counts and per-account state; a first-cut UI panel
+  polls status alongside the existing StackSet progress panel. Terminal
+  aggregation into `completed` / `partial` and full STS validation of member
+  roles land in the reconciliation follow-up slice; today an authenticated
+  member registration transitions the target to `validating`, not
+  `connected`, so Identrail never claims coverage from a StackSet launch
+  result alone. See `docs/aws-organization-rollout.md`.
 - Complete **automatic single-account AWS registration** (#1787). One Identrail
   action opens a prefilled read-only CloudFormation stack; after AWS approval,
   regional SNS and encrypted SQS delivery binds the stack to an expiring,

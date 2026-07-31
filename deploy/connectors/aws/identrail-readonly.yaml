@@ -39,6 +39,32 @@ Parameters:
     Default: IdentrailReadOnly
     AllowedPattern: '^[A-Za-z0-9+=,.@_-]{1,64}$'
     Description: IAM role name to create for Identrail.
+  RolloutId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[A-Za-z0-9-]{16,128}$'
+    Description: Identrail organization rollout identifier (populated by StackSet parameters for member-account instances).
+  RolloutRegistrationSecret:
+    Type: String
+    Default: ''
+    NoEcho: true
+    AllowedPattern: '^$|^[A-Za-z0-9_-]{32,256}$'
+    Description: Rollout-scoped secret used both as sts:ExternalId and to authenticate the member-account registration event. Never stored in plaintext by Identrail.
+  RolloutOrganizationId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^o-[a-z0-9]{10,32}$'
+    Description: AWS Organization ID this rollout targets.
+  RolloutManagementAccountId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9]{12}$'
+    Description: Management or delegated-admin account that approved this rollout.
+  RolloutStackSetName:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[A-Za-z0-9-]{1,128}$'
+    Description: StackSet name used to launch this rollout.
 
 Rules:
   RequireAutomaticOrManualTrustGuard:
@@ -58,11 +84,24 @@ Rules:
                     - Fn::Equals:
                         - Ref: RegistrationToken
                         - ''
+            - Fn::And:
+                - Fn::Not:
+                    - Fn::Equals:
+                        - Ref: RegistrationProviderArn
+                        - ''
+                - Fn::Not:
+                    - Fn::Equals:
+                        - Ref: RolloutId
+                        - ''
+                - Fn::Not:
+                    - Fn::Equals:
+                        - Ref: RolloutRegistrationSecret
+                        - ''
             - Fn::Not:
                 - Fn::Equals:
                     - Ref: ExternalId
                     - ''
-        AssertDescription: Automatic registration or a troubleshooting External ID is required.
+        AssertDescription: Automatic single-account registration, an organization rollout, or a troubleshooting External ID is required.
 
 Conditions:
   UseAutomaticRegistration:
@@ -78,6 +117,20 @@ Conditions:
       - Fn::Not:
           - Fn::Equals:
               - Ref: RegistrationToken
+              - ''
+  UseRolloutRegistration:
+    Fn::And:
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: RegistrationProviderArn
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: RolloutId
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: RolloutRegistrationSecret
               - ''
 
 Resources:
@@ -116,11 +169,14 @@ Resources:
               StringEquals:
                 sts:ExternalId:
                   Fn::If:
-                    - UseAutomaticRegistration
-                    - Fn::GetAtt:
-                        - IdentrailRegistrationBootstrap
-                        - ExternalId
-                    - Ref: ExternalId
+                    - UseRolloutRegistration
+                    - Ref: RolloutRegistrationSecret
+                    - Fn::If:
+                        - UseAutomaticRegistration
+                        - Fn::GetAtt:
+                            - IdentrailRegistrationBootstrap
+                            - ExternalId
+                        - Ref: ExternalId
       Policies:
         - PolicyName: IdentrailReadOnlyCollector
           PolicyDocument:
@@ -204,6 +260,34 @@ Resources:
           - Arn
       TemplateVersion: '2.0.0'
 
+  IdentrailRolloutRegistration:
+    Type: Custom::IdentrailAWSConnectorRegistration
+    Condition: UseRolloutRegistration
+    DependsOn:
+      - IdentrailReadOnlyRole
+    Properties:
+      ServiceToken:
+        Ref: RegistrationProviderArn
+      # Match single-account bounds so a single SQS redelivery has time to
+      # complete before the member-account stack rolls back.
+      ServiceTimeout: '3600'
+      Phase: Register
+      RolloutId:
+        Ref: RolloutId
+      RegistrationSecret:
+        Ref: RolloutRegistrationSecret
+      OrganizationId:
+        Ref: RolloutOrganizationId
+      ManagementAccountId:
+        Ref: RolloutManagementAccountId
+      StackSetName:
+        Ref: RolloutStackSetName
+      RoleArn:
+        Fn::GetAtt:
+          - IdentrailReadOnlyRole
+          - Arn
+      TemplateVersion: '2.0.0'
+
 Outputs:
   RoleArn:
     Description: Read-only connector role registered automatically with Identrail.
@@ -215,9 +299,12 @@ Outputs:
     Description: Confirms the External ID condition was configured.
     Value: true
   RegistrationMode:
-    Description: Reports whether the stack used automatic or troubleshooting setup.
+    Description: Reports whether the stack used automatic, rollout, or troubleshooting setup.
     Value:
       Fn::If:
-        - UseAutomaticRegistration
-        - automatic
-        - troubleshooting
+        - UseRolloutRegistration
+        - rollout
+        - Fn::If:
+            - UseAutomaticRegistration
+            - automatic
+            - troubleshooting

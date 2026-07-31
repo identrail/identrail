@@ -176,6 +176,9 @@ import {
   type AWSStackSetOnboardingSummary,
   type AWSStackSetOnboardingCoverageExpectation,
   type AWSStackSetOnboardingRecoveryAction,
+  type AWSOrganizationRolloutResult,
+  type AWSOrganizationRolloutTargetView,
+  type AWSOrganizationRolloutStartRequest,
   type AWSSecretsManagerMetadataInventoryResult,
   type AWSSecretsManagerMetadataRecord,
   type AWSSQSSNSReachabilityInventoryResult,
@@ -21736,6 +21739,265 @@ function AWSStackSetProgressPanel({
   );
 }
 
+type AWSOrganizationRolloutPanelProps = {
+  workspaceID: string;
+  projectID: string;
+  controllingConnectorID: string;
+  controllingAccountID: string;
+  controllingConnected: boolean;
+  organizationID: string;
+  selectedOUIDs: string[];
+  selectedAccountIDs: string[];
+  excludedAccountIDs: string[];
+  targetRegions: string[];
+  autoDeployNewAccounts: boolean;
+  stackSetName: string;
+  deploymentMode: 'service_managed' | 'self_managed';
+};
+
+// AWSOrganizationRolloutPanel is the first-cut UI slice for identrail#1788.
+// It launches a scoped rollout envelope from the validated controlling
+// account and polls per-target state so operators can watch member accounts
+// arrive individually. Deeper drilldown, retry actions, and reconciliation
+// UI land in follow-up slices.
+function AWSOrganizationRolloutPanel({
+  workspaceID,
+  projectID,
+  controllingConnectorID,
+  controllingAccountID,
+  controllingConnected,
+  organizationID,
+  selectedOUIDs,
+  selectedAccountIDs,
+  excludedAccountIDs,
+  targetRegions,
+  autoDeployNewAccounts,
+  stackSetName,
+  deploymentMode
+}: AWSOrganizationRolloutPanelProps) {
+  const [rollout, setRollout] = useState<AWSOrganizationRolloutResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const pollGeneration = useRef(0);
+  const readyToLaunch =
+    Boolean(controllingConnectorID) &&
+    Boolean(controllingAccountID) &&
+    Boolean(organizationID) &&
+    controllingConnected &&
+    targetRegions.length > 0;
+
+  useEffect(() => {
+    if (!rollout || !workspaceID || !projectID) {
+      return;
+    }
+    const generation = ++pollGeneration.current;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      try {
+        const response = await apiClient.getAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id);
+        if (cancelled || generation !== pollGeneration.current) {
+          return;
+        }
+        setRollout(response.rollout);
+        const terminal =
+          response.rollout.status === 'completed' ||
+          response.rollout.status === 'partial' ||
+          response.rollout.status === 'failed' ||
+          response.rollout.status === 'expired' ||
+          response.rollout.status === 'canceled';
+        if (!terminal) {
+          timer = setTimeout(poll, 12000);
+        }
+      } catch (_err) {
+        // Swallow polling errors so a transient network failure doesn't
+        // permanently stop status updates; the next timer tick retries.
+        if (!cancelled && generation === pollGeneration.current) {
+          timer = setTimeout(poll, 20000);
+        }
+      }
+    };
+    timer = setTimeout(poll, 6000);
+    return () => {
+      cancelled = true;
+      pollGeneration.current += 1;
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
+    };
+  }, [rollout, workspaceID, projectID]);
+
+  const handleStart = useCallback(async () => {
+    if (!readyToLaunch || busy) {
+      return;
+    }
+    setBusy(true);
+    setErrorMessage('');
+    try {
+      const payload: AWSOrganizationRolloutStartRequest = {
+        controlling_connector_id: controllingConnectorID,
+        controlling_role: 'management',
+        organization_id: organizationID,
+        management_account_id: controllingAccountID,
+        deployment_mode: deploymentMode,
+        stack_set_name: stackSetName || undefined,
+        selected_ou_ids: selectedOUIDs,
+        selected_account_ids: selectedAccountIDs,
+        excluded_account_ids: excludedAccountIDs,
+        target_regions: targetRegions,
+        auto_deploy_new_accounts: autoDeployNewAccounts
+      };
+      const response = await apiClient.startAWSOrganizationRollout(workspaceID, projectID, payload);
+      setRollout(response.rollout);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to start rollout';
+      setErrorMessage(message);
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    readyToLaunch,
+    busy,
+    controllingConnectorID,
+    organizationID,
+    controllingAccountID,
+    deploymentMode,
+    stackSetName,
+    selectedOUIDs,
+    selectedAccountIDs,
+    excludedAccountIDs,
+    targetRegions,
+    autoDeployNewAccounts,
+    workspaceID,
+    projectID
+  ]);
+
+  const summary = rollout?.summary;
+  return (
+    <section className="idt-aws-rollout-panel" aria-label="AWS organization rollout">
+      <header className="idt-aws-stackset-progress-header">
+        <div>
+          <p className="idt-app-kicker">Organization rollout</p>
+          <h3>
+            {rollout
+              ? `${summary?.connected_targets ?? 0} of ${summary?.expected_targets ?? 0} accounts connected`
+              : 'Launch a scoped rollout for this organization'}
+          </h3>
+          <p>
+            Identrail persists per-account state honestly: an account is only "connected" once its role is validated
+            independently. Launching one stack does not imply coverage of every member account.
+          </p>
+        </div>
+        {!rollout ? (
+          <button
+            className="idt-btn idt-btn-primary"
+            type="button"
+            onClick={() => {
+              void handleStart();
+            }}
+            disabled={!readyToLaunch || busy}
+          >
+            {busy ? 'Starting…' : 'Start rollout'}
+          </button>
+        ) : (
+          <span className={`idt-domain-status-badge is-${rollout.status === 'in_progress' ? 'ready' : 'blocked'}`}>
+            {rollout.status.replace(/_/g, ' ')}
+          </span>
+        )}
+      </header>
+      {!controllingConnected ? (
+        <p className="idt-aws-stackset-coverage-line" role="alert">
+          The controlling (management or delegated-admin) connector must be validated before Identrail will approve an
+          organization-scale rollout.
+        </p>
+      ) : null}
+      {errorMessage ? (
+        <p className="idt-aws-stackset-coverage-line" role="alert">
+          {errorMessage}
+        </p>
+      ) : null}
+      {rollout ? (
+        <>
+          <dl className="idt-aws-stackset-progress-grid">
+            <div>
+              <dt>Expected</dt>
+              <dd>{summary?.expected_targets ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Deploying</dt>
+              <dd>{summary?.deploying_targets ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Registering</dt>
+              <dd>{summary?.registering_targets ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Validating</dt>
+              <dd>{summary?.validating_targets ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Connected</dt>
+              <dd>{summary?.connected_targets ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Failed</dt>
+              <dd>{summary?.failed_targets ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Excluded</dt>
+              <dd>{summary?.excluded_targets ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Suspended</dt>
+              <dd>{summary?.suspended_targets ?? 0}</dd>
+            </div>
+          </dl>
+          {rollout.launch_url ? (
+            <p className="idt-aws-stackset-coverage-line">
+              <a href={rollout.launch_url} target="_blank" rel="noopener noreferrer">
+                Open AWS StackSet console
+              </a>{' '}
+              to authorize the rollout across the selected accounts and regions.
+            </p>
+          ) : null}
+          <table className="idt-source-table" aria-label="Rollout target accounts">
+            <thead>
+              <tr>
+                <th scope="col">Account</th>
+                <th scope="col">Region</th>
+                <th scope="col">State</th>
+                <th scope="col">Last transition</th>
+                <th scope="col">Last validation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rollout.targets.length === 0 ? (
+                <tr>
+                  <td colSpan={5}>No targets seeded yet.</td>
+                </tr>
+              ) : (
+                rollout.targets.map((target: AWSOrganizationRolloutTargetView) => (
+                  <tr key={`${target.account_id}-${target.region}`}>
+                    <td>
+                      {target.account_id}
+                      {target.is_management ? ' (management)' : ''}
+                      {target.account_name ? ` · ${target.account_name}` : ''}
+                    </td>
+                    <td>{target.region}</td>
+                    <td>{target.state}</td>
+                    <td>{target.last_transition_at ? new Date(target.last_transition_at).toLocaleString() : '—'}</td>
+                    <td>{target.last_validation_at ? new Date(target.last_validation_at).toLocaleString() : '—'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 export function ProductAWSConnectPage() {
   const params = useParams<ScopeRouteParams>();
   const location = useLocation();
@@ -23706,6 +23968,23 @@ export function ProductAWSConnectPage() {
                     : undefined
                 }
                 refreshing={submitting || awsStackSetOnboardingLoading}
+              />
+            ) : null}
+            {isStackSetSetup && scope ? (
+              <AWSOrganizationRolloutPanel
+                workspaceID={scope.workspaceID}
+                projectID={scope.projectID ?? ''}
+                controllingConnectorID={activeConnectorID}
+                controllingAccountID={connection?.account_id ?? ''}
+                controllingConnected={Boolean(connection?.connected)}
+                organizationID={parsedOrganizationRootID}
+                selectedOUIDs={parsedTargetOUIDs}
+                selectedAccountIDs={parsedTargetAccountIDs}
+                excludedAccountIDs={parsedExcludedAccountIDs}
+                targetRegions={parsedTargetRegions}
+                autoDeployNewAccounts={awsForm.autoOnboardNewAccounts}
+                stackSetName={parsedStackSetName}
+                deploymentMode="service_managed"
               />
             ) : null}
           </section>

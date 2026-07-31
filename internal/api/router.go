@@ -4885,6 +4885,84 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"onboarding": record})
 	})
 
+	v1.POST("/workspaces/:workspace_id/projects/:project_id/aws/rollouts", func(c *gin.Context) {
+		if !featureConnectorAWS {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request AWSOrganizationRolloutStartRequest
+		if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		request.WorkspaceID = c.Param("workspace_id")
+		request.ProjectID = c.Param("project_id")
+		record, err := svc.StartAWSOrganizationRollout(c.Request.Context(), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrAWSOrganizationRolloutControllingUnready):
+				c.JSON(http.StatusConflict, gin.H{"error": "aws controlling account is not validated"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws rollout request"})
+			case errors.Is(err, ErrAWSConnectorConfigUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws rollout storage unavailable"})
+			case errors.Is(err, db.ErrConflict):
+				c.JSON(http.StatusConflict, gin.H{"error": "an active aws rollout already exists for this controlling connector"})
+			default:
+				if logger != nil {
+					logger.Error("start aws organization rollout",
+						zap.String("workspace_id", c.Param("workspace_id")),
+						zap.String("project_id", c.Param("project_id")),
+						telemetry.ZapError(err),
+					)
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start aws rollout"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"rollout": record})
+	})
+
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id", func(c *gin.Context) {
+		if !featureConnectorAWS {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSOrganizationRolloutStatus(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), c.Param("rollout_id"))
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "aws rollout not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws rollout request"})
+			case errors.Is(err, ErrAWSConnectorConfigUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws rollout storage unavailable"})
+			default:
+				if logger != nil {
+					logger.Error("get aws organization rollout status",
+						zap.String("workspace_id", c.Param("workspace_id")),
+						zap.String("project_id", c.Param("project_id")),
+						zap.String("rollout_id", c.Param("rollout_id")),
+						telemetry.ZapError(err),
+					)
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws rollout"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"rollout": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/secrets-manager-metadata", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

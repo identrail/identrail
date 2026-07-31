@@ -46,6 +46,8 @@ type MemoryStore struct {
 	connStates                    map[string]TenancyConnectorState
 	connSecrets                   map[string]TenancyConnectorSecretEnvelope
 	awsOnboardingAttempts         map[string]AWSConnectorOnboardingAttempt
+	awsOrgRollouts                map[string]AWSOrganizationRollout
+	awsOrgRolloutTargets          map[string]AWSOrganizationRolloutTarget
 	awsCoverages                  map[string]AWSAccountRegionCoverage
 	awsBaselines                  map[string]AWSPlatformBaselineResult
 	users                         map[string]User
@@ -100,6 +102,8 @@ func NewMemoryStore() *MemoryStore {
 		connStates:                    map[string]TenancyConnectorState{},
 		connSecrets:                   map[string]TenancyConnectorSecretEnvelope{},
 		awsOnboardingAttempts:         map[string]AWSConnectorOnboardingAttempt{},
+		awsOrgRollouts:                map[string]AWSOrganizationRollout{},
+		awsOrgRolloutTargets:          map[string]AWSOrganizationRolloutTarget{},
 		awsCoverages:                  map[string]AWSAccountRegionCoverage{},
 		awsBaselines:                  map[string]AWSPlatformBaselineResult{},
 		users:                         map[string]User{},
