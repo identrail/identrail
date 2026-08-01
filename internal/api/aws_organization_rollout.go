@@ -232,9 +232,18 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 		return AWSOrganizationRolloutStatus{}, err
 	}
 
+	// Reject before creating the envelope when the launch configuration is
+	// missing. Without a pinned template, checksum, Identrail account, or a
+	// regional registration provider for the home region, the resulting
+	// launch URL would be unusable and the envelope would silently hold the
+	// one-active-per-controlling-connector lock.
+	templateURL := strings.TrimSpace(s.AWSCloudFormationTemplateURL)
 	templateChecksum := strings.TrimSpace(s.AWSCloudFormationTemplateSHA)
-	if templateChecksum == "" {
-		templateChecksum = "sha256:fixture-rollout"
+	identrailAccountID := strings.TrimSpace(s.AWSAccountID)
+	homeRegion := regions[0]
+	providerARN := s.awsRegistrationTopicARN(homeRegion)
+	if templateURL == "" || templateChecksum == "" || identrailAccountID == "" || providerARN == "" {
+		return AWSOrganizationRolloutStatus{}, ErrAWSConnectorConfigUnavailable
 	}
 
 	store, err := s.awsOrganizationRolloutStore()
@@ -242,6 +251,9 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 		return AWSOrganizationRolloutStatus{}, err
 	}
 	now := s.Now().UTC()
+	// Sweep any existing envelope whose 24h window has elapsed but was never
+	// terminalized so its uniqueness lock does not block the replacement.
+	s.expireStaleAWSOrganizationRollout(ctx, store, project.WorkspaceID, project.ProjectID, controllingConnectorID, now)
 	rolloutID := uuid.NewString()
 	rollout := db.AWSOrganizationRollout{
 		RolloutID:                    rolloutID,
@@ -295,7 +307,7 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 		}
 	}
 
-	return s.buildAWSOrganizationRolloutStatus(ctx, store, created)
+	return s.buildAWSOrganizationRolloutStatus(ctx, store, created, true)
 }
 
 // markAWSOrganizationRolloutFailed best-effort terminalizes an envelope after
@@ -312,10 +324,49 @@ func (s *Service) markAWSOrganizationRolloutFailed(ctx context.Context, store db
 	_, _ = store.UpdateAWSOrganizationRollout(ctx, rollout, rollout.Version)
 }
 
+// expireStaleAWSOrganizationRollout terminalizes an active envelope whose
+// 24-hour window has elapsed. Without this, an unlaunched rollout would hold
+// the one-active-per-controlling-connector uniqueness lock indefinitely and
+// block the operator from opening a fresh envelope. Best-effort: any failure
+// leaves the sweep to the next call.
+func (s *Service) expireStaleAWSOrganizationRollout(ctx context.Context, store db.AWSOrganizationRolloutStore, workspaceID string, projectID string, connectorID string, now time.Time) {
+	rollouts, err := store.ListAWSOrganizationRollouts(ctx, workspaceID, projectID, connectorID, 25)
+	if err != nil {
+		return
+	}
+	for _, rollout := range rollouts {
+		switch rollout.Status {
+		case db.AWSOrganizationRolloutStatusCreated,
+			db.AWSOrganizationRolloutStatusLaunching,
+			db.AWSOrganizationRolloutStatusInProgress,
+			db.AWSOrganizationRolloutStatusReconciling:
+		default:
+			continue
+		}
+		if now.Before(rollout.ExpiresAt) {
+			continue
+		}
+		rollout.Status = db.AWSOrganizationRolloutStatusExpired
+		if rollout.FailureCode == "" {
+			rollout.FailureCode = "rollout_envelope_expired"
+			rollout.FailureMessage = "The rollout envelope elapsed its 24-hour window before completion. Start a new rollout."
+		}
+		rollout.UpdatedAt = now
+		_, _ = store.UpdateAWSOrganizationRollout(ctx, rollout, rollout.Version)
+	}
+}
+
 // GetAWSOrganizationRolloutStatus returns the current rollout + per-target
 // state. It never claims coverage from a StackSet operation result alone; the
 // counts come from persisted per-target rows updated by authenticated
 // registration events and future reconciliation runs.
+//
+// Read responses always redact the rollout registration secret from the
+// launch URL. The secret is a bearer credential that authenticates every
+// member-account registration event: returning it under tenancy.read scope
+// would let any read-scoped viewer replay a member registration for any
+// approved target. Only the initial StartAWSOrganizationRollout response
+// (tenancy.write) carries the full launch URL.
 func (s *Service) GetAWSOrganizationRolloutStatus(ctx context.Context, workspaceID string, projectID string, rolloutID string) (AWSOrganizationRolloutStatus, error) {
 	project, _, err := s.requireScopedProject(ctx, workspaceID, projectID)
 	if err != nil {
@@ -329,10 +380,10 @@ func (s *Service) GetAWSOrganizationRolloutStatus(ctx context.Context, workspace
 	if err != nil {
 		return AWSOrganizationRolloutStatus{}, err
 	}
-	return s.buildAWSOrganizationRolloutStatus(ctx, store, rollout)
+	return s.buildAWSOrganizationRolloutStatus(ctx, store, rollout, false)
 }
 
-func (s *Service) buildAWSOrganizationRolloutStatus(ctx context.Context, store db.AWSOrganizationRolloutStore, rollout db.AWSOrganizationRollout) (AWSOrganizationRolloutStatus, error) {
+func (s *Service) buildAWSOrganizationRolloutStatus(ctx context.Context, store db.AWSOrganizationRolloutStore, rollout db.AWSOrganizationRollout, includeSecret bool) (AWSOrganizationRolloutStatus, error) {
 	targets, err := store.ListAWSOrganizationRolloutTargets(ctx, rollout.WorkspaceID, rollout.ProjectID, rollout.RolloutID)
 	if err != nil {
 		return AWSOrganizationRolloutStatus{}, err
@@ -376,30 +427,37 @@ func (s *Service) buildAWSOrganizationRolloutStatus(ctx context.Context, store d
 	launchURL := ""
 	// The launch URL must carry the rollout registration parameters so every
 	// member-account stack instance can authenticate its callback into this
-	// exact envelope. Without them, the CFN template's UseRolloutRegistration
-	// condition never fires and members never send registration events.
-	rolloutSecret, secretErr := s.awsOrganizationRolloutSecret(rollout)
-	if secretErr == nil {
-		launchURL = awsconnector.BuildCloudFormationStackSetLaunchURL(awsconnector.CloudFormationStackSetLaunchInput{
-			TemplateURL:                 strings.TrimSpace(s.AWSCloudFormationTemplateURL),
-			Region:                      firstNonEmptyAWSValue(regionOrEmpty(rollout.TargetRegions)),
-			StackSetName:                rollout.StackSetName,
-			IdentrailAccountID:          strings.TrimSpace(s.AWSAccountID),
-			ExternalID:                  "",
-			RoleName:                    rollout.ExpectedRoleName,
-			PermissionModel:             awsOrganizationRolloutPermissionModel(rollout.DeploymentMode),
-			OrganizationalUnitIDs:       rollout.SelectedOUIDs,
-			TargetAccountIDs:            rollout.SelectedAccountIDs,
-			ExcludedAccountIDs:          rollout.ExcludedAccountIDs,
-			TargetRegions:               rollout.TargetRegions,
-			RegistrationProviderARN:     s.awsRegistrationTopicARN(firstNonEmptyAWSValue(regionOrEmpty(rollout.TargetRegions))),
-			RolloutID:                   rollout.RolloutID,
-			RolloutRegistrationSecret:   rolloutSecret,
-			RolloutOrganizationID:       rollout.OrganizationID,
-			RolloutManagementAccountID:  rollout.ManagementAccountID,
-			RolloutStackSetNameOverride: rollout.StackSetName,
-		})
+	// exact envelope. Read responses (includeSecret=false) omit the raw
+	// registration secret and the RolloutId so the URL is safe to expose
+	// under tenancy.read but is not usable to launch; only the operator
+	// who received the initial start response holds a launchable URL.
+	rolloutSecret := ""
+	if includeSecret {
+		if derived, secretErr := s.awsOrganizationRolloutSecret(rollout); secretErr == nil {
+			rolloutSecret = derived
+		}
 	}
+	autoDeployment := rollout.AutoDeployNewAccounts
+	launchURL = awsconnector.BuildCloudFormationStackSetLaunchURL(awsconnector.CloudFormationStackSetLaunchInput{
+		TemplateURL:                 strings.TrimSpace(s.AWSCloudFormationTemplateURL),
+		Region:                      firstNonEmptyAWSValue(regionOrEmpty(rollout.TargetRegions)),
+		StackSetName:                rollout.StackSetName,
+		IdentrailAccountID:          strings.TrimSpace(s.AWSAccountID),
+		ExternalID:                  "",
+		RoleName:                    rollout.ExpectedRoleName,
+		PermissionModel:             awsOrganizationRolloutPermissionModel(rollout.DeploymentMode),
+		OrganizationalUnitIDs:       rollout.SelectedOUIDs,
+		TargetAccountIDs:            rollout.SelectedAccountIDs,
+		ExcludedAccountIDs:          rollout.ExcludedAccountIDs,
+		TargetRegions:               rollout.TargetRegions,
+		AutoDeploymentEnabled:       &autoDeployment,
+		RegistrationProviderARN:     s.awsRegistrationTopicARN(firstNonEmptyAWSValue(regionOrEmpty(rollout.TargetRegions))),
+		RolloutID:                   condString(includeSecret, rollout.RolloutID),
+		RolloutRegistrationSecret:   rolloutSecret,
+		RolloutOrganizationID:       rollout.OrganizationID,
+		RolloutManagementAccountID:  rollout.ManagementAccountID,
+		RolloutStackSetNameOverride: rollout.StackSetName,
+	})
 	sort.SliceStable(views, func(i, j int) bool {
 		if views[i].IsManagement != views[j].IsManagement {
 			return views[i].IsManagement
@@ -525,6 +583,17 @@ func regionOrEmpty(regions []string) string {
 		return ""
 	}
 	return regions[0]
+}
+
+// condString returns value when include is true, empty otherwise. Used to
+// strip fields from the launch URL under a redacted (read) response so a
+// tenancy.read viewer cannot both recover the rollout ID and the secret from
+// the same URL.
+func condString(include bool, value string) string {
+	if include {
+		return value
+	}
+	return ""
 }
 
 // awsOrganizationRolloutPartitionForRegions returns the AWS partition shared

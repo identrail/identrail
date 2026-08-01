@@ -54,6 +54,13 @@ CREATE TABLE IF NOT EXISTS aws_organization_rollouts (
     CHECK (controlling_role IN ('management', 'delegated_admin')),
     CHECK (deployment_mode IN ('service_managed', 'self_managed')),
     CHECK (management_account_id ~ '^[0-9]{12}$'),
+    -- Every scope list is JSONB but must be a JSON array so the target
+    -- seeder, StackSet launch URL builder, and scope validators never see
+    -- an object, scalar, or JSON `null` where they expect a list.
+    CHECK (jsonb_typeof(selected_ou_ids) = 'array'),
+    CHECK (jsonb_typeof(selected_account_ids) = 'array'),
+    CHECK (jsonb_typeof(excluded_account_ids) = 'array'),
+    CHECK (jsonb_typeof(target_regions) = 'array'),
     CHECK (status IN (
         'created',
         'launching',
@@ -113,6 +120,7 @@ CREATE TABLE IF NOT EXISTS aws_organization_rollout_targets (
     failure_message       TEXT,
     retryable             BOOLEAN NOT NULL DEFAULT FALSE,
     evidence_ref          TEXT,
+    register_request_id   TEXT,
     last_transition_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_validation_at    TIMESTAMPTZ,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),

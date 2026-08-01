@@ -4908,10 +4908,14 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
 			case errors.Is(err, ErrAWSOrganizationRolloutControllingUnready):
 				c.JSON(http.StatusConflict, gin.H{"error": "aws controlling account is not validated"})
+			case errors.Is(err, ErrAWSOrganizationRolloutOUMembershipUnsupported):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "ou-only rollouts require explicit selected_account_ids in this release"})
+			case errors.Is(err, ErrAWSOrganizationRolloutMixedPartition):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "target regions must share a single aws partition"})
 			case errors.Is(err, ErrInvalidAWSConnectionRequest):
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws rollout request"})
 			case errors.Is(err, ErrAWSConnectorConfigUnavailable):
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws rollout storage unavailable"})
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws rollout storage or launch configuration unavailable"})
 			case errors.Is(err, db.ErrConflict):
 				c.JSON(http.StatusConflict, gin.H{"error": "an active aws rollout already exists for this controlling connector"})
 			default:

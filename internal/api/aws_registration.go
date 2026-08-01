@@ -247,17 +247,21 @@ func (s *Service) ProcessAWSConnectorRegistrationMessage(ctx context.Context, bo
 		return err
 	}
 	phase := awsRegistrationProperty(request.ResourceProperties, "Phase")
+	// Route by presence of a RolloutId in the custom-resource properties.
+	// Member-account rollout events share the same SNS/SQS envelope, topic
+	// allowlist, and CFN acknowledgement contract as single-account
+	// registration; only the persistence target differs. Delete events for
+	// a rollout member must be routed here too so that stack teardown
+	// terminalizes the rollout target rather than being swallowed by the
+	// single-account delete path.
+	if awsRegistrationProperty(request.ResourceProperties, "RolloutId") != "" {
+		if request.RequestType == "Delete" {
+			return s.processAWSOrganizationRolloutMemberDelete(ctx, envelope.TopicARN, request, phase)
+		}
+		return s.processAWSOrganizationRolloutMemberRegistration(ctx, envelope.TopicARN, request, phase)
+	}
 	if request.RequestType == "Delete" {
 		return s.processAWSRegistrationDelete(ctx, envelope.TopicARN, request, phase)
-	}
-
-	// Member-account StackSet registrations are routed by presence of a
-	// RolloutId in the custom-resource properties. Rollout events share the
-	// same SNS/SQS envelope, authenticator, and topic-ARN allowlist as
-	// single-account registration; only the persistence target differs so a
-	// rollout does not require its own AWS delivery infrastructure.
-	if awsRegistrationProperty(request.ResourceProperties, "RolloutId") != "" {
-		return s.processAWSOrganizationRolloutMemberRegistration(ctx, envelope.TopicARN, request, phase)
 	}
 
 	attemptID := awsRegistrationProperty(request.ResourceProperties, "AttemptId")
@@ -658,11 +662,28 @@ func validateAWSCloudFormationResponseURL(rawURL string) error {
 }
 
 func parseAWSStackARN(stackID string) (partition string, region string, accountID string, ok bool) {
-	matches := awsStackARNPattern.FindStringSubmatch(strings.TrimSpace(stackID))
+	partition, region, accountID, _, ok = parseAWSStackARNWithName(stackID)
+	return partition, region, accountID, ok
+}
+
+// parseAWSStackARNWithName parses a CloudFormation stack ARN and additionally
+// returns the stack resource name (the segment between `stack/` and the final
+// UUID). Callers that need to bind a callback to a specific StackSet-instance
+// name — every AWS-managed StackSet instance is named
+// `StackSet-<stackset-name>-<uuid>` — use this variant.
+func parseAWSStackARNWithName(stackID string) (partition string, region string, accountID string, stackName string, ok bool) {
+	trimmed := strings.TrimSpace(stackID)
+	matches := awsStackARNPattern.FindStringSubmatch(trimmed)
 	if len(matches) != 4 {
-		return "", "", "", false
+		return "", "", "", "", false
 	}
-	return matches[1], matches[2], matches[3], true
+	// The pattern anchors on `stack/<name>/<uuid>$`; split on `/` and take
+	// the second-to-last segment as the stack name.
+	segments := strings.Split(trimmed, "/")
+	if len(segments) < 3 {
+		return "", "", "", "", false
+	}
+	return matches[1], matches[2], matches[3], segments[len(segments)-2], true
 }
 
 func awsRegistrationProperty(properties map[string]any, key string) string {

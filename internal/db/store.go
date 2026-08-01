@@ -1285,28 +1285,29 @@ type AWSOrganizationRollout struct {
 // and transitioned as authenticated AWS events arrive. Each row carries its
 // own honest state so partial success is preserved.
 type AWSOrganizationRolloutTarget struct {
-	RolloutID        string     `json:"rollout_id"`
-	AccountID        string     `json:"account_id"`
-	Region           string     `json:"region"`
-	TenantID         string     `json:"tenant_id"`
-	WorkspaceID      string     `json:"workspace_id"`
-	ProjectID        string     `json:"project_id"`
-	AccountName      string     `json:"account_name,omitempty"`
-	OUPath           string     `json:"ou_path,omitempty"`
-	IsManagement     bool       `json:"is_management"`
-	State            string     `json:"state"`
-	StackInstanceID  string     `json:"stack_instance_id,omitempty"`
-	StackID          string     `json:"stack_id,omitempty"`
-	RoleARN          string     `json:"role_arn,omitempty"`
-	FailureCode      string     `json:"failure_code,omitempty"`
-	FailureMessage   string     `json:"failure_message,omitempty"`
-	Retryable        bool       `json:"retryable"`
-	EvidenceRef      string     `json:"evidence_ref,omitempty"`
-	LastTransitionAt time.Time  `json:"last_transition_at"`
-	LastValidationAt *time.Time `json:"last_validation_at,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	Version          int64      `json:"version"`
+	RolloutID         string     `json:"rollout_id"`
+	AccountID         string     `json:"account_id"`
+	Region            string     `json:"region"`
+	TenantID          string     `json:"tenant_id"`
+	WorkspaceID       string     `json:"workspace_id"`
+	ProjectID         string     `json:"project_id"`
+	AccountName       string     `json:"account_name,omitempty"`
+	OUPath            string     `json:"ou_path,omitempty"`
+	IsManagement      bool       `json:"is_management"`
+	State             string     `json:"state"`
+	StackInstanceID   string     `json:"stack_instance_id,omitempty"`
+	StackID           string     `json:"stack_id,omitempty"`
+	RoleARN           string     `json:"role_arn,omitempty"`
+	FailureCode       string     `json:"failure_code,omitempty"`
+	FailureMessage    string     `json:"failure_message,omitempty"`
+	Retryable         bool       `json:"retryable"`
+	EvidenceRef       string     `json:"evidence_ref,omitempty"`
+	RegisterRequestID string     `json:"register_request_id,omitempty"`
+	LastTransitionAt  time.Time  `json:"last_transition_at"`
+	LastValidationAt  *time.Time `json:"last_validation_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	Version           int64      `json:"version"`
 }
 
 // AWSOrganizationRolloutStore is a narrow persistence contract for rollouts

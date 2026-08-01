@@ -21746,6 +21746,8 @@ type AWSOrganizationRolloutPanelProps = {
   controllingAccountID: string;
   controllingConnected: boolean;
   organizationID: string;
+  setupMode: AWSSetupMode;
+  organizationRootID: string;
   selectedOUIDs: string[];
   selectedAccountIDs: string[];
   excludedAccountIDs: string[];
@@ -21767,6 +21769,8 @@ function AWSOrganizationRolloutPanel({
   controllingAccountID,
   controllingConnected,
   organizationID,
+  setupMode,
+  organizationRootID,
   selectedOUIDs,
   selectedAccountIDs,
   excludedAccountIDs,
@@ -21782,12 +21786,34 @@ function AWSOrganizationRolloutPanel({
   const [manualRefreshBusy, setManualRefreshBusy] = useState(false);
   const [pollEpoch, setPollEpoch] = useState(0);
   const pollGeneration = useRef(0);
+  // Derive the rollout target scope from the setup mode, mirroring
+  // buildStackSetContractSnapshot / handleAWSStackSetStart. Whole-org and
+  // OU rollouts include the org root or the operator's OUs; only
+  // selected_accounts rollouts include an explicit account list. Slice 1's
+  // rollout API rejects OU-only requests until the membership resolver
+  // ships, so the launch button is only enabled when the derived scope
+  // actually names accounts (which today is only selected_accounts).
+  const derivedTargetOUIDs = (() => {
+    if (setupMode === 'selected_ous') {
+      return selectedOUIDs;
+    }
+    if (setupMode === 'organization' || setupMode === 'selected_accounts') {
+      return organizationRootID ? [organizationRootID] : [];
+    }
+    return [];
+  })();
+  const derivedTargetAccountIDs = setupMode === 'selected_accounts' ? selectedAccountIDs : [];
+  const derivedExcludedAccountIDs = setupMode !== 'selected_accounts' ? excludedAccountIDs : [];
+  const derivedAutoDeployNewAccounts =
+    setupMode === 'organization' || setupMode === 'selected_ous' ? autoDeployNewAccounts : false;
+  const hasExplicitAccounts = derivedTargetAccountIDs.length > 0;
   const readyToLaunch =
     Boolean(controllingConnectorID) &&
     Boolean(controllingAccountID) &&
     Boolean(organizationID) &&
     controllingConnected &&
-    targetRegions.length > 0;
+    targetRegions.length > 0 &&
+    hasExplicitAccounts;
 
   // Bounded polling budget. 30 successful ticks at 12s ≈ 6 minutes of active
   // watching, with three additional 20s tries after a transient network
@@ -21797,8 +21823,14 @@ function AWSOrganizationRolloutPanel({
   const maxPollAttempts = 30;
   const maxErrorAttempts = 3;
 
+  // Scope the poll effect to the rollout id, not the whole rollout object.
+  // The panel calls setRollout on every successful tick, which returns a
+  // new object reference; if that reference were a dependency, the effect
+  // would tear down and restart every 6s, resetting the success/error
+  // counters to zero and never reaching the bounded budget below.
+  const rolloutID = rollout?.rollout_id ?? '';
   useEffect(() => {
-    if (!rollout || !workspaceID || !projectID) {
+    if (!rolloutID || !workspaceID || !projectID) {
       return;
     }
     const generation = ++pollGeneration.current;
@@ -21808,7 +21840,7 @@ function AWSOrganizationRolloutPanel({
     let errorAttempts = 0;
     const poll = async () => {
       try {
-        const response = await apiClient.getAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id);
+        const response = await apiClient.getAWSOrganizationRollout(workspaceID, projectID, rolloutID);
         if (cancelled || generation !== pollGeneration.current) {
           return;
         }
@@ -21849,7 +21881,7 @@ function AWSOrganizationRolloutPanel({
         clearTimeout(timer);
       }
     };
-  }, [rollout, workspaceID, projectID, pollEpoch]);
+  }, [rolloutID, workspaceID, projectID, pollEpoch]);
 
   const handleManualRefresh = useCallback(async () => {
     if (!rollout || !workspaceID || !projectID || manualRefreshBusy) {
@@ -21884,11 +21916,11 @@ function AWSOrganizationRolloutPanel({
         management_account_id: controllingAccountID,
         deployment_mode: deploymentMode,
         stack_set_name: stackSetName || undefined,
-        selected_ou_ids: selectedOUIDs,
-        selected_account_ids: selectedAccountIDs,
-        excluded_account_ids: excludedAccountIDs,
+        selected_ou_ids: derivedTargetOUIDs,
+        selected_account_ids: derivedTargetAccountIDs,
+        excluded_account_ids: derivedExcludedAccountIDs,
         target_regions: targetRegions,
-        auto_deploy_new_accounts: autoDeployNewAccounts
+        auto_deploy_new_accounts: derivedAutoDeployNewAccounts
       };
       const response = await apiClient.startAWSOrganizationRollout(workspaceID, projectID, payload);
       setRollout(response.rollout);
@@ -21906,11 +21938,11 @@ function AWSOrganizationRolloutPanel({
     controllingAccountID,
     deploymentMode,
     stackSetName,
-    selectedOUIDs,
-    selectedAccountIDs,
-    excludedAccountIDs,
+    derivedTargetOUIDs,
+    derivedTargetAccountIDs,
+    derivedExcludedAccountIDs,
     targetRegions,
-    autoDeployNewAccounts,
+    derivedAutoDeployNewAccounts,
     workspaceID,
     projectID
   ]);
@@ -21972,6 +22004,13 @@ function AWSOrganizationRolloutPanel({
         <p className="idt-aws-stackset-coverage-line" role="alert">
           The controlling (management or delegated-admin) connector must be validated before Identrail will approve an
           organization-scale rollout.
+        </p>
+      ) : null}
+      {controllingConnected && !rollout && !hasExplicitAccounts ? (
+        <p className="idt-aws-stackset-coverage-line" role="status">
+          This release requires selected member accounts. Switch scope to <em>Selected accounts</em> and list every target
+          account so Identrail can honestly seed and report each per-account outcome. OU-only rollouts land with the
+          reconciliation slice.
         </p>
       ) : null}
       {errorMessage ? (
@@ -24041,6 +24080,8 @@ export function ProductAWSConnectPage() {
                 controllingAccountID={connection?.account_id ?? ''}
                 controllingConnected={Boolean(connection?.connected)}
                 organizationID={parsedOrganizationRootID}
+                setupMode={awsSetupMode}
+                organizationRootID={parsedOrganizationRootID}
                 selectedOUIDs={parsedTargetOUIDs}
                 selectedAccountIDs={parsedTargetAccountIDs}
                 excludedAccountIDs={parsedExcludedAccountIDs}

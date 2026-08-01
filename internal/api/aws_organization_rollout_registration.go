@@ -57,7 +57,7 @@ func (s *Service) processAWSOrganizationRolloutMemberRegistration(
 	if err := s.validateAWSOrganizationRolloutRegistration(rollout, request, organizationID, stackSetName, templateVersion, secret, roleARN); err != nil {
 		return s.failAWSCloudFormationRequest(ctx, request, "The Identrail rollout registration could not be verified.", err)
 	}
-	partition, region, accountID, ok := parseAWSStackARN(request.StackID)
+	partition, region, accountID, stackName, ok := parseAWSStackARNWithName(request.StackID)
 	if !ok || !awsOrganizationRolloutRegionAllowed(rollout, region) {
 		return s.failAWSCloudFormationRequest(ctx, request, "This member account/region is not part of the approved rollout.", fmt.Errorf("rollout stack region not allowed"))
 	}
@@ -69,6 +69,15 @@ func (s *Service) processAWSOrganizationRolloutMemberRegistration(
 	}
 	if accountIDFromRoleARN(roleARN) != accountID {
 		return s.failAWSCloudFormationRequest(ctx, request, "The AWS role does not belong to the reporting account.", fmt.Errorf("rollout role account mismatch"))
+	}
+	// Bind the callback to a stack instance that actually belongs to the
+	// rollout's StackSet. AWS StackSet-managed member-account stacks are
+	// named `StackSet-<stackset-name>-<uuid>`. Without this check, a
+	// selected-account principal that observed the rollout secret could
+	// submit these properties from an unrelated stack in the same account
+	// and move the target to `validating` under a different code path.
+	if !awsOrganizationRolloutStackBelongsToStackSet(stackName, rollout.StackSetName) {
+		return s.failAWSCloudFormationRequest(ctx, request, "The reporting stack does not belong to the approved StackSet instance.", fmt.Errorf("rollout stack name mismatch"))
 	}
 	// Bind RoleArn to the exact role name the rollout expects. Without this
 	// check, a member-account operator (or an attacker with StackSet-instance
@@ -82,20 +91,31 @@ func (s *Service) processAWSOrganizationRolloutMemberRegistration(
 
 	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: rollout.TenantID, WorkspaceID: rollout.WorkspaceID})
 
+	// SQS redelivery dedupe. Once a callback for this exact CloudFormation
+	// request ID has been ACKed, a redelivery re-sends SUCCESS is a no-op
+	// on the AWS side (the pre-signed callback URL is single-use) and
+	// would race the CloudFormation response contract. Return nil so SQS
+	// deletes the redelivered message without another network call.
+	if existing, existsErr := store.GetAWSOrganizationRolloutTarget(scopedCtx, rollout.RolloutID, accountID, region); existsErr == nil &&
+		existing.RegisterRequestID != "" && existing.RegisterRequestID == request.RequestID {
+		return nil
+	}
+
 	target := db.AWSOrganizationRolloutTarget{
-		RolloutID:       rollout.RolloutID,
-		AccountID:       accountID,
-		Region:          region,
-		TenantID:        rollout.TenantID,
-		WorkspaceID:     rollout.WorkspaceID,
-		ProjectID:       rollout.ProjectID,
-		IsManagement:    accountID == rollout.ManagementAccountID,
-		State:           db.AWSOrganizationRolloutTargetValidating,
-		StackID:         request.StackID,
-		StackInstanceID: request.RequestID,
-		RoleARN:         roleARN,
-		Retryable:       true,
-		EvidenceRef:     "aws-stackset:" + rollout.StackSetName + ":" + accountID + "/" + region,
+		RolloutID:         rollout.RolloutID,
+		AccountID:         accountID,
+		Region:            region,
+		TenantID:          rollout.TenantID,
+		WorkspaceID:       rollout.WorkspaceID,
+		ProjectID:         rollout.ProjectID,
+		IsManagement:      accountID == rollout.ManagementAccountID,
+		State:             db.AWSOrganizationRolloutTargetValidating,
+		StackID:           request.StackID,
+		StackInstanceID:   request.RequestID,
+		RoleARN:           roleARN,
+		Retryable:         true,
+		EvidenceRef:       "aws-stackset:" + rollout.StackSetName + ":" + accountID + "/" + region,
+		RegisterRequestID: request.RequestID,
 	}
 	if _, err := store.UpsertAWSOrganizationRolloutTarget(scopedCtx, target); err != nil {
 		// The AWS-facing callback is intentionally not sent on persistence
@@ -224,4 +244,69 @@ func awsOrganizationRolloutRoleARNMatchesExpectedName(roleARN string, expected s
 		return false
 	}
 	return trimmed[slash+1:] == expected
+}
+
+// awsOrganizationRolloutStackBelongsToStackSet checks that stackName is a
+// StackSet-managed member-account stack for the given StackSet name. AWS
+// names such stacks `StackSet-<stackset-name>-<uuid>`, so we require the
+// exact prefix plus a `-` before the trailing UUID.
+func awsOrganizationRolloutStackBelongsToStackSet(stackName string, stackSetName string) bool {
+	stackName = strings.TrimSpace(stackName)
+	stackSetName = strings.TrimSpace(stackSetName)
+	if stackName == "" || stackSetName == "" {
+		return false
+	}
+	prefix := "StackSet-" + stackSetName + "-"
+	return strings.HasPrefix(stackName, prefix) && len(stackName) > len(prefix)
+}
+
+// processAWSOrganizationRolloutMemberDelete handles a Delete callback from a
+// member-account stack. The rollout target moves to `removed` so the panel
+// no longer reports it as pending/validating. As with single-account delete,
+// this callback must never fail the customer's stack teardown: the SUCCESS
+// response is best-effort and any Identrail-side persistence failure leaves
+// the eventual reconciliation loop responsible for the final state.
+func (s *Service) processAWSOrganizationRolloutMemberDelete(
+	ctx context.Context,
+	topicARN string,
+	request awsCloudFormationCustomResourceRequest,
+	phase string,
+) error {
+	_ = phase
+	// Always try to ACK first so a Delete never blocks the customer's stack.
+	respondErr := s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, nil)
+	rolloutID := awsRegistrationProperty(request.ResourceProperties, "RolloutId")
+	if rolloutID == "" {
+		return respondErr
+	}
+	store, err := s.awsOrganizationRolloutStore()
+	if err != nil {
+		return respondErr
+	}
+	rollout, err := store.GetAWSOrganizationRolloutAnyScope(ctx, rolloutID)
+	if err != nil {
+		return respondErr
+	}
+	if !s.isAWSRegistrationTopicARN(topicARN) {
+		return respondErr
+	}
+	partition, region, accountID, stackName, ok := parseAWSStackARNWithName(request.StackID)
+	if !ok || rollout.Partition != partition || !awsOrganizationRolloutRegionAllowed(rollout, region) ||
+		!awsOrganizationRolloutStackBelongsToStackSet(stackName, rollout.StackSetName) {
+		return respondErr
+	}
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: rollout.TenantID, WorkspaceID: rollout.WorkspaceID})
+	existing, err := store.GetAWSOrganizationRolloutTarget(scopedCtx, rollout.RolloutID, accountID, region)
+	if err != nil {
+		return respondErr
+	}
+	target := existing
+	target.State = db.AWSOrganizationRolloutTargetRemoved
+	target.FailureCode = "rollout_member_stack_deleted"
+	target.FailureMessage = "The AWS member-account stack was deleted."
+	target.Retryable = false
+	if _, upsertErr := store.UpsertAWSOrganizationRolloutTarget(scopedCtx, target); upsertErr != nil {
+		return respondErr
+	}
+	return respondErr
 }

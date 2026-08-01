@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"crypto/sha256"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -168,8 +169,24 @@ func (m *MemoryStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, ta
 	if existing, ok := m.awsOrgRolloutTargets[key]; ok {
 		normalized.CreatedAt = existing.CreatedAt
 		normalized.Version = existing.Version + 1
-		if normalized.State != existing.State {
-			normalized.LastTransitionAt = now
+		// Guard against a state downgrade. A late redelivery, an SQS
+		// duplicate, or a stack Update for a member that has already been
+		// reconciled to a terminal state (connected/failed/partial/
+		// suspended/removed/excluded) must not demote the target back to a
+		// non-terminal state. When the incoming state would downgrade, keep
+		// the existing state and its transition timestamp; other evidence
+		// fields (stack IDs, role ARN) are still refreshed.
+		if !awsOrganizationRolloutTargetStateAdvances(existing.State, normalized.State) {
+			normalized.State = existing.State
+			normalized.LastTransitionAt = existing.LastTransitionAt
+		} else if normalized.State != existing.State {
+			// Preserve a caller-supplied transition time so reconciliation
+			// and tests can pin the exact event timestamp. Postgres has
+			// always accepted the supplied value; the memory adapter used
+			// to overwrite it with now(), causing behavior drift.
+			if normalized.LastTransitionAt.IsZero() {
+				normalized.LastTransitionAt = now
+			}
 		} else if normalized.LastTransitionAt.IsZero() {
 			normalized.LastTransitionAt = existing.LastTransitionAt
 		}
@@ -196,6 +213,9 @@ func (m *MemoryStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, ta
 		}
 		if normalized.EvidenceRef == "" {
 			normalized.EvidenceRef = existing.EvidenceRef
+		}
+		if normalized.RegisterRequestID == "" {
+			normalized.RegisterRequestID = existing.RegisterRequestID
 		}
 		if normalized.LastValidationAt == nil {
 			normalized.LastValidationAt = existing.LastValidationAt
@@ -286,7 +306,7 @@ func normalizeAWSOrganizationRollout(ctx context.Context, rollout AWSOrganizatio
 	rollout.ExcludedAccountIDs = trimAndDedupeStringSlice(rollout.ExcludedAccountIDs)
 	rollout.TargetRegions = trimAndLowerDedupeStringSlice(rollout.TargetRegions)
 	if rollout.RolloutID == "" || rollout.ProjectID == "" || rollout.ControllingConnectorID == "" ||
-		rollout.OrganizationID == "" || len(rollout.ManagementAccountID) != 12 ||
+		rollout.OrganizationID == "" || !awsAccountIDPattern.MatchString(rollout.ManagementAccountID) ||
 		rollout.Partition == "" || rollout.StackSetName == "" || rollout.ExpectedRoleName == "" ||
 		rollout.TemplateVersion == "" || rollout.TemplateChecksum == "" ||
 		len(rollout.RegistrationSecretHash) != sha256.Size ||
@@ -328,12 +348,20 @@ func normalizeAWSOrganizationRolloutTarget(ctx context.Context, target AWSOrgani
 	target.Region = strings.ToLower(strings.TrimSpace(target.Region))
 	target.State = strings.TrimSpace(target.State)
 	if target.RolloutID == "" || target.ProjectID == "" ||
-		len(target.AccountID) != 12 || target.Region == "" ||
+		!awsAccountIDPattern.MatchString(target.AccountID) || target.Region == "" ||
 		!awsOrganizationRolloutTargetStateValid(target.State) {
 		return AWSOrganizationRolloutTarget{}, ErrInvalidAWSOrganizationRolloutTarget
 	}
 	return target, nil
 }
+
+// awsAccountIDPattern mirrors the CHECK (~ '^[0-9]{12}$') on the parent and
+// target tables so the memory adapter rejects the same inputs Postgres would.
+// A length-only check let alphabetic 12-char IDs (like "abcd12345678") through
+// the memory path even though production Postgres would reject them at
+// commit, so adapter tests could pass under invariants the real store does
+// not preserve.
+var awsAccountIDPattern = regexp.MustCompile(`^[0-9]{12}$`)
 
 func awsOrganizationRolloutControllingRoleValid(role string) bool {
 	switch role {
@@ -380,6 +408,38 @@ func awsOrganizationRolloutActive(status string) bool {
 	default:
 		return false
 	}
+}
+
+// awsOrganizationRolloutTargetStateTerminal returns true for target states
+// that reconciliation considers durable outcomes. A terminal target may only
+// be transitioned by another terminal event (e.g., connected → failed if
+// validation regresses); a late in-flight callback cannot demote it back.
+func awsOrganizationRolloutTargetStateTerminal(state string) bool {
+	switch state {
+	case AWSOrganizationRolloutTargetConnected,
+		AWSOrganizationRolloutTargetFailed,
+		AWSOrganizationRolloutTargetPartial,
+		AWSOrganizationRolloutTargetSuspended,
+		AWSOrganizationRolloutTargetRemoved,
+		AWSOrganizationRolloutTargetExcluded:
+		return true
+	default:
+		return false
+	}
+}
+
+// awsOrganizationRolloutTargetStateAdvances returns true when transitioning
+// from `from` to `to` is a valid forward move under the promote-only rule.
+// Identical states advance; non-terminal → anything advances; a terminal
+// origin only accepts another terminal destination.
+func awsOrganizationRolloutTargetStateAdvances(from string, to string) bool {
+	if from == to {
+		return true
+	}
+	if !awsOrganizationRolloutTargetStateTerminal(from) {
+		return true
+	}
+	return awsOrganizationRolloutTargetStateTerminal(to)
 }
 
 func awsOrganizationRolloutTargetStateValid(state string) bool {

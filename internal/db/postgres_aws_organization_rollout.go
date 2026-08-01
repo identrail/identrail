@@ -229,7 +229,7 @@ const awsOrganizationRolloutTargetColumns = `
     COALESCE(account_name, ''), COALESCE(ou_path, ''), is_management, state,
     COALESCE(stack_instance_id, ''), COALESCE(stack_id, ''), COALESCE(role_arn, ''),
     COALESCE(failure_code, ''), COALESCE(failure_message, ''),
-    retryable, COALESCE(evidence_ref, ''),
+    retryable, COALESCE(evidence_ref, ''), COALESCE(register_request_id, ''),
     last_transition_at, last_validation_at, created_at, updated_at, version`
 
 func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, target AWSOrganizationRolloutTarget) (AWSOrganizationRolloutTarget, error) {
@@ -250,18 +250,29 @@ func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, 
             rollout_id, account_id, region, tenant_id, workspace_id, project_id,
             account_name, ou_path, is_management, state, stack_instance_id, stack_id,
             role_arn, failure_code, failure_message, retryable, evidence_ref,
-            last_transition_at, last_validation_at, created_at, updated_at, version
+            register_request_id, last_transition_at, last_validation_at,
+            created_at, updated_at, version
         ) VALUES (
             $1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), $9, $10,
             NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, ''),
-            NULLIF($14, ''), NULLIF($15, ''), $16, NULLIF($17, ''),
-            $18, $19, $20, $21, 1
+            NULLIF($14, ''), NULLIF($15, ''), $16, NULLIF($17, ''), NULLIF($18, ''),
+            $19, $20, $21, $22, 1
         )
         ON CONFLICT (rollout_id, account_id, region) DO UPDATE
         SET account_name = COALESCE(EXCLUDED.account_name, aws_organization_rollout_targets.account_name),
             ou_path = COALESCE(EXCLUDED.ou_path, aws_organization_rollout_targets.ou_path),
             is_management = EXCLUDED.is_management,
-            state = EXCLUDED.state,
+            -- Promote-only state. A terminal state (connected, failed,
+            -- partial, suspended, removed, excluded) is only replaced by
+            -- another terminal state; a late in-flight callback or SQS
+            -- redelivery cannot demote a reconciled target back to
+            -- validating/registering/deploying/pending.
+            state = CASE
+                WHEN aws_organization_rollout_targets.state IN ('connected','failed','partial','suspended','removed','excluded')
+                     AND EXCLUDED.state NOT IN ('connected','failed','partial','suspended','removed','excluded')
+                THEN aws_organization_rollout_targets.state
+                ELSE EXCLUDED.state
+            END,
             stack_instance_id = COALESCE(EXCLUDED.stack_instance_id, aws_organization_rollout_targets.stack_instance_id),
             stack_id = COALESCE(EXCLUDED.stack_id, aws_organization_rollout_targets.stack_id),
             role_arn = COALESCE(EXCLUDED.role_arn, aws_organization_rollout_targets.role_arn),
@@ -269,9 +280,15 @@ func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, 
             failure_message = EXCLUDED.failure_message,
             retryable = EXCLUDED.retryable,
             evidence_ref = COALESCE(EXCLUDED.evidence_ref, aws_organization_rollout_targets.evidence_ref),
-            last_transition_at = CASE WHEN aws_organization_rollout_targets.state <> EXCLUDED.state
-                                       THEN EXCLUDED.last_transition_at
-                                       ELSE aws_organization_rollout_targets.last_transition_at END,
+            register_request_id = COALESCE(EXCLUDED.register_request_id, aws_organization_rollout_targets.register_request_id),
+            last_transition_at = CASE
+                WHEN aws_organization_rollout_targets.state IN ('connected','failed','partial','suspended','removed','excluded')
+                     AND EXCLUDED.state NOT IN ('connected','failed','partial','suspended','removed','excluded')
+                THEN aws_organization_rollout_targets.last_transition_at
+                WHEN aws_organization_rollout_targets.state <> EXCLUDED.state
+                THEN EXCLUDED.last_transition_at
+                ELSE aws_organization_rollout_targets.last_transition_at
+            END,
             last_validation_at = COALESCE(EXCLUDED.last_validation_at, aws_organization_rollout_targets.last_validation_at),
             updated_at = EXCLUDED.updated_at,
             version = aws_organization_rollout_targets.version + 1
@@ -293,6 +310,7 @@ func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, 
 		normalized.FailureMessage,
 		normalized.Retryable,
 		normalized.EvidenceRef,
+		normalized.RegisterRequestID,
 		normalized.LastTransitionAt,
 		normalized.LastValidationAt,
 		normalized.CreatedAt,
@@ -439,6 +457,7 @@ func scanAWSOrganizationRolloutTarget(row rowScanner) (AWSOrganizationRolloutTar
 		&target.FailureMessage,
 		&target.Retryable,
 		&target.EvidenceRef,
+		&target.RegisterRequestID,
 		&target.LastTransitionAt,
 		&target.LastValidationAt,
 		&target.CreatedAt,
