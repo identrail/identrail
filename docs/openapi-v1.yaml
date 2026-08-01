@@ -8867,6 +8867,12 @@ paths:
                 properties:
                   rollout:
                     $ref: "#/components/schemas/AWSOrganizationRolloutResult"
+        "400":
+          description: Invalid rollout identifier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":

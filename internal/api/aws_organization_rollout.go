@@ -46,7 +46,10 @@ var ErrAWSOrganizationRolloutOUMembershipUnsupported = errors.New("aws rollout o
 // half of its members.
 var ErrAWSOrganizationRolloutMixedPartition = errors.New("aws rollout target regions span multiple partitions")
 
-var awsOrganizationRolloutAccountIDPattern = regexp.MustCompile(`^[0-9]{12}$`)
+var (
+	awsOrganizationRolloutAccountIDPattern      = regexp.MustCompile(`^[0-9]{12}$`)
+	awsOrganizationRolloutOrganizationIDPattern = regexp.MustCompile(`^o-[a-z0-9]{10,32}$`)
+)
 
 // AWSOrganizationRolloutStartRequest is the operator-approved request to open
 // a scoped organization rollout envelope from a validated controlling
@@ -165,7 +168,7 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 	}
 	organizationID := strings.TrimSpace(request.OrganizationID)
 	managementAccountID := strings.TrimSpace(request.ManagementAccountID)
-	if organizationID == "" || !awsOrganizationRolloutAccountIDPattern.MatchString(managementAccountID) {
+	if !awsOrganizationRolloutOrganizationIDPattern.MatchString(organizationID) || !awsOrganizationRolloutAccountIDPattern.MatchString(managementAccountID) {
 		return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
 	}
 	regions := trimAndLowerAWSStringSlice(request.TargetRegions)
@@ -182,6 +185,12 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 		return AWSOrganizationRolloutStatus{}, err
 	}
 	if stored.Connector.Type != domain.ConnectorTypeAWS {
+		return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
+	}
+	connectorScope := AWSConnectorScopeType(awsMetadataString(stored.State.Metadata, "scope_type"))
+	connectorDeployment := AWSConnectorDeploymentMethod(awsMetadataString(stored.State.Metadata, "deployment_method"))
+	if connectorScope != AWSConnectorScopeOrganization ||
+		(connectorDeployment != AWSConnectorDeploymentStackSetServiceManaged && connectorDeployment != AWSConnectorDeploymentStackSetSelfManaged) {
 		return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
 	}
 	connection := s.awsConnectionStatusFromStored(ctx, stored)

@@ -466,9 +466,10 @@ func awsOrganizationRolloutTargetKey(rolloutID string, accountID string, region 
 
 func cloneAWSOrganizationRollout(rollout AWSOrganizationRollout) AWSOrganizationRollout {
 	rollout.RegistrationSecretHash = append([]byte(nil), rollout.RegistrationSecretHash...)
-	rollout.SelectedOUIDs = append([]string(nil), rollout.SelectedOUIDs...)
-	rollout.SelectedAccountIDs = append([]string(nil), rollout.SelectedAccountIDs...)
-	rollout.ExcludedAccountIDs = append([]string(nil), rollout.ExcludedAccountIDs...)
+	rollout.SelectedOUIDs = append([]string{}, rollout.SelectedOUIDs...)
+	rollout.SelectedAccountIDs = append([]string{}, rollout.SelectedAccountIDs...)
+	rollout.ExcludedAccountIDs = append([]string{}, rollout.ExcludedAccountIDs...)
+	rollout.TargetRegions = append([]string{}, rollout.TargetRegions...)
 	rollout.TargetRegions = append([]string(nil), rollout.TargetRegions...)
 	return rollout
 }

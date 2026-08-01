@@ -24072,14 +24072,14 @@ export function ProductAWSConnectPage() {
                 refreshing={submitting || awsStackSetOnboardingLoading}
               />
             ) : null}
-            {isStackSetSetup && scope ? (
+            {isStackSetSetup && scope && !isPersistedSelfManagedStackSet ? (
               <AWSOrganizationRolloutPanel
                 workspaceID={scope.workspaceID}
                 projectID={scope.projectID ?? ''}
                 controllingConnectorID={activeConnectorID}
                 controllingAccountID={connection?.account_id ?? ''}
                 controllingConnected={Boolean(connection?.connected)}
-                organizationID={parsedOrganizationRootID}
+                organizationID={connection?.organization_id ?? ''}
                 setupMode={awsSetupMode}
                 organizationRootID={parsedOrganizationRootID}
                 selectedOUIDs={parsedTargetOUIDs}

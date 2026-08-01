@@ -308,6 +308,7 @@ type AWSConnectionStatus struct {
 	PrincipalARN           string                              `json:"principal_arn,omitempty"`
 	UserID                 string                              `json:"user_id,omitempty"`
 	Region                 string                              `json:"region,omitempty"`
+	OrganizationID         string                              `json:"organization_id,omitempty"`
 	ScopeType              AWSConnectorScopeType               `json:"scope_type"`
 	DeploymentMethod       AWSConnectorDeploymentMethod        `json:"deployment_method"`
 	OnboardingStatus       AWSConnectorOnboardingStatus        `json:"onboarding_status"`
@@ -2542,6 +2543,7 @@ func awsConnectionStatusFromStored(stored db.TenancyConnectorWithState) AWSConne
 		PrincipalARN:           awsMetadataString(metadata, "principal_arn"),
 		UserID:                 awsMetadataString(metadata, "user_id"),
 		Region:                 awsMetadataString(metadata, "region"),
+		OrganizationID:         awsMetadataString(metadata, "organization_id"),
 		ScopeType:              setup.ScopeType,
 		DeploymentMethod:       setup.DeploymentMethod,
 		OnboardingStatus:       onboardingStatus,

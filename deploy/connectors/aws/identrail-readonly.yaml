@@ -47,7 +47,6 @@ Parameters:
   RolloutRegistrationSecret:
     Type: String
     Default: ''
-    NoEcho: true
     AllowedPattern: '^$|^[A-Za-z0-9_-]{32,256}$'
     Description: Rollout-scoped secret used both as sts:ExternalId and to authenticate the member-account registration event. Never stored in plaintext by Identrail.
   RolloutOrganizationId:

@@ -890,6 +890,7 @@ export type AWSConnectionStatus = {
   principal_arn?: string;
   user_id?: string;
   region?: string;
+  organization_id?: string;
   scope_type: AWSConnectorScopeType;
   deployment_method: AWSConnectorDeploymentMethod;
   onboarding_status: AWSConnectorOnboardingStatus;

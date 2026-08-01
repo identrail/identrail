@@ -63,7 +63,7 @@ func TestAWSOrganizationRolloutRouteStartRejectsInvalidBody(t *testing.T) {
 func TestAWSOrganizationRolloutRouteStartRejectsUnvalidatedControllingConnector(t *testing.T) {
 	r, svc, ctx := newAWSOrganizationRolloutTestRouter(t)
 	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "unknown", domain.ConnectorStatusPending, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
-	body := `{"controlling_connector_id":"aws-mgmt","organization_id":"o-fixture01","management_account_id":"111111111111","target_regions":["us-east-1"]}`
+	body := `{"controlling_connector_id":"aws-mgmt","organization_id":"o-fixture001","management_account_id":"111111111111","target_regions":["us-east-1"]}`
 	resp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/aws/rollouts", body)
 	if resp.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d body=%s", resp.Code, resp.Body.String())
@@ -73,7 +73,7 @@ func TestAWSOrganizationRolloutRouteStartRejectsUnvalidatedControllingConnector(
 func TestAWSOrganizationRolloutRouteStartAndStatusHappyPath(t *testing.T) {
 	r, svc, ctx := newAWSOrganizationRolloutTestRouter(t)
 	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
-	body := `{"controlling_connector_id":"aws-mgmt","organization_id":"o-fixture01","management_account_id":"111111111111","selected_account_ids":["222222222222"],"target_regions":["us-east-1"]}`
+	body := `{"controlling_connector_id":"aws-mgmt","organization_id":"o-fixture001","management_account_id":"111111111111","selected_account_ids":["222222222222"],"target_regions":["us-east-1"]}`
 	startResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/aws/rollouts", body)
 	if startResp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", startResp.Code, startResp.Body.String())
