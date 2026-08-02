@@ -108,6 +108,24 @@ Rules:
                 - Fn::Equals:
                     - Ref: ExternalId
                     - ''
+            - Fn::Not:
+                - Fn::And:
+                    - Fn::Not:
+                        - Fn::Equals:
+                            - Ref: RegistrationAttemptId
+                            - ''
+                    - Fn::Not:
+                        - Fn::Equals:
+                            - Ref: RegistrationToken
+                            - ''
+                    - Fn::Not:
+                        - Fn::Equals:
+                            - Ref: RolloutId
+                            - ''
+                    - Fn::Not:
+                        - Fn::Equals:
+                            - Ref: RolloutRegistrationSecret
+                            - ''
         AssertDescription: Automatic single-account registration, an organization rollout, or a troubleshooting External ID is required.
 
 Conditions:
@@ -146,6 +164,10 @@ Conditions:
       - Fn::Not:
           - Fn::Equals:
               - Ref: RolloutStackSetName
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: RolloutManagementAccountId
               - ''
       - Fn::Equals:
           - Ref: RegistrationAttemptId

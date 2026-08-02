@@ -21755,6 +21755,7 @@ type AWSOrganizationRolloutPanelProps = {
   autoDeployNewAccounts: boolean;
   stackSetName: string;
   deploymentMode: 'service_managed' | 'self_managed';
+  auth: ReturnType<typeof buildProductAuthContext>;
 };
 
 // AWSOrganizationRolloutPanel is the first-cut UI slice for identrail#1788.
@@ -21777,7 +21778,8 @@ function AWSOrganizationRolloutPanel({
   targetRegions,
   autoDeployNewAccounts,
   stackSetName,
-  deploymentMode
+  deploymentMode,
+  auth
 }: AWSOrganizationRolloutPanelProps) {
   const [rollout, setRollout] = useState<AWSOrganizationRolloutResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21840,7 +21842,7 @@ function AWSOrganizationRolloutPanel({
     let errorAttempts = 0;
     const poll = async () => {
       try {
-        const response = await apiClient.getAWSOrganizationRollout(workspaceID, projectID, rolloutID);
+        const response = await apiClient.getAWSOrganizationRollout(workspaceID, projectID, rolloutID, auth);
         if (cancelled || generation !== pollGeneration.current) {
           return;
         }
@@ -21890,7 +21892,7 @@ function AWSOrganizationRolloutPanel({
     setManualRefreshBusy(true);
     setErrorMessage('');
     try {
-      const response = await apiClient.getAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id);
+      const response = await apiClient.getAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id, auth);
       setRollout(response.rollout);
       setPollExhausted(false);
       setPollEpoch((epoch) => epoch + 1);
@@ -21922,7 +21924,7 @@ function AWSOrganizationRolloutPanel({
         target_regions: targetRegions,
         auto_deploy_new_accounts: derivedAutoDeployNewAccounts
       };
-      const response = await apiClient.startAWSOrganizationRollout(workspaceID, projectID, payload);
+      const response = await apiClient.startAWSOrganizationRollout(workspaceID, projectID, payload, auth);
       setRollout(response.rollout);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to start rollout';
@@ -24089,6 +24091,7 @@ export function ProductAWSConnectPage() {
                 autoDeployNewAccounts={awsForm.autoOnboardNewAccounts}
                 stackSetName={parsedStackSetName}
                 deploymentMode="service_managed"
+                auth={buildProductAuthContext(scope)}
               />
             ) : null}
           </section>

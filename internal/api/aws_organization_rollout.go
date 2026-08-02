@@ -250,6 +250,22 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 	if err := awsOrganizationRolloutValidateAccountIDs(excludedAccounts); err != nil {
 		return AWSOrganizationRolloutStatus{}, err
 	}
+	if len(selectedAccounts) == 0 {
+		return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
+	}
+	deployable := 0
+	excluded := make(map[string]struct{}, len(excludedAccounts))
+	for _, accountID := range excludedAccounts {
+		excluded[accountID] = struct{}{}
+	}
+	for _, accountID := range selectedAccounts {
+		if _, ok := excluded[accountID]; !ok {
+			deployable++
+		}
+	}
+	if deployable == 0 {
+		return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
+	}
 
 	// Reject before creating the envelope when the launch configuration is
 	// missing. Without a pinned template, checksum, Identrail account, or a
