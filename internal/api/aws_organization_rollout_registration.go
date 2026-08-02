@@ -273,32 +273,41 @@ func (s *Service) processAWSOrganizationRolloutMemberDelete(
 	phase string,
 ) error {
 	_ = phase
-	// Always try to ACK first so a Delete never blocks the customer's stack.
-	respondErr := s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, nil)
 	rolloutID := awsRegistrationProperty(request.ResourceProperties, "RolloutId")
 	if rolloutID == "" {
-		return respondErr
+		return s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, nil)
 	}
 	store, err := s.awsOrganizationRolloutStore()
 	if err != nil {
-		return respondErr
+		return err
 	}
 	rollout, err := store.GetAWSOrganizationRolloutAnyScope(ctx, rolloutID)
 	if err != nil {
-		return respondErr
+		return err
 	}
 	if !s.isAWSRegistrationTopicARN(topicARN) {
-		return respondErr
+		return fmt.Errorf("rollout topic arn not allowlisted")
+	}
+	if err := s.validateAWSOrganizationRolloutRegistration(rollout, request,
+		awsRegistrationProperty(request.ResourceProperties, "OrganizationId"),
+		awsRegistrationProperty(request.ResourceProperties, "StackSetName"),
+		awsRegistrationProperty(request.ResourceProperties, "TemplateVersion"),
+		awsRegistrationProperty(request.ResourceProperties, "RegistrationSecret"),
+		awsRegistrationProperty(request.ResourceProperties, "RoleArn")); err != nil {
+		return err
 	}
 	partition, region, accountID, stackName, ok := parseAWSStackARNWithName(request.StackID)
 	if !ok || rollout.Partition != partition || !awsOrganizationRolloutRegionAllowed(rollout, region) ||
 		!awsOrganizationRolloutStackBelongsToStackSet(stackName, rollout.StackSetName) {
-		return respondErr
+		return fmt.Errorf("rollout delete stack is not approved")
 	}
 	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: rollout.TenantID, WorkspaceID: rollout.WorkspaceID})
 	existing, err := store.GetAWSOrganizationRolloutTarget(scopedCtx, rollout.RolloutID, accountID, region)
 	if err != nil {
-		return respondErr
+		return err
+	}
+	if existing.State == db.AWSOrganizationRolloutTargetRemoved && existing.RegisterRequestID == request.RequestID {
+		return nil
 	}
 	target := existing
 	target.State = db.AWSOrganizationRolloutTargetRemoved
@@ -306,7 +315,7 @@ func (s *Service) processAWSOrganizationRolloutMemberDelete(
 	target.FailureMessage = "The AWS member-account stack was deleted."
 	target.Retryable = false
 	if _, upsertErr := store.UpsertAWSOrganizationRolloutTarget(scopedCtx, target); upsertErr != nil {
-		return respondErr
+		return upsertErr
 	}
-	return respondErr
+	return s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, nil)
 }

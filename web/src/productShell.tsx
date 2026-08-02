@@ -21955,7 +21955,7 @@ function AWSOrganizationRolloutPanel({
           <p className="idt-app-kicker">Organization rollout</p>
           <h3>
             {rollout
-              ? `${summary?.connected_targets ?? 0} of ${summary?.expected_targets ?? 0} accounts connected`
+              ? `${summary?.connected_targets ?? 0} of ${summary?.expected_targets ?? 0} targets connected`
               : 'Launch a scoped rollout for this organization'}
           </h3>
           <p>
@@ -24072,7 +24072,7 @@ export function ProductAWSConnectPage() {
                 refreshing={submitting || awsStackSetOnboardingLoading}
               />
             ) : null}
-            {isStackSetSetup && scope && !isPersistedSelfManagedStackSet ? (
+            {isStackSetSetup && scope && connection?.scope_type === 'organization' && !isPersistedSelfManagedStackSet ? (
               <AWSOrganizationRolloutPanel
                 workspaceID={scope.workspaceID}
                 projectID={scope.projectID ?? ''}

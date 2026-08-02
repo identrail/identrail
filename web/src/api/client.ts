@@ -9197,7 +9197,7 @@ export type AWSOrganizationRolloutSummary = {
   excluded_targets: number;
   suspended_targets: number;
   removed_targets: number;
-  state_counts: Record<AWSOrganizationRolloutTargetState, number> & Record<string, number>;
+  state_counts: Record<string, number>;
   connected_percent: number;
 };
 

@@ -51,6 +51,8 @@ var (
 	awsOrganizationRolloutOrganizationIDPattern = regexp.MustCompile(`^o-[a-z0-9]{10,32}$`)
 )
 
+var ErrAWSOrganizationRolloutMultiRegionUnsupported = errors.New("aws organization rollout multi-region routing is unavailable")
+
 // AWSOrganizationRolloutStartRequest is the operator-approved request to open
 // a scoped organization rollout envelope from a validated controlling
 // connector. Every field is bound into the persisted envelope so a member
@@ -175,9 +177,17 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 	if len(regions) == 0 {
 		return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
 	}
+	for _, region := range regions {
+		if awsconnector.NormalizeRegion(region) != region {
+			return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
+		}
+	}
 	partition, err := awsOrganizationRolloutPartitionForRegions(regions)
 	if err != nil {
 		return AWSOrganizationRolloutStatus{}, err
+	}
+	if len(regions) > 1 {
+		return AWSOrganizationRolloutStatus{}, ErrAWSOrganizationRolloutMultiRegionUnsupported
 	}
 
 	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, controllingConnectorID)

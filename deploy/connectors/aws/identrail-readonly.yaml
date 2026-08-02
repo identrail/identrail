@@ -96,6 +96,14 @@ Rules:
                     - Fn::Equals:
                         - Ref: RolloutRegistrationSecret
                         - ''
+                - Fn::Not:
+                    - Fn::Equals:
+                        - Ref: RolloutOrganizationId
+                        - ''
+                - Fn::Not:
+                    - Fn::Equals:
+                        - Ref: RolloutStackSetName
+                        - ''
             - Fn::Not:
                 - Fn::Equals:
                     - Ref: ExternalId
@@ -131,6 +139,20 @@ Conditions:
           - Fn::Equals:
               - Ref: RolloutRegistrationSecret
               - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: RolloutOrganizationId
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: RolloutStackSetName
+              - ''
+      - Fn::Equals:
+          - Ref: RegistrationAttemptId
+          - ''
+      - Fn::Equals:
+          - Ref: RegistrationToken
+          - ''
 
 Resources:
   IdentrailRegistrationBootstrap:

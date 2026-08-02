@@ -118,7 +118,7 @@ func TestStartAWSOrganizationRolloutSeedsExpectedTargets(t *testing.T) {
 		ManagementAccountID:    "111111111111",
 		SelectedAccountIDs:     []string{"222222222222", "333333333333"},
 		ExcludedAccountIDs:     []string{"333333333333"},
-		TargetRegions:          []string{"us-east-1", "us-west-2"},
+		TargetRegions:          []string{"us-east-1"},
 	})
 	if err != nil {
 		t.Fatalf("start rollout: %v", err)
@@ -126,9 +126,9 @@ func TestStartAWSOrganizationRolloutSeedsExpectedTargets(t *testing.T) {
 	if status.Status != db.AWSOrganizationRolloutStatusCreated {
 		t.Fatalf("expected created status, got %q", status.Status)
 	}
-	// Management + two selected = 3 accounts * 2 regions = 6 targets.
-	if status.Summary.ExpectedTargets != 6 {
-		t.Fatalf("expected 6 expected targets, got %d", status.Summary.ExpectedTargets)
+	// Management + two selected = 3 targets in the single supported region.
+	if status.Summary.ExpectedTargets != 3 {
+		t.Fatalf("expected 3 expected targets, got %d", status.Summary.ExpectedTargets)
 	}
 	excluded := 0
 	pending := 0
@@ -140,11 +140,11 @@ func TestStartAWSOrganizationRolloutSeedsExpectedTargets(t *testing.T) {
 			pending++
 		}
 	}
-	if excluded != 2 {
-		t.Fatalf("expected 2 excluded targets (excluded account across both regions), got %d", excluded)
+	if excluded != 1 {
+		t.Fatalf("expected 1 excluded target, got %d", excluded)
 	}
-	if pending != 4 {
-		t.Fatalf("expected 4 pending targets, got %d", pending)
+	if pending != 2 {
+		t.Fatalf("expected 2 pending targets, got %d", pending)
 	}
 	// Management target is present and marked management.
 	foundManagement := false
@@ -661,6 +661,10 @@ func TestProcessAWSOrganizationRolloutMemberDeleteMarksRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load rollout: %v", err)
 	}
+	rolloutSecret, err := svc.awsOrganizationRolloutSecret(rollout)
+	if err != nil {
+		t.Fatalf("derive rollout secret: %v", err)
+	}
 	body := awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, awsCloudFormationCustomResourceRequest{
 		RequestType:       "Delete",
 		ResponseURL:       "https://cloudformation-custom-resource-response-us-east-1.s3.amazonaws.com/response",
@@ -669,8 +673,13 @@ func TestProcessAWSOrganizationRolloutMemberDeleteMarksRemoved(t *testing.T) {
 		LogicalResourceID: "IdentrailRolloutRegistration",
 		ResourceType:      "Custom::IdentrailAWSConnectorRegistration",
 		ResourceProperties: map[string]any{
-			"Phase":     "Register",
-			"RolloutId": rollout.RolloutID,
+			"Phase":              "Register",
+			"RolloutId":          rollout.RolloutID,
+			"RegistrationSecret": rolloutSecret,
+			"OrganizationId":     rollout.OrganizationID,
+			"StackSetName":       rollout.StackSetName,
+			"TemplateVersion":    rollout.TemplateVersion,
+			"RoleArn":            "arn:aws:iam::222222222222:role/IdentrailReadOnly",
 		},
 	})
 	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, body); err != nil {
