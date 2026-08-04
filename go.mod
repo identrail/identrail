@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.51.2
 	github.com/aws/aws-sdk-go-v2/service/apprunner v1.42.2
 	github.com/aws/aws-sdk-go-v2/service/batch v1.68.2
-	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.52.1
+	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.53.0
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.58.2
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.72.2
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.49.2
@@ -22,14 +22,14 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/emr v1.64.2
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.48.2
 	github.com/aws/aws-sdk-go-v2/service/glue v1.151.0
-	github.com/aws/aws-sdk-go-v2/service/iam v1.56.2
+	github.com/aws/aws-sdk-go-v2/service/iam v1.57.0
 	github.com/aws/aws-sdk-go-v2/service/kms v1.55.2
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.100.2
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.101.0
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.26.2
 	github.com/aws/aws-sdk-go-v2/service/rds v1.123.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.106.2
 	github.com/aws/aws-sdk-go-v2/service/s3control v1.73.2
-	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.262.2
+	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.263.0
 	github.com/aws/aws-sdk-go-v2/service/scheduler v1.20.2
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.44.2
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.45.2
