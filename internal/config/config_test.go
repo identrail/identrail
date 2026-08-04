@@ -79,6 +79,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", "")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", "")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "")
+	t.Setenv("IDENTRAIL_WORKER_AWS_ROLLOUT_ENABLED", "")
+	t.Setenv("IDENTRAIL_WORKER_AWS_ROLLOUT_INTERVAL", "")
+	t.Setenv("IDENTRAIL_WORKER_AWS_ROLLOUT_BATCH_SIZE", "")
 	t.Setenv("IDENTRAIL_USER_DATA_EXPORT_PATH", "")
 	t.Setenv("IDENTRAIL_USER_DATA_EXPORT_S3_BUCKET", "")
 	t.Setenv("IDENTRAIL_USER_DATA_EXPORT_S3_PREFIX", "")
@@ -318,6 +321,15 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.WorkerAPIJobQueueBatchSize != defaultWorkerAPIJobQueueBatchSize {
 		t.Fatalf("expected default worker api job queue batch size %d, got %d", defaultWorkerAPIJobQueueBatchSize, cfg.WorkerAPIJobQueueBatchSize)
 	}
+	if !cfg.WorkerAWSRolloutEnabled {
+		t.Fatal("expected AWS rollout worker enabled by default")
+	}
+	if cfg.WorkerAWSRolloutInterval != defaultWorkerAWSRolloutInterval {
+		t.Fatalf("expected default AWS rollout worker interval %v, got %v", defaultWorkerAWSRolloutInterval, cfg.WorkerAWSRolloutInterval)
+	}
+	if cfg.WorkerAWSRolloutBatchSize != defaultWorkerAWSRolloutBatchSize {
+		t.Fatalf("expected default AWS rollout worker batch size %d, got %d", defaultWorkerAWSRolloutBatchSize, cfg.WorkerAWSRolloutBatchSize)
+	}
 	if cfg.LockBackend != defaultLockBackend {
 		t.Fatalf("expected default lock backend %q, got %q", defaultLockBackend, cfg.LockBackend)
 	}
@@ -470,6 +482,9 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", "false")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", "5s")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "12")
+	t.Setenv("IDENTRAIL_WORKER_AWS_ROLLOUT_ENABLED", "false")
+	t.Setenv("IDENTRAIL_WORKER_AWS_ROLLOUT_INTERVAL", "7m")
+	t.Setenv("IDENTRAIL_WORKER_AWS_ROLLOUT_BATCH_SIZE", "18")
 	t.Setenv("IDENTRAIL_LOCK_BACKEND", "postgres")
 	t.Setenv("IDENTRAIL_LOCK_NAMESPACE", "prod-identrail")
 	t.Setenv("IDENTRAIL_DEFAULT_TENANT_ID", "tenant-prod")
@@ -710,6 +725,15 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.WorkerAPIJobQueueBatchSize != 12 {
 		t.Fatalf("unexpected worker api job queue batch size: %d", cfg.WorkerAPIJobQueueBatchSize)
+	}
+	if cfg.WorkerAWSRolloutEnabled {
+		t.Fatal("expected AWS rollout worker disabled")
+	}
+	if cfg.WorkerAWSRolloutInterval != 7*time.Minute {
+		t.Fatalf("unexpected AWS rollout worker interval: %v", cfg.WorkerAWSRolloutInterval)
+	}
+	if cfg.WorkerAWSRolloutBatchSize != 18 {
+		t.Fatalf("unexpected AWS rollout worker batch size: %d", cfg.WorkerAWSRolloutBatchSize)
 	}
 	if cfg.LockBackend != "postgres" {
 		t.Fatalf("unexpected lock backend: %q", cfg.LockBackend)

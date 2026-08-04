@@ -943,6 +943,28 @@ func TestValidateSecurityRejectsInvalidWorkerAPIQueueBatchSize(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsInvalidAWSRolloutWorkerSettings(t *testing.T) {
+	base := Config{APIKeyScopes: map[string][]string{"reader": {"read"}}}
+	for name, cfg := range map[string]Config{
+		"interval": func() Config {
+			cfg := base
+			cfg.WorkerAWSRolloutInterval = -time.Second
+			return cfg
+		}(),
+		"batch size": func() Config {
+			cfg := base
+			cfg.WorkerAWSRolloutBatchSize = maxWorkerQueueBatchSize + 1
+			return cfg
+		}(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateSecurity(cfg); err == nil {
+				t.Fatalf("expected invalid AWS rollout worker %s to be rejected", name)
+			}
+		})
+	}
+}
+
 func TestValidateSecurityWorkerRepoScanRequiresTargets(t *testing.T) {
 	cfg := Config{
 		APIKeys:                []string{"reader"},

@@ -822,6 +822,16 @@ x-identrail-route-authorizations:
     action: tenancy.read
     resource_type: project
     resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/rollouts/{rollout_id}/reconcile
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/rollouts/{rollout_id}/retry
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
   - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secrets-manager-metadata
     action: tenancy.read
@@ -8877,6 +8887,112 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          description: AWS rollout storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/rollouts/{rollout_id}/reconcile:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: rollout_id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [ProjectManagement]
+      summary: Reconcile an AWS Organization rollout
+      operationId: reconcileAWSOrganizationRollout
+      description: Revalidates registered member roles with STS and the read-only IAM contract, marks registrations that never arrived as retryable failures after the bounded wait window, and derives aggregate state from per-target evidence.
+      responses:
+        "200":
+          description: Rollout reconciled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rollout:
+                    $ref: "#/components/schemas/AWSOrganizationRolloutResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          description: AWS rollout storage or validation unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/rollouts/{rollout_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: rollout_id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [ProjectManagement]
+      summary: Retry failed AWS rollout targets
+      operationId: retryAWSOrganizationRollout
+      description: Reopens only retryable failed or partial target rows already present in the approved rollout scope. An empty selector retries every eligible target.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_ids:
+                  type: array
+                  items: { type: string }
+                regions:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: Retry queued for eligible targets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rollout:
+                    $ref: "#/components/schemas/AWSOrganizationRolloutResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Rollout expired or has no retryable targets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "500":
           $ref: "#/components/responses/InternalServerError"
         "503":

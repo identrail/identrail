@@ -422,6 +422,47 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 			},
 		})
 	}
+	var awsRolloutTrigger scheduler.TriggerFunc
+	if cfg.FeatureConnectorAWS && cfg.WorkerAWSRolloutEnabled {
+		rolloutBatchSize := cfg.WorkerAWSRolloutBatchSize
+		if rolloutBatchSize <= 0 {
+			rolloutBatchSize = 25
+		}
+		awsRolloutTrigger = func(runCtx context.Context) error {
+			writeHeartbeat()
+			processed, reconcileErr := svc.ReconcileAWSOrganizationRollouts(runCtx, rolloutBatchSize)
+			outcome := "completed"
+			if reconcileErr != nil {
+				outcome = "failed"
+			}
+			logger.Info("aws organization rollout reconciliation completed", telemetry.StandardLogFields(
+				"worker", "aws_rollout_reconciliation",
+				telemetry.String("processed", fmt.Sprint(processed)),
+				telemetry.String("outcome", outcome),
+			)...)
+			return reconcileErr
+		}
+		runners = append(runners, scheduledRunner{
+			name:   "aws-rollout-reconciliation",
+			runNow: false,
+			runner: scheduler.Runner{
+				Interval:     cfg.WorkerAWSRolloutInterval,
+				Key:          "aws-rollout-reconciliation",
+				Locker:       svc.Locker,
+				Trigger:      awsRolloutTrigger,
+				MaxAttempts:  2,
+				RetryBackoff: time.Second,
+				OnDeadLetter: func(_ context.Context, err error) {
+					metrics.WorkerDeadLettersTotal.WithLabelValues("aws_rollout_reconciliation").Inc()
+					logger.Error("aws rollout reconciliation exhausted retries", telemetry.ZapError(err))
+				},
+				OnError: func(_ context.Context, err error) {
+					metrics.WorkerRetriesTotal.WithLabelValues("aws_rollout_reconciliation").Inc()
+					logger.Error("aws rollout reconciliation retry scheduled", telemetry.ZapError(err))
+				},
+			},
+		})
+	}
 	if cfg.WorkerUserPurgeEnabled {
 		// Namespace the lock key the same way the scan-policy runner does, so
 		// two deployments sharing a Postgres lock backend cannot collide on a

@@ -153,6 +153,35 @@ func (p *PostgresStore) ListAWSOrganizationRollouts(ctx context.Context, workspa
 	return out, rows.Err()
 }
 
+// ListActiveAWSOrganizationRollouts is reserved for the internal worker. It
+// deliberately uses the AnyScope query helpers because a worker has no HTTP
+// tenant context; the reconciliation service re-establishes the envelope's
+// tenant/workspace scope before every target read and write.
+func (p *PostgresStore) ListActiveAWSOrganizationRollouts(ctx context.Context, limit int) ([]AWSOrganizationRollout, error) {
+	effectiveLimit := limit
+	if effectiveLimit <= 0 || effectiveLimit > 200 {
+		effectiveLimit = 50
+	}
+	rows, err := p.queryContextAnyScope(ctx, `SELECT `+awsOrganizationRolloutColumns+`
+        FROM aws_organization_rollouts
+        WHERE status IN ('created', 'launching', 'in_progress', 'reconciling')
+        ORDER BY updated_at ASC
+        LIMIT $1`, effectiveLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]AWSOrganizationRollout, 0, effectiveLimit)
+	for rows.Next() {
+		rollout, scanErr := scanAWSOrganizationRollout(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, rollout)
+	}
+	return out, rows.Err()
+}
+
 func (p *PostgresStore) UpdateAWSOrganizationRollout(ctx context.Context, rollout AWSOrganizationRollout, expectedVersion int64) (AWSOrganizationRollout, error) {
 	normalized, err := normalizeAWSOrganizationRollout(ctx, rollout)
 	if err != nil {
@@ -321,6 +350,43 @@ func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, 
 		return AWSOrganizationRolloutTarget{}, ErrNotFound
 	}
 	return upserted, err
+}
+
+func (p *PostgresStore) ResetAWSOrganizationRolloutTarget(ctx context.Context, target AWSOrganizationRolloutTarget, expectedVersion int64) (AWSOrganizationRolloutTarget, error) {
+	normalized, err := normalizeAWSOrganizationRolloutTarget(ctx, target)
+	if err != nil {
+		return AWSOrganizationRolloutTarget{}, err
+	}
+	now := time.Now().UTC()
+	row := p.queryRowContext(ctx, `
+        UPDATE aws_organization_rollout_targets
+		SET state = CASE WHEN NULLIF(role_arn, '') IS NULL THEN 'pending' ELSE 'validating' END,
+            failure_code = NULL,
+            failure_message = NULL,
+            retryable = TRUE,
+            last_transition_at = $8,
+            updated_at = $8,
+            version = version + 1
+        WHERE rollout_id = $1 AND account_id = $2 AND region = $3
+          AND tenant_id = $4 AND workspace_id = $5 AND project_id = $6
+          AND version = $7
+          AND retryable = TRUE
+          AND state IN ('failed', 'partial')
+        RETURNING `+awsOrganizationRolloutTargetColumns,
+		normalized.RolloutID,
+		normalized.AccountID,
+		normalized.Region,
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		expectedVersion,
+		now,
+	)
+	updated, err := scanAWSOrganizationRolloutTarget(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AWSOrganizationRolloutTarget{}, ErrConflict
+	}
+	return updated, err
 }
 
 func (p *PostgresStore) GetAWSOrganizationRolloutTarget(ctx context.Context, rolloutID string, accountID string, region string) (AWSOrganizationRolloutTarget, error) {

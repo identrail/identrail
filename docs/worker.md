@@ -31,6 +31,9 @@ The worker runs scans on a schedule and drains API-enqueued jobs.
 - `IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED` (default `true`)
 - `IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL` (default `2s`)
 - `IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE` (default `5`)
+- `IDENTRAIL_WORKER_AWS_ROLLOUT_ENABLED` (default `true` when the AWS connector feature is enabled)
+- `IDENTRAIL_WORKER_AWS_ROLLOUT_INTERVAL` (default `5m`)
+- `IDENTRAIL_WORKER_AWS_ROLLOUT_BATCH_SIZE` (default `25`)
 - `IDENTRAIL_WORKER_HEARTBEAT_PATH` (optional path for a timestamp heartbeat file)
 
 ## Behavior
@@ -43,6 +46,8 @@ The worker runs scans on a schedule and drains API-enqueued jobs.
 - Project scan policies with `scheduled` or `hybrid` trigger mode are checked periodically. The worker claims each due cron tick before enqueueing selected GitHub repositories as `deep` repo scans, so missed ticks recover on the next worker pass and concurrent workers do not duplicate the same policy run.
 - API `POST /v1/scans` and `POST /v1/repo-scans` enqueue work; worker queue runner executes queued jobs asynchronously
 - Queue runner applies bounded batch processing per tick (`IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE`)
+- When the AWS connector feature is enabled, the rollout runner periodically reconciles active organization rollout targets, recovers missed registrations, validates member roles with bounded concurrency, and uses the `aws-rollout-reconciliation` lock for multi-worker safety.
+- AWS rollout reconciliation is bounded per tick by `IDENTRAIL_WORKER_AWS_ROLLOUT_BATCH_SIZE`; failed provider checks are persisted per target so the next pass can continue without resetting healthy targets.
 - Heartbeat files are written at worker startup and before each configured runner tick when `IDENTRAIL_WORKER_HEARTBEAT_PATH` is set. Supervisors can alert when the file timestamp stops advancing.
 - Repo scans use per-target lock key (`repo-scan:<target>`) to avoid overlap between API and worker triggers
 - Successful repo scans update per-repository cursors; queued `delta` scans whose head revision already matches the cursor are skipped before execution.

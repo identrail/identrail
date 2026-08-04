@@ -808,6 +808,8 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/stackset-onboarding", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
+		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/reconcile", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
+		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/retry", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/secrets-manager-metadata", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/ssm-parameter-metadata", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/ecr-repository-metadata", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},

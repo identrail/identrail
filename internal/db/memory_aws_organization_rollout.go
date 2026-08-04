@@ -106,6 +106,34 @@ func (m *MemoryStore) ListAWSOrganizationRollouts(ctx context.Context, workspace
 	return out, nil
 }
 
+// ListActiveAWSOrganizationRollouts is the worker-facing cross-scope read.
+// It intentionally does not require request scope; the worker derives a
+// tenant/workspace context from each returned envelope before touching its
+// targets, preserving the same boundary as the HTTP status path.
+func (m *MemoryStore) ListActiveAWSOrganizationRollouts(_ context.Context, limit int) ([]AWSOrganizationRollout, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	out := make([]AWSOrganizationRollout, 0)
+	for _, rollout := range m.awsOrgRollouts {
+		if !awsOrganizationRolloutActive(rollout.Status) {
+			continue
+		}
+		out = append(out, cloneAWSOrganizationRollout(rollout))
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].UpdatedAt.Before(out[j].UpdatedAt)
+	})
+	effectiveLimit := limit
+	if effectiveLimit <= 0 || effectiveLimit > 200 {
+		effectiveLimit = 50
+	}
+	if len(out) > effectiveLimit {
+		out = out[:effectiveLimit]
+	}
+	return out, nil
+}
+
 func (m *MemoryStore) UpdateAWSOrganizationRollout(ctx context.Context, rollout AWSOrganizationRollout, expectedVersion int64) (AWSOrganizationRollout, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -230,6 +258,64 @@ func (m *MemoryStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, ta
 		}
 	}
 	normalized.UpdatedAt = now
+	m.awsOrgRolloutTargets[key] = cloneAWSOrganizationRolloutTarget(normalized)
+	return cloneAWSOrganizationRolloutTarget(normalized), nil
+}
+
+func (m *MemoryStore) ResetAWSOrganizationRolloutTarget(ctx context.Context, target AWSOrganizationRolloutTarget, expectedVersion int64) (AWSOrganizationRolloutTarget, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	normalized, err := normalizeAWSOrganizationRolloutTarget(ctx, target)
+	if err != nil {
+		return AWSOrganizationRolloutTarget{}, err
+	}
+	parent, ok := m.awsOrgRollouts[normalized.RolloutID]
+	if !ok || parent.TenantID != normalized.TenantID || parent.WorkspaceID != normalized.WorkspaceID || parent.ProjectID != normalized.ProjectID {
+		return AWSOrganizationRolloutTarget{}, ErrNotFound
+	}
+	key := awsOrganizationRolloutTargetKey(normalized.RolloutID, normalized.AccountID, normalized.Region)
+	existing, ok := m.awsOrgRolloutTargets[key]
+	if !ok {
+		return AWSOrganizationRolloutTarget{}, ErrNotFound
+	}
+	if existing.Version != expectedVersion || !existing.Retryable || (existing.State != AWSOrganizationRolloutTargetFailed && existing.State != AWSOrganizationRolloutTargetPartial) {
+		return AWSOrganizationRolloutTarget{}, ErrConflict
+	}
+	now := time.Now().UTC()
+	normalized.CreatedAt = existing.CreatedAt
+	normalized.Version = existing.Version + 1
+	normalized.State = AWSOrganizationRolloutTargetPending
+	if normalized.RoleARN != "" || existing.RoleARN != "" {
+		normalized.State = AWSOrganizationRolloutTargetValidating
+	}
+	normalized.FailureCode = ""
+	normalized.FailureMessage = ""
+	normalized.Retryable = true
+	normalized.LastTransitionAt = now
+	normalized.UpdatedAt = now
+	if normalized.AccountName == "" {
+		normalized.AccountName = existing.AccountName
+	}
+	if normalized.OUPath == "" {
+		normalized.OUPath = existing.OUPath
+	}
+	if normalized.StackInstanceID == "" {
+		normalized.StackInstanceID = existing.StackInstanceID
+	}
+	if normalized.StackID == "" {
+		normalized.StackID = existing.StackID
+	}
+	if normalized.RoleARN == "" {
+		normalized.RoleARN = existing.RoleARN
+	}
+	if normalized.EvidenceRef == "" {
+		normalized.EvidenceRef = existing.EvidenceRef
+	}
+	if normalized.RegisterRequestID == "" {
+		normalized.RegisterRequestID = existing.RegisterRequestID
+	}
+	normalized.LastValidationAt = existing.LastValidationAt
 	m.awsOrgRolloutTargets[key] = cloneAWSOrganizationRolloutTarget(normalized)
 	return cloneAWSOrganizationRolloutTarget(normalized), nil
 }

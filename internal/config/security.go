@@ -593,6 +593,20 @@ func ValidateSecurity(cfg Config) error {
 	if workerAPIJobQueueBatchSize <= 0 || workerAPIJobQueueBatchSize > maxWorkerQueueBatchSize {
 		return fmt.Errorf("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE must be > 0 and <= %d", maxWorkerQueueBatchSize)
 	}
+	workerAWSRolloutInterval := cfg.WorkerAWSRolloutInterval
+	if workerAWSRolloutInterval == 0 {
+		workerAWSRolloutInterval = defaultWorkerAWSRolloutInterval
+	}
+	if workerAWSRolloutInterval <= 0 {
+		return fmt.Errorf("IDENTRAIL_WORKER_AWS_ROLLOUT_INTERVAL must be > 0")
+	}
+	workerAWSRolloutBatchSize := cfg.WorkerAWSRolloutBatchSize
+	if workerAWSRolloutBatchSize == 0 {
+		workerAWSRolloutBatchSize = defaultWorkerAWSRolloutBatchSize
+	}
+	if workerAWSRolloutBatchSize <= 0 || workerAWSRolloutBatchSize > maxWorkerQueueBatchSize {
+		return fmt.Errorf("IDENTRAIL_WORKER_AWS_ROLLOUT_BATCH_SIZE must be > 0 and <= %d", maxWorkerQueueBatchSize)
+	}
 	if cfg.RepoScanEnabled && len(cfg.RepoScanAllowlist) == 0 {
 		return fmt.Errorf("IDENTRAIL_REPO_SCAN_ALLOWLIST must include at least one target pattern when IDENTRAIL_REPO_SCAN_ENABLED=true")
 	}

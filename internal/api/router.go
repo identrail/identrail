@@ -4967,6 +4967,79 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"rollout": record})
 	})
 
+	v1.POST("/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/reconcile", func(c *gin.Context) {
+		if !featureConnectorAWS {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		_, record, err := svc.ReconcileAWSOrganizationRollout(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), c.Param("rollout_id"))
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "aws rollout not found"})
+			case errors.Is(err, ErrAWSConnectorConfigUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws rollout storage or validation unavailable"})
+			default:
+				if logger != nil {
+					logger.Error("reconcile aws organization rollout",
+						zap.String("workspace_id", c.Param("workspace_id")),
+						zap.String("project_id", c.Param("project_id")),
+						zap.String("rollout_id", c.Param("rollout_id")),
+						telemetry.ZapError(err),
+					)
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reconcile aws rollout"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"rollout": record})
+	})
+
+	v1.POST("/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/retry", func(c *gin.Context) {
+		if !featureConnectorAWS {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request AWSOrganizationRolloutRetryRequest
+		if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid retry request body"})
+			return
+		}
+		record, err := svc.RetryAWSOrganizationRollout(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), c.Param("rollout_id"), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "aws rollout not found"})
+			case errors.Is(err, ErrAWSOrganizationRolloutExpired):
+				c.JSON(http.StatusConflict, gin.H{"error": "aws rollout has expired"})
+			case errors.Is(err, ErrAWSOrganizationRolloutNoRetryableTargets):
+				c.JSON(http.StatusConflict, gin.H{"error": "aws rollout has no retryable targets"})
+			case errors.Is(err, ErrAWSConnectorConfigUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws rollout storage unavailable"})
+			default:
+				if logger != nil {
+					logger.Error("retry aws organization rollout targets",
+						zap.String("workspace_id", c.Param("workspace_id")),
+						zap.String("project_id", c.Param("project_id")),
+						zap.String("rollout_id", c.Param("rollout_id")),
+						telemetry.ZapError(err),
+					)
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retry aws rollout targets"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"rollout": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/secrets-manager-metadata", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

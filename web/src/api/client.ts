@@ -9246,6 +9246,11 @@ export type AWSOrganizationRolloutStartRequest = {
   auto_deploy_new_accounts?: boolean;
 };
 
+export type AWSOrganizationRolloutRetryRequest = {
+  account_ids?: string[];
+  regions?: string[];
+};
+
 export type AWSDynamoDBRDSReachabilityInventoryResult = {
   tenant_id: string;
   workspace_id: string;
@@ -12241,6 +12246,31 @@ export const apiClient = {
     return request<{ rollout: AWSOrganizationRolloutResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/rollouts/${encodeURIComponent(rolloutID)}`,
       auth
+    );
+  },
+  reconcileAWSOrganizationRollout(
+    workspaceID: string,
+    projectID: string,
+    rolloutID: string,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ rollout: AWSOrganizationRolloutResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/rollouts/${encodeURIComponent(rolloutID)}/reconcile`,
+      auth,
+      { method: 'POST', body: JSON.stringify({}) }
+    );
+  },
+  retryAWSOrganizationRollout(
+    workspaceID: string,
+    projectID: string,
+    rolloutID: string,
+    payload: AWSOrganizationRolloutRetryRequest,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ rollout: AWSOrganizationRolloutResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/rollouts/${encodeURIComponent(rolloutID)}/retry`,
+      auth,
+      { method: 'POST', body: JSON.stringify(payload) }
     );
   },
   pollAWSConnector(connectorID: string, workspaceID: string, projectID: string, auth?: RequestAuthContext) {

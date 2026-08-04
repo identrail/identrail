@@ -38,6 +38,9 @@ const (
 	defaultWorkerAPIJobQueueEnabled    = true
 	defaultWorkerAPIJobQueueInterval   = 2 * time.Second
 	defaultWorkerAPIJobQueueBatchSize  = 5
+	defaultWorkerAWSRolloutEnabled     = true
+	defaultWorkerAWSRolloutInterval    = 5 * time.Minute
+	defaultWorkerAWSRolloutBatchSize   = 25
 	defaultWorkerUserPurgeEnabled      = true
 	defaultWorkerUserPurgeInterval     = 24 * time.Hour
 	defaultWorkerUserPurgeBatchSize    = 100
@@ -172,6 +175,9 @@ type Config struct {
 	WorkerAPIJobQueueEnabled      bool
 	WorkerAPIJobQueueInterval     time.Duration
 	WorkerAPIJobQueueBatchSize    int
+	WorkerAWSRolloutEnabled       bool
+	WorkerAWSRolloutInterval      time.Duration
+	WorkerAWSRolloutBatchSize     int
 	WorkerUserPurgeEnabled        bool
 	WorkerUserPurgeInterval       time.Duration
 	WorkerUserPurgeBatchSize      int
@@ -366,6 +372,9 @@ func Load() Config {
 		WorkerAPIJobQueueEnabled:      boolEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", defaultWorkerAPIJobQueueEnabled),
 		WorkerAPIJobQueueInterval:     durationEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", defaultWorkerAPIJobQueueInterval),
 		WorkerAPIJobQueueBatchSize:    parseInt(getEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "5"), defaultWorkerAPIJobQueueBatchSize),
+		WorkerAWSRolloutEnabled:       boolEnv("IDENTRAIL_WORKER_AWS_ROLLOUT_ENABLED", defaultWorkerAWSRolloutEnabled),
+		WorkerAWSRolloutInterval:      durationEnv("IDENTRAIL_WORKER_AWS_ROLLOUT_INTERVAL", defaultWorkerAWSRolloutInterval),
+		WorkerAWSRolloutBatchSize:     parseInt(getEnv("IDENTRAIL_WORKER_AWS_ROLLOUT_BATCH_SIZE", "25"), defaultWorkerAWSRolloutBatchSize),
 		WorkerUserPurgeEnabled:        boolEnv("IDENTRAIL_WORKER_USER_PURGE_ENABLED", defaultWorkerUserPurgeEnabled),
 		WorkerUserPurgeInterval:       durationEnv("IDENTRAIL_WORKER_USER_PURGE_INTERVAL", defaultWorkerUserPurgeInterval),
 		WorkerUserPurgeBatchSize:      parseInt(getEnv("IDENTRAIL_WORKER_USER_PURGE_BATCH_SIZE", "100"), defaultWorkerUserPurgeBatchSize),
