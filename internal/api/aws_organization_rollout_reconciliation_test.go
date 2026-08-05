@@ -318,6 +318,38 @@ func TestReconcileAWSOrganizationRolloutsHonorsCanceledContext(t *testing.T) {
 	}
 }
 
+func TestReconcileAWSOrganizationRolloutTouchesUpdatedAtWhenStatusUnchanged(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	store := svc.Store.(db.AWSOrganizationRolloutStore)
+	current, err := store.GetAWSOrganizationRollout(ctx, rollout.WorkspaceID, rollout.ProjectID, rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reload rollout: %v", err)
+	}
+	current.Status = db.AWSOrganizationRolloutStatusReconciling
+	current.UpdatedAt = svc.Now().UTC()
+	current, err = store.UpdateAWSOrganizationRollout(ctx, current, current.Version)
+	if err != nil {
+		t.Fatalf("mark rollout reconciling: %v", err)
+	}
+	passTime := svc.Now().UTC().Add(time.Minute)
+	svc.Now = func() time.Time { return passTime }
+
+	_, status, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", current.RolloutID)
+	if err != nil {
+		t.Fatalf("reconcile deferred rollout: %v", err)
+	}
+	if status.Status != db.AWSOrganizationRolloutStatusReconciling {
+		t.Fatalf("expected status to remain reconciling, got %q", status.Status)
+	}
+	refreshed, err := store.GetAWSOrganizationRollout(ctx, current.WorkspaceID, current.ProjectID, current.RolloutID)
+	if err != nil {
+		t.Fatalf("reload touched rollout: %v", err)
+	}
+	if !refreshed.UpdatedAt.Equal(passTime) {
+		t.Fatalf("expected deferred pass to advance updated_at to %v, got %v", passTime, refreshed.UpdatedAt)
+	}
+}
+
 func TestRetryAWSOrganizationRolloutDoesNotResetNonRetryableTargets(t *testing.T) {
 	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222", "333333333333")
 	store := svc.Store.(db.AWSOrganizationRolloutStore)

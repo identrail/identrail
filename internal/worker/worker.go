@@ -24,6 +24,7 @@ const (
 	defaultWorkerQueueMaxAttempts   = 1
 	defaultWorkerScanTimeout        = 10 * time.Minute
 	defaultWorkerRepoScanTimeout    = 30 * time.Minute
+	defaultWorkerAWSRolloutTimeout  = 10 * time.Minute
 )
 
 type queueProcessFunc func(context.Context) (bool, error)
@@ -438,7 +439,9 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		}
 		awsRolloutTrigger = func(runCtx context.Context) error {
 			writeHeartbeat()
-			processed, reconcileErr := svc.ReconcileAWSOrganizationRollouts(runCtx, rolloutBatchSize)
+			rolloutCtx, cancel := withTimeoutIfNone(runCtx, defaultWorkerAWSRolloutTimeout)
+			defer cancel()
+			processed, reconcileErr := svc.ReconcileAWSOrganizationRollouts(rolloutCtx, rolloutBatchSize)
 			fields := telemetry.StandardLogFields(
 				"worker", "aws_rollout_reconciliation",
 				telemetry.String("processed", fmt.Sprint(processed)),

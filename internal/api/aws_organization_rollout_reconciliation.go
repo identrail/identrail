@@ -437,10 +437,10 @@ func (s *Service) aggregateAWSOrganizationRolloutStatus(ctx context.Context, sto
 	case nonTerminal > 0:
 		nextStatus = db.AWSOrganizationRolloutStatusReconciling
 	}
-	if nextStatus == rollout.Status {
-		return nil
-	}
 	rollout.Status = nextStatus
+	// updated_at is also the worker lease cursor. Touch the envelope even
+	// when its aggregate status is unchanged so a deferred pass rotates it
+	// behind other active envelopes instead of starving later batches.
 	rollout.UpdatedAt = s.Now().UTC()
 	if nextStatus == db.AWSOrganizationRolloutStatusCompleted {
 		rollout.FailureCode = ""
