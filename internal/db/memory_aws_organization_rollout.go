@@ -274,6 +274,10 @@ func (m *MemoryStore) ResetAWSOrganizationRolloutTarget(ctx context.Context, tar
 	if !ok || parent.TenantID != normalized.TenantID || parent.WorkspaceID != normalized.WorkspaceID || parent.ProjectID != normalized.ProjectID {
 		return AWSOrganizationRolloutTarget{}, ErrNotFound
 	}
+	now := time.Now().UTC()
+	if !awsOrganizationRolloutRetryableStatus(parent.Status) || !now.Before(parent.ExpiresAt) {
+		return AWSOrganizationRolloutTarget{}, ErrConflict
+	}
 	key := awsOrganizationRolloutTargetKey(normalized.RolloutID, normalized.AccountID, normalized.Region)
 	existing, ok := m.awsOrgRolloutTargets[key]
 	if !ok {
@@ -282,7 +286,6 @@ func (m *MemoryStore) ResetAWSOrganizationRolloutTarget(ctx context.Context, tar
 	if existing.Version != expectedVersion || !existing.Retryable || (existing.State != AWSOrganizationRolloutTargetFailed && existing.State != AWSOrganizationRolloutTargetPartial) {
 		return AWSOrganizationRolloutTarget{}, ErrConflict
 	}
-	now := time.Now().UTC()
 	normalized.CreatedAt = existing.CreatedAt
 	normalized.Version = existing.Version + 1
 	normalized.State = AWSOrganizationRolloutTargetPending
@@ -318,6 +321,20 @@ func (m *MemoryStore) ResetAWSOrganizationRolloutTarget(ctx context.Context, tar
 	normalized.LastValidationAt = existing.LastValidationAt
 	m.awsOrgRolloutTargets[key] = cloneAWSOrganizationRolloutTarget(normalized)
 	return cloneAWSOrganizationRolloutTarget(normalized), nil
+}
+
+func awsOrganizationRolloutRetryableStatus(status string) bool {
+	switch status {
+	case AWSOrganizationRolloutStatusCreated,
+		AWSOrganizationRolloutStatusLaunching,
+		AWSOrganizationRolloutStatusInProgress,
+		AWSOrganizationRolloutStatusReconciling,
+		AWSOrganizationRolloutStatusPartial,
+		AWSOrganizationRolloutStatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *MemoryStore) GetAWSOrganizationRolloutTarget(_ context.Context, rolloutID string, accountID string, region string) (AWSOrganizationRolloutTarget, error) {

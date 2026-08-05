@@ -642,3 +642,71 @@ func TestPolicyBundleValidationHelpersRejectInvalidInputs(t *testing.T) {
 func testAuthzPolicyScopeContext() context.Context {
 	return db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 }
+
+func TestCentralPolicyRuntimeResolverOverlaysNewRolloutRoutesOnPersistedVersion(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := testAuthzPolicyScopeContext()
+	resolver := newCentralPolicyRuntimeResolverWithPolicySet(store, defaultCentralPolicySetID)
+	if err := store.UpsertAuthzPolicySet(ctx, db.AuthzPolicySet{
+		PolicySetID: defaultCentralPolicySetID,
+		DisplayName: "Central Authorization",
+		CreatedBy:   "test",
+	}); err != nil {
+		t.Fatalf("create policy set: %v", err)
+	}
+	bundle := routeAuthorizationPolicyBundle{
+		SchemaVersion: routeAuthorizationPolicyBundleSchemaV1,
+		RoutePolicies: []routePolicyDefinition{{
+			Method:       "GET",
+			Path:         "/v1/findings",
+			Action:       policyActionFindingsRead,
+			ResourceType: "finding",
+		}},
+		RBACActionRole: map[string][]string{
+			policyActionFindingsRead: {scopeRead, scopeWrite, scopeAdmin},
+		},
+		ABACPolicies: map[string]abacActionPolicy{
+			policyActionFindingsRead: {AnyOf: []abacClause{{}}},
+		},
+	}
+	bundleBytes, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatalf("marshal persisted policy bundle: %v", err)
+	}
+	version, err := store.CreateAuthzPolicyVersion(ctx, db.AuthzPolicyVersion{
+		PolicySetID: defaultCentralPolicySetID,
+		Version:     1,
+		Bundle:      string(bundleBytes),
+		CreatedBy:   "test",
+	})
+	if err != nil {
+		t.Fatalf("create persisted policy version: %v", err)
+	}
+	if err := store.UpsertAuthzPolicyRollout(ctx, db.AuthzPolicyRollout{
+		PolicySetID:       defaultCentralPolicySetID,
+		ActiveVersion:     &version.Version,
+		Mode:              db.AuthzPolicyRolloutModeEnforce,
+		ValidatedVersions: []int{version.Version},
+		CanaryPercentage:  100,
+		UpdatedBy:         "test",
+	}); err != nil {
+		t.Fatalf("activate persisted policy version: %v", err)
+	}
+
+	resolved, err := resolver.Resolve(ctx)
+	if err != nil {
+		t.Fatalf("resolve persisted policy version: %v", err)
+	}
+	for _, path := range []string{
+		"/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/reconcile",
+		"/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/retry",
+	} {
+		policy, exists := resolved.Registry.lookup("POST", path)
+		if !exists {
+			t.Fatalf("expected compatibility overlay for POST %s", path)
+		}
+		if policy.Action != policyActionTenancyWrite {
+			t.Fatalf("expected tenancy.write for POST %s, got %q", path, policy.Action)
+		}
+	}
+}

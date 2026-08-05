@@ -428,26 +428,34 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		if rolloutBatchSize <= 0 {
 			rolloutBatchSize = 25
 		}
+		rolloutInterval := cfg.WorkerAWSRolloutInterval
+		if rolloutInterval <= 0 {
+			rolloutInterval = 5 * time.Minute
+		}
+		rolloutRunnerKey := "aws-rollout-reconciliation"
+		if namespace := strings.TrimSpace(svc.LockNamespace); namespace != "" {
+			rolloutRunnerKey = namespace + ":" + rolloutRunnerKey
+		}
 		awsRolloutTrigger = func(runCtx context.Context) error {
 			writeHeartbeat()
 			processed, reconcileErr := svc.ReconcileAWSOrganizationRollouts(runCtx, rolloutBatchSize)
-			outcome := "completed"
-			if reconcileErr != nil {
-				outcome = "failed"
-			}
-			logger.Info("aws organization rollout reconciliation completed", telemetry.StandardLogFields(
+			fields := telemetry.StandardLogFields(
 				"worker", "aws_rollout_reconciliation",
 				telemetry.String("processed", fmt.Sprint(processed)),
-				telemetry.String("outcome", outcome),
-			)...)
+			)
+			if reconcileErr != nil {
+				logger.Error("aws organization rollout reconciliation failed", append(fields, telemetry.ZapError(reconcileErr))...)
+				return reconcileErr
+			}
+			logger.Info("aws organization rollout reconciliation pass", fields...)
 			return reconcileErr
 		}
 		runners = append(runners, scheduledRunner{
 			name:   "aws-rollout-reconciliation",
 			runNow: false,
 			runner: scheduler.Runner{
-				Interval:     cfg.WorkerAWSRolloutInterval,
-				Key:          "aws-rollout-reconciliation",
+				Interval:     rolloutInterval,
+				Key:          rolloutRunnerKey,
 				Locker:       svc.Locker,
 				Trigger:      awsRolloutTrigger,
 				MaxAttempts:  2,

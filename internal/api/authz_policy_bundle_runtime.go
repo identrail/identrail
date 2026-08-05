@@ -284,10 +284,63 @@ func (r *storeBackedCentralPolicyRuntimeResolver) compiledVersion(version db.Aut
 	if err != nil {
 		return compiledRouteAuthorizationPolicy{}, fmt.Errorf("compile policy version %d: %w", version.Version, err)
 	}
+	// Persisted policy bundles are immutable and may predate newly shipped
+	// routes. Overlay only the rollout compatibility entries that were added in
+	// this release, preserving every existing persisted decision while keeping
+	// an active validated policy version from denying these known-safe routes by
+	// omission. A future route addition must be added to this explicit list and
+	// covered by the compatibility test below.
+	compiled = overlayRouteAuthorizationPolicyCompatibility(compiled, r.fallback, []routePolicyDefinition{
+		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/reconcile", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
+		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/retry", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
+	})
 	if cacheKey != "||" {
 		r.cacheByKey.Store(cacheKey, compiled)
 	}
 	return compiled, nil
+}
+
+func overlayRouteAuthorizationPolicyCompatibility(base compiledRouteAuthorizationPolicy, fallback compiledRouteAuthorizationPolicy, definitions []routePolicyDefinition) compiledRouteAuthorizationPolicy {
+	if len(definitions) == 0 {
+		return base
+	}
+	if base.RouteRegistry == nil {
+		base.RouteRegistry = routePolicyRegistry{}
+	}
+	if base.RBACActionRole == nil {
+		base.RBACActionRole = map[string][]string{}
+	}
+	if base.ABACPolicies == nil {
+		base.ABACPolicies = map[string]abacActionPolicy{}
+	}
+	if base.ReBACPolicies == nil {
+		base.ReBACPolicies = map[string]rebacActionPolicy{}
+	}
+	for _, definition := range definitions {
+		normalized, err := normalizeRoutePolicyDefinition(definition)
+		if err != nil {
+			continue
+		}
+		key := routePolicyKey(normalized.Method, normalized.Path)
+		if _, exists := base.RouteRegistry[key]; exists {
+			continue
+		}
+		fallbackPolicy, exists := fallback.RouteRegistry[key]
+		if !exists {
+			continue
+		}
+		base.RouteRegistry[key] = fallbackPolicy
+		if _, exists := base.RBACActionRole[fallbackPolicy.Action]; !exists {
+			base.RBACActionRole[fallbackPolicy.Action] = append([]string(nil), fallback.RBACActionRole[fallbackPolicy.Action]...)
+		}
+		if _, exists := base.ABACPolicies[fallbackPolicy.Action]; !exists {
+			base.ABACPolicies[fallbackPolicy.Action] = fallback.ABACPolicies[fallbackPolicy.Action]
+		}
+		if _, exists := base.ReBACPolicies[fallbackPolicy.Action]; !exists {
+			base.ReBACPolicies[fallbackPolicy.Action] = fallback.ReBACPolicies[fallbackPolicy.Action]
+		}
+	}
+	return base
 }
 
 func newCentralPolicyEngineFromCompiled(store db.Store, compiled compiledRouteAuthorizationPolicy) *PolicyEngine {

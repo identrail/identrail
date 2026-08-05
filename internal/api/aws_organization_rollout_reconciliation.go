@@ -320,6 +320,12 @@ func (s *Service) reconcileAWSOrganizationRolloutMemberTarget(ctx context.Contex
 	if err != nil {
 		return false, s.recordAWSOrganizationRolloutValidationFailure(ctx, store, target, now, "aws_validation_error", "AWS member-role validation could not complete.", true)
 	}
+	for _, diagnostic := range validation.Diagnostics {
+		if strings.TrimSpace(diagnostic.Code) == "" {
+			continue
+		}
+		return false, s.recordAWSOrganizationRolloutValidationFailure(ctx, store, target, now, diagnostic.Code, "AWS member-role validation reported an actionable diagnostic.", rolloutValidationDiagnosticRetryable(diagnostic))
+	}
 	if strings.TrimSpace(validation.AccountID) != target.AccountID {
 		return false, s.recordAWSOrganizationRolloutValidationFailure(ctx, store, target, now, "aws_validation_account_mismatch", "STS identity proof did not match the approved target account.", false)
 	}
@@ -344,12 +350,6 @@ func (s *Service) reconcileAWSOrganizationRolloutMemberTarget(ctx context.Contex
 			code = "aws_member_assume_role_failed"
 		}
 		return false, s.recordAWSOrganizationRolloutValidationFailure(ctx, store, target, now, code, "The member role could not satisfy the read-only validation contract.", false)
-	}
-	for _, diagnostic := range validation.Diagnostics {
-		if strings.TrimSpace(diagnostic.Code) == "" {
-			continue
-		}
-		return false, s.recordAWSOrganizationRolloutValidationFailure(ctx, store, target, now, diagnostic.Code, "AWS member-role validation reported an actionable diagnostic.", rolloutValidationDiagnosticRetryable(diagnostic))
 	}
 	if !hasSTSCheck || !hasIAMCheck {
 		return false, s.recordAWSOrganizationRolloutValidationFailure(ctx, store, target, now, "aws_validation_incomplete", "AWS member-role validation did not return both the STS assume-role and IAM read checks.", true)

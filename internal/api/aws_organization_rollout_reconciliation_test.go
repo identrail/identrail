@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -50,6 +51,22 @@ func setAWSRolloutMemberTarget(t *testing.T, svc *Service, ctx context.Context, 
 	updated, err := store.UpsertAWSOrganizationRolloutTarget(ctx, target)
 	if err != nil {
 		t.Fatalf("update member target %s: %v", accountID, err)
+	}
+	return updated
+}
+
+func keepAWSRolloutRetryableForTest(t *testing.T, svc *Service, ctx context.Context, rollout db.AWSOrganizationRollout) db.AWSOrganizationRollout {
+	t.Helper()
+	store := svc.Store.(db.AWSOrganizationRolloutStore)
+	current, err := store.GetAWSOrganizationRollout(ctx, rollout.WorkspaceID, rollout.ProjectID, rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reload rollout for retry window: %v", err)
+	}
+	rollout = current
+	rollout.ExpiresAt = time.Now().UTC().Add(time.Hour)
+	updated, err := store.UpdateAWSOrganizationRollout(ctx, rollout, rollout.Version)
+	if err != nil {
+		t.Fatalf("extend rollout retry window: %v", err)
 	}
 	return updated
 }
@@ -105,6 +122,61 @@ func TestReconcileAWSOrganizationRolloutRejectsMismatchedSTSIdentity(t *testing.
 	}
 }
 
+func TestReconcileAWSOrganizationRolloutPreservesRetryableValidatorDiagnostic(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
+	svc.AWSConnectorValidator = &fakeAWSConnectorValidator{result: AWSConnectionValidationResult{
+		Diagnostics: []AWSConnectionDiagnostic{{Code: "aws_identity_metadata_unexpected", Retryable: true}},
+	}}
+
+	_, _, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reconcile rollout: %v", err)
+	}
+	target, err := svc.Store.(db.AWSOrganizationRolloutStore).GetAWSOrganizationRolloutTarget(ctx, rollout.RolloutID, "222222222222", "us-east-1")
+	if err != nil {
+		t.Fatalf("load diagnostic target: %v", err)
+	}
+	if target.FailureCode != "aws_identity_metadata_unexpected" || !target.Retryable {
+		t.Fatalf("expected retryable validator diagnostic before account mismatch handling, got %+v", target)
+	}
+}
+
+func TestReconcileAWSOrganizationRolloutRecordsTransientValidationFailure(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
+	svc.AWSConnectorValidator = &fakeAWSConnectorValidator{err: errors.New("temporary sts failure")}
+
+	_, _, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reconcile rollout: %v", err)
+	}
+	target, err := svc.Store.(db.AWSOrganizationRolloutStore).GetAWSOrganizationRolloutTarget(ctx, rollout.RolloutID, "222222222222", "us-east-1")
+	if err != nil {
+		t.Fatalf("load transient-failure target: %v", err)
+	}
+	if target.FailureCode != "aws_validation_error" || !target.Retryable {
+		t.Fatalf("expected retryable transient validation failure, got %+v", target)
+	}
+}
+
+func TestReconcileAWSOrganizationRolloutRecordsValidatorUnavailable(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
+
+	_, _, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reconcile rollout: %v", err)
+	}
+	target, err := svc.Store.(db.AWSOrganizationRolloutStore).GetAWSOrganizationRolloutTarget(ctx, rollout.RolloutID, "222222222222", "us-east-1")
+	if err != nil {
+		t.Fatalf("load unavailable-validator target: %v", err)
+	}
+	if target.FailureCode != "validator_unavailable" || !target.Retryable {
+		t.Fatalf("expected retryable validator-unavailable failure, got %+v", target)
+	}
+}
+
 func TestReconcileAWSOrganizationRolloutMarksMissingRegistrationRetryable(t *testing.T) {
 	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
 	store := svc.Store.(db.AWSOrganizationRolloutStore)
@@ -133,6 +205,7 @@ func TestReconcileAWSOrganizationRolloutMarksMissingRegistrationRetryable(t *tes
 		t.Fatalf("expected retryable registration failure, got %+v", target)
 	}
 
+	rollout = keepAWSRolloutRetryableForTest(t, svc, ctx, rollout)
 	status, err = svc.RetryAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID, AWSOrganizationRolloutRetryRequest{AccountIDs: []string{"222222222222"}})
 	if err != nil {
 		t.Fatalf("retry rollout: %v", err)
@@ -149,9 +222,106 @@ func TestReconcileAWSOrganizationRolloutMarksMissingRegistrationRetryable(t *tes
 	}
 }
 
+func TestReconcileAWSOrganizationRolloutTimesOutLateRegisteringTarget(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	store := svc.Store.(db.AWSOrganizationRolloutStore)
+	target := setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetRegistering, "")
+	target.LastTransitionAt = svc.Now().UTC().Add(-16 * time.Minute)
+	target.UpdatedAt = target.LastTransitionAt
+	if _, err := store.UpsertAWSOrganizationRolloutTarget(ctx, target); err != nil {
+		t.Fatalf("age registering target: %v", err)
+	}
+
+	_, _, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reconcile rollout: %v", err)
+	}
+	target, err = store.GetAWSOrganizationRolloutTarget(ctx, rollout.RolloutID, "222222222222", "us-east-1")
+	if err != nil {
+		t.Fatalf("reload registering target: %v", err)
+	}
+	if target.State != db.AWSOrganizationRolloutTargetFailed || target.FailureCode != "registration_missing" || !target.Retryable {
+		t.Fatalf("expected late registering target to become retryable, got %+v", target)
+	}
+}
+
+func TestReconcileAWSOrganizationRolloutExpiresAtBoundary(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	store := svc.Store.(db.AWSOrganizationRolloutStore)
+	rollout.ExpiresAt = svc.Now().UTC()
+	if _, err := store.UpdateAWSOrganizationRollout(ctx, rollout, rollout.Version); err != nil {
+		t.Fatalf("expire rollout: %v", err)
+	}
+
+	_, status, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reconcile expired rollout: %v", err)
+	}
+	if status.Status != db.AWSOrganizationRolloutStatusExpired || status.FailureCode != "rollout_envelope_expired" {
+		t.Fatalf("expected exact-boundary expiry, got status=%q code=%q", status.Status, status.FailureCode)
+	}
+}
+
+func TestReconcileAWSOrganizationRolloutsRescopesEachEnvelope(t *testing.T) {
+	svc, ctxA, rolloutA := startAWSRolloutForReconciliationTest(t, "222222222222")
+	ctxB := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+	seedDefaultProject(t, svc.Store, ctxB, "project-1")
+	seedAWSRolloutControllingConnector(t, svc.Store, ctxB, "aws-mgmt-b", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
+	statusB, err := svc.StartAWSOrganizationRollout(ctxB, AWSOrganizationRolloutStartRequest{
+		WorkspaceID:            "workspace-b",
+		ProjectID:              "project-1",
+		ControllingConnectorID: "aws-mgmt-b",
+		OrganizationID:         "o-fixture002",
+		ManagementAccountID:    "111111111111",
+		SelectedAccountIDs:     []string{"222222222222"},
+		TargetRegions:          []string{"us-east-1"},
+	})
+	if err != nil {
+		t.Fatalf("start second-scope rollout: %v", err)
+	}
+
+	processed, err := svc.ReconcileAWSOrganizationRollouts(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("reconcile cross-scope rollouts: %v", err)
+	}
+	if processed != 2 {
+		t.Fatalf("expected two cross-scope rollouts processed, got %d", processed)
+	}
+	for _, testCase := range []struct {
+		name      string
+		ctx       context.Context
+		workspace string
+		rollout   string
+	}{
+		{name: "tenant-a", ctx: ctxA, workspace: "workspace-a", rollout: rolloutA.RolloutID},
+		{name: "tenant-b", ctx: ctxB, workspace: "workspace-b", rollout: statusB.RolloutID},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			status, err := svc.GetAWSOrganizationRolloutStatus(testCase.ctx, testCase.workspace, "project-1", testCase.rollout)
+			if err != nil {
+				t.Fatalf("get %s rollout status: %v", testCase.name, err)
+			}
+			if status.Status != db.AWSOrganizationRolloutStatusReconciling {
+				t.Fatalf("expected %s rollout to remain reconciling with pending members, got %q", testCase.name, status.Status)
+			}
+		})
+	}
+}
+
+func TestReconcileAWSOrganizationRolloutsHonorsCanceledContext(t *testing.T) {
+	svc, _, _ := startAWSRolloutForReconciliationTest(t, "222222222222")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	processed, err := svc.ReconcileAWSOrganizationRollouts(ctx, 10)
+	if !errors.Is(err, context.Canceled) || processed != 0 {
+		t.Fatalf("expected canceled worker pass with no processing, got processed=%d err=%v", processed, err)
+	}
+}
+
 func TestRetryAWSOrganizationRolloutDoesNotResetNonRetryableTargets(t *testing.T) {
 	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222", "333333333333")
 	store := svc.Store.(db.AWSOrganizationRolloutStore)
+	rollout = keepAWSRolloutRetryableForTest(t, svc, ctx, rollout)
 	retryable := setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetFailed, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
 	retryable.FailureCode = "aws_validation_error"
 	retryable.FailureMessage = "temporary validation failure"
@@ -183,5 +353,30 @@ func TestRetryAWSOrganizationRolloutDoesNotResetNonRetryableTargets(t *testing.T
 	}
 	if untouched.State != db.AWSOrganizationRolloutTargetFailed || untouched.FailureCode != "aws_validation_account_mismatch" || untouched.Retryable {
 		t.Fatalf("expected non-retryable target preserved, got %+v", untouched)
+	}
+}
+
+func TestResetAWSOrganizationRolloutTargetRejectsTerminalParent(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	store := svc.Store.(db.AWSOrganizationRolloutStore)
+	target := setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetFailed, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
+	target.FailureCode = "aws_validation_error"
+	target.FailureMessage = "temporary validation failure"
+	target.Retryable = true
+	target, err := store.UpsertAWSOrganizationRolloutTarget(ctx, target)
+	if err != nil {
+		t.Fatalf("seed retryable target: %v", err)
+	}
+	current, err := store.GetAWSOrganizationRollout(ctx, rollout.WorkspaceID, rollout.ProjectID, rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reload rollout: %v", err)
+	}
+	current.Status = db.AWSOrganizationRolloutStatusCanceled
+	current.UpdatedAt = svc.Now().UTC()
+	if _, err := store.UpdateAWSOrganizationRollout(ctx, current, current.Version); err != nil {
+		t.Fatalf("terminalize rollout: %v", err)
+	}
+	if _, err := store.ResetAWSOrganizationRolloutTarget(ctx, target, target.Version); !errors.Is(err, db.ErrConflict) {
+		t.Fatalf("expected terminal parent reset to conflict, got %v", err)
 	}
 }

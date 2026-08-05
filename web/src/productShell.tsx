@@ -21884,62 +21884,61 @@ function AWSOrganizationRolloutPanel({
     };
   }, [rolloutID, workspaceID, projectID, pollEpoch]);
 
+  const runRolloutAction = useCallback(
+    async (
+      setBusyState: (busy: boolean) => void,
+      action: () => Promise<{ rollout: AWSOrganizationRolloutResult }>,
+      fallbackMessage: string
+    ) => {
+      setBusyState(true);
+      setErrorMessage('');
+      try {
+        const response = await action();
+        setRollout(response.rollout);
+        setPollExhausted(false);
+        setPollEpoch((epoch) => epoch + 1);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : fallbackMessage;
+        setErrorMessage(message);
+      } finally {
+        setBusyState(false);
+      }
+    },
+    []
+  );
+
   const handleManualRefresh = useCallback(async () => {
     if (!rollout || !workspaceID || !projectID || manualRefreshBusy) {
       return;
     }
-    setManualRefreshBusy(true);
-    setErrorMessage('');
-    try {
-      const response = await apiClient.getAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id, auth);
-      setRollout(response.rollout);
-      setPollExhausted(false);
-      setPollEpoch((epoch) => epoch + 1);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to refresh rollout';
-      setErrorMessage(message);
-    } finally {
-      setManualRefreshBusy(false);
-    }
-  }, [rollout, workspaceID, projectID, manualRefreshBusy]);
+    await runRolloutAction(
+      setManualRefreshBusy,
+      () => apiClient.getAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id, auth),
+      'Failed to refresh rollout'
+    );
+  }, [rollout, workspaceID, projectID, manualRefreshBusy, auth, runRolloutAction]);
 
   const handleReconcile = useCallback(async () => {
     if (!rollout || !workspaceID || !projectID || reconcileBusy) {
       return;
     }
-    setReconcileBusy(true);
-    setErrorMessage('');
-    try {
-      const response = await apiClient.reconcileAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id, auth);
-      setRollout(response.rollout);
-      setPollExhausted(false);
-      setPollEpoch((epoch) => epoch + 1);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to reconcile rollout';
-      setErrorMessage(message);
-    } finally {
-      setReconcileBusy(false);
-    }
-  }, [rollout, workspaceID, projectID, reconcileBusy, auth]);
+    await runRolloutAction(
+      setReconcileBusy,
+      () => apiClient.reconcileAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id, auth),
+      'Failed to reconcile rollout'
+    );
+  }, [rollout, workspaceID, projectID, reconcileBusy, auth, runRolloutAction]);
 
   const handleRetry = useCallback(async () => {
     if (!rollout || !workspaceID || !projectID || retryBusy) {
       return;
     }
-    setRetryBusy(true);
-    setErrorMessage('');
-    try {
-      const response = await apiClient.retryAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id, {}, auth);
-      setRollout(response.rollout);
-      setPollExhausted(false);
-      setPollEpoch((epoch) => epoch + 1);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to retry rollout targets';
-      setErrorMessage(message);
-    } finally {
-      setRetryBusy(false);
-    }
-  }, [rollout, workspaceID, projectID, retryBusy, auth]);
+    await runRolloutAction(
+      setRetryBusy,
+      () => apiClient.retryAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id, {}, auth),
+      'Failed to retry rollout targets'
+    );
+  }, [rollout, workspaceID, projectID, retryBusy, auth, runRolloutAction]);
 
   const handleStart = useCallback(async () => {
     if (!readyToLaunch || busy) {
@@ -22029,7 +22028,7 @@ function AWSOrganizationRolloutPanel({
               onClick={() => {
                 void handleReconcile();
               }}
-              disabled={reconcileBusy || rollout.status === 'completed' || rollout.status === 'canceled'}
+              disabled={reconcileBusy || rollout.status === 'completed' || rollout.status === 'canceled' || rollout.status === 'expired'}
             >
               {reconcileBusy ? 'Reconciling…' : 'Reconcile now'}
             </button>
@@ -22040,7 +22039,7 @@ function AWSOrganizationRolloutPanel({
                 onClick={() => {
                   void handleRetry();
                 }}
-                disabled={retryBusy || rollout.status === 'expired' || rollout.status === 'canceled'}
+                disabled={retryBusy || rollout.status === 'expired' || rollout.status === 'canceled' || rollout.status === 'completed'}
               >
                 {retryBusy ? 'Retrying…' : 'Retry failed targets'}
               </button>
@@ -22156,7 +22155,11 @@ function AWSOrganizationRolloutPanel({
                     <td>{target.last_transition_at ? new Date(target.last_transition_at).toLocaleString() : '—'}</td>
                     <td>
                       {target.last_validation_at ? new Date(target.last_validation_at).toLocaleString() : '—'}
-                      {target.failure_code ? ` · ${target.failure_code}` : ''}
+                      {target.failure_code ? (
+                        <span title={target.failure_message || target.failure_code}>
+                          {` · ${target.failure_code}${target.failure_message ? `: ${target.failure_message}` : ''}`}
+                        </span>
+                      ) : null}
                     </td>
                   </tr>
                 ))

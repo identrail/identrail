@@ -372,6 +372,17 @@ func (p *PostgresStore) ResetAWSOrganizationRolloutTarget(ctx context.Context, t
           AND version = $7
           AND retryable = TRUE
           AND state IN ('failed', 'partial')
+          AND EXISTS (
+              SELECT 1
+              FROM aws_organization_rollouts AS rollout
+              WHERE rollout.rollout_id = aws_organization_rollout_targets.rollout_id
+                AND rollout.tenant_id = aws_organization_rollout_targets.tenant_id
+                AND rollout.workspace_id = aws_organization_rollout_targets.workspace_id
+                AND rollout.project_id = aws_organization_rollout_targets.project_id
+                AND rollout.status IN ('created', 'launching', 'in_progress', 'reconciling', 'partial', 'failed')
+                AND rollout.expires_at > $8
+              FOR UPDATE
+          )
         RETURNING `+awsOrganizationRolloutTargetColumns,
 		normalized.RolloutID,
 		normalized.AccountID,
