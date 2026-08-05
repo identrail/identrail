@@ -8994,7 +8994,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: Rollout expired or has no retryable targets
+          description: Rollout expired, has no retryable targets, or cannot be reactivated because another rollout is active
           content:
             application/json:
               schema:

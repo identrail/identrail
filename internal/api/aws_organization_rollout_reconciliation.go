@@ -98,10 +98,13 @@ func (s *Service) ReconcileAWSOrganizationRollouts(ctx context.Context, limit in
 	return processed, firstErr
 }
 
-// RetryAWSOrganizationRollout resets only failed, retryable target rows. The
-// explicit store transition is required because the normal upsert rejects
-// terminal-to-in-flight downgrades, protecting connected targets from late
-// registration events.
+// RetryAWSOrganizationRollout reactivates the parent envelope before resetting
+// any failed, retryable target rows. The parent update is the lifecycle gate:
+// it atomically reclaims the active connector slot, so a replacement rollout
+// cannot win that slot after target rows have already been moved in flight.
+// The explicit target transition is still required because normal upserts
+// reject terminal-to-in-flight downgrades, protecting connected targets from
+// late registration events.
 func (s *Service) RetryAWSOrganizationRollout(ctx context.Context, workspaceID string, projectID string, rolloutID string, request AWSOrganizationRolloutRetryRequest) (AWSOrganizationRolloutStatus, error) {
 	project, _, err := s.requireScopedProject(ctx, workspaceID, projectID)
 	if err != nil {
@@ -128,7 +131,7 @@ func (s *Service) RetryAWSOrganizationRollout(ctx context.Context, workspaceID s
 	if err != nil {
 		return AWSOrganizationRolloutStatus{}, err
 	}
-	reset := 0
+	retryTargets := make([]db.AWSOrganizationRolloutTarget, 0)
 	for _, target := range targets {
 		if target.State != db.AWSOrganizationRolloutTargetFailed && target.State != db.AWSOrganizationRolloutTargetPartial || !target.Retryable {
 			continue
@@ -143,6 +146,31 @@ func (s *Service) RetryAWSOrganizationRollout(ctx context.Context, workspaceID s
 				continue
 			}
 		}
+		retryTargets = append(retryTargets, target)
+	}
+	if len(retryTargets) == 0 {
+		return AWSOrganizationRolloutStatus{}, ErrAWSOrganizationRolloutNoRetryableTargets
+	}
+
+	reactivated := false
+	if rollout.Status != db.AWSOrganizationRolloutStatusInProgress {
+		rollout.Status = db.AWSOrganizationRolloutStatusInProgress
+		rollout.FailureCode = ""
+		rollout.FailureMessage = ""
+		rollout.UpdatedAt = s.Now().UTC()
+		updated, err := store.UpdateAWSOrganizationRollout(ctx, rollout, rollout.Version)
+		if err != nil {
+			if errors.Is(err, db.ErrConflict) {
+				return AWSOrganizationRolloutStatus{}, ErrAWSOrganizationRolloutRetryConflict
+			}
+			return AWSOrganizationRolloutStatus{}, err
+		}
+		rollout = updated
+		reactivated = true
+	}
+
+	reset := 0
+	for _, target := range retryTargets {
 		if _, err := store.ResetAWSOrganizationRolloutTarget(ctx, target, target.Version); err != nil {
 			if errors.Is(err, db.ErrConflict) {
 				continue
@@ -152,16 +180,10 @@ func (s *Service) RetryAWSOrganizationRollout(ctx context.Context, workspaceID s
 		reset++
 	}
 	if reset == 0 {
-		return AWSOrganizationRolloutStatus{}, ErrAWSOrganizationRolloutNoRetryableTargets
-	}
-	if reset > 0 && rollout.Status != db.AWSOrganizationRolloutStatusInProgress {
-		rollout.Status = db.AWSOrganizationRolloutStatusInProgress
-		rollout.FailureCode = ""
-		rollout.FailureMessage = ""
-		rollout.UpdatedAt = s.Now().UTC()
-		if _, err := store.UpdateAWSOrganizationRollout(ctx, rollout, rollout.Version); err != nil && !errors.Is(err, db.ErrConflict) {
-			return AWSOrganizationRolloutStatus{}, err
+		if reactivated {
+			return s.GetAWSOrganizationRolloutStatus(ctx, project.WorkspaceID, project.ProjectID, rollout.RolloutID)
 		}
+		return AWSOrganizationRolloutStatus{}, ErrAWSOrganizationRolloutNoRetryableTargets
 	}
 	return s.GetAWSOrganizationRolloutStatus(ctx, project.WorkspaceID, project.ProjectID, rollout.RolloutID)
 }
@@ -169,6 +191,7 @@ func (s *Service) RetryAWSOrganizationRollout(ctx context.Context, workspaceID s
 var (
 	ErrAWSOrganizationRolloutExpired            = errors.New("aws organization rollout expired")
 	ErrAWSOrganizationRolloutNoRetryableTargets = errors.New("aws organization rollout has no retryable targets")
+	ErrAWSOrganizationRolloutRetryConflict      = errors.New("aws organization rollout cannot be retried while another rollout is active")
 )
 
 func (s *Service) reconcileAWSOrganizationRollout(ctx context.Context, store db.AWSOrganizationRolloutStore, rollout db.AWSOrganizationRollout) (AWSOrganizationRolloutReconcileResult, error) {

@@ -5022,6 +5022,8 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				c.JSON(http.StatusConflict, gin.H{"error": "aws rollout has expired"})
 			case errors.Is(err, ErrAWSOrganizationRolloutNoRetryableTargets):
 				c.JSON(http.StatusConflict, gin.H{"error": "aws rollout has no retryable targets"})
+			case errors.Is(err, ErrAWSOrganizationRolloutRetryConflict):
+				c.JSON(http.StatusConflict, gin.H{"error": "aws rollout cannot be retried while another rollout is active"})
 			case errors.Is(err, ErrAWSConnectorConfigUnavailable):
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws rollout storage unavailable"})
 			default:

@@ -250,6 +250,9 @@ func (p *PostgresStore) UpdateAWSOrganizationRollout(ctx context.Context, rollou
 	if errors.Is(err, sql.ErrNoRows) {
 		return AWSOrganizationRollout{}, ErrConflict
 	}
+	if isTenancyUniqueViolation(err) {
+		return AWSOrganizationRollout{}, ErrConflict
+	}
 	return updated, err
 }
 

@@ -380,3 +380,48 @@ func TestResetAWSOrganizationRolloutTargetRejectsTerminalParent(t *testing.T) {
 		t.Fatalf("expected terminal parent reset to conflict, got %v", err)
 	}
 }
+
+func TestRetryAWSOrganizationRolloutRejectsReplacementBeforeResettingTargets(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	store := svc.Store.(db.AWSOrganizationRolloutStore)
+	target := setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetFailed, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
+	target.FailureCode = "aws_validation_error"
+	target.FailureMessage = "temporary validation failure"
+	target.Retryable = true
+	target, err := store.UpsertAWSOrganizationRolloutTarget(ctx, target)
+	if err != nil {
+		t.Fatalf("seed retryable target: %v", err)
+	}
+	current, err := store.GetAWSOrganizationRollout(ctx, rollout.WorkspaceID, rollout.ProjectID, rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reload rollout: %v", err)
+	}
+	current.Status = db.AWSOrganizationRolloutStatusPartial
+	current.UpdatedAt = svc.Now().UTC()
+	if _, err := store.UpdateAWSOrganizationRollout(ctx, current, current.Version); err != nil {
+		t.Fatalf("mark rollout partial: %v", err)
+	}
+
+	if _, err := svc.StartAWSOrganizationRollout(ctx, AWSOrganizationRolloutStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ControllingConnectorID: "aws-mgmt",
+		OrganizationID:         "o-fixture002",
+		ManagementAccountID:    "111111111111",
+		SelectedAccountIDs:     []string{"333333333333"},
+		TargetRegions:          []string{"us-east-1"},
+	}); err != nil {
+		t.Fatalf("start replacement rollout: %v", err)
+	}
+
+	if _, err := svc.RetryAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID, AWSOrganizationRolloutRetryRequest{}); !errors.Is(err, ErrAWSOrganizationRolloutRetryConflict) {
+		t.Fatalf("expected clean retry conflict, got %v", err)
+	}
+	unchanged, err := store.GetAWSOrganizationRolloutTarget(ctx, rollout.RolloutID, target.AccountID, target.Region)
+	if err != nil {
+		t.Fatalf("reload target after rejected retry: %v", err)
+	}
+	if unchanged.State != db.AWSOrganizationRolloutTargetFailed || unchanged.FailureCode != "aws_validation_error" || !unchanged.Retryable {
+		t.Fatalf("expected target to remain retryable and failed, got %+v", unchanged)
+	}
+}
