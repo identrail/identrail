@@ -97,6 +97,86 @@ func TestRouterAWSConnectionOnboardingActive(t *testing.T) {
 	}
 }
 
+func TestRouterAWSConnectorLifecycleDisconnectIsIdempotentAndBlocksLateValidation(t *testing.T) {
+	validator := &fakeAWSConnectorValidator{result: AWSConnectionValidationResult{
+		AccountID: "123456789012", PrincipalARN: "arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/test", UserID: "AROATEST:test", Region: "us-east-1",
+		PermissionChecks: []AWSConnectionPermissionCheck{{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."}},
+	}}
+	r := newAWSConnectorFlowTestRouter(t, validator)
+	startResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws", `{"workspace_id":"workspace-a","project_id":"project-1","display_name":"Production AWS","region":"us-east-1"}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected connector start 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var started AWSConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &started); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	if started.ConnectorID == "" {
+		t.Fatalf("expected connector id in start response: %+v", started)
+	}
+
+	lifecycleBody := `{"workspace_id":"workspace-a","project_id":"project-1"}`
+	disableResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws/"+started.ConnectorID+"/disable", lifecycleBody)
+	if disableResp.Code != http.StatusOK {
+		t.Fatalf("expected disable 200, got %d body=%s", disableResp.Code, disableResp.Body.String())
+	}
+	var disabled struct {
+		Connection AWSConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(disableResp.Body.Bytes(), &disabled); err != nil {
+		t.Fatalf("decode disable response: %v", err)
+	}
+	if !disabled.Connection.Disabled || disabled.Connection.LifecycleGeneration != 1 || disabled.Connection.Connected {
+		t.Fatalf("expected disabled generation-1 response, got %+v", disabled.Connection)
+	}
+	disabledValidate := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws/"+started.ConnectorID+"/validate", `{"workspace_id":"workspace-a","project_id":"project-1","role_arn":"arn:aws:iam::123456789012:role/IdentrailReadOnly","region":"us-east-1"}`)
+	if disabledValidate.Code != http.StatusConflict {
+		t.Fatalf("expected disabled validation to be blocked with 409, got %d body=%s", disabledValidate.Code, disabledValidate.Body.String())
+	}
+	enableResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws/"+started.ConnectorID+"/enable", lifecycleBody)
+	if enableResp.Code != http.StatusOK {
+		t.Fatalf("expected enable 200, got %d body=%s", enableResp.Code, enableResp.Body.String())
+	}
+	var enabled struct {
+		Connection AWSConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(enableResp.Body.Bytes(), &enabled); err != nil {
+		t.Fatalf("decode enable response: %v", err)
+	}
+	if enabled.Connection.Disabled || enabled.Connection.LifecycleGeneration != 2 {
+		t.Fatalf("expected enabled generation-2 response, got %+v", enabled.Connection)
+	}
+
+	disconnectResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws/"+started.ConnectorID+"/disconnect", lifecycleBody)
+	if disconnectResp.Code != http.StatusOK {
+		t.Fatalf("expected disconnect 200, got %d body=%s", disconnectResp.Code, disconnectResp.Body.String())
+	}
+	var disconnected struct {
+		Connection AWSConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(disconnectResp.Body.Bytes(), &disconnected); err != nil {
+		t.Fatalf("decode disconnect response: %v", err)
+	}
+	if disconnected.Connection.Status != domain.ConnectorStatusDisconnected || disconnected.Connection.Connected || disconnected.Connection.LifecycleGeneration != 3 || disconnected.Connection.CleanupStatus != "pending" || !disconnected.Connection.CleanupRequired {
+		t.Fatalf("expected disconnected pending-cleanup response, got %+v", disconnected.Connection)
+	}
+	secondDisconnect := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws/"+started.ConnectorID+"/disconnect", lifecycleBody)
+	if secondDisconnect.Code != http.StatusOK {
+		t.Fatalf("expected idempotent disconnect 200, got %d body=%s", secondDisconnect.Code, secondDisconnect.Body.String())
+	}
+	restartResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws", `{"workspace_id":"workspace-a","project_id":"project-1","connector_id":"`+started.ConnectorID+`","region":"us-east-1"}`)
+	if restartResp.Code != http.StatusConflict {
+		t.Fatalf("expected disconnected connector restart to be blocked with 409, got %d body=%s", restartResp.Code, restartResp.Body.String())
+	}
+	validateResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws/"+started.ConnectorID+"/validate", `{"workspace_id":"workspace-a","project_id":"project-1","role_arn":"arn:aws:iam::123456789012:role/IdentrailReadOnly","region":"us-east-1"}`)
+	if validateResp.Code != http.StatusConflict {
+		t.Fatalf("expected late validation to be blocked with 409, got %d body=%s", validateResp.Code, validateResp.Body.String())
+	}
+	if validator.calls != 0 {
+		t.Fatalf("expected blocked validation not to call AWS, calls=%d", validator.calls)
+	}
+}
+
 func TestRouterAWSConnectionRejectsUnsupportedScopeOverride(t *testing.T) {
 	r := newAWSConnectionTestRouter(t, &fakeAWSConnectorValidator{})
 

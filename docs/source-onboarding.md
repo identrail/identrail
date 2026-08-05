@@ -40,12 +40,16 @@ POST /v1/connectors/aws
 GET  /v1/connectors/aws/{connector_id}/poll
 POST /v1/connectors/aws/{connector_id}/validate
 POST /v1/connectors/aws/{connector_id}/refresh-policy
+POST /v1/connectors/aws/{connector_id}/disable
+POST /v1/connectors/aws/{connector_id}/enable
+POST /v1/connectors/aws/{connector_id}/disconnect
 ```
 
 `POST /v1/connectors/aws` starts onboarding and returns an AWS launch URL plus permission preview. Repeating the call with the same `connector_id` resumes the existing setup and preserves the External ID and launch parameters.
 `GET /v1/connectors/aws/{connector_id}/poll` returns status for long-running setup without serializing the External ID.
 `POST /v1/connectors/aws/{connector_id}/validate` validates the role created by that flow with scanner-critical IAM checks, permission checks, and diagnostics that are surfaced in the connector status.
 `POST /v1/connectors/aws/{connector_id}/refresh-policy` regenerates the read-only policy preview and capability matrix for the same connector.
+`POST .../disable` pauses eligibility while retaining diagnostics; `POST .../enable` resumes it and advances the lifecycle fence. `POST .../disconnect` stops new work, invalidates local connector secret envelopes, and returns `cleanup_status=pending` until provider-side stack/role cleanup is separately verified. All lifecycle actions are idempotent where applicable and require the workspace/project scope in the request body.
 
 Current product behavior remains IAM-focused and read-only. CloudFormation creates a role with scanner-only permissions and does not execute cloud-side mutation or remediation.
 

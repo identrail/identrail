@@ -1116,21 +1116,28 @@ type TenancyScanPolicy struct {
 
 // TenancyConnector stores one project-scoped source connector record.
 type TenancyConnector struct {
-	TenantID            string                 `json:"tenant_id"`
-	WorkspaceID         string                 `json:"workspace_id"`
-	ProjectID           string                 `json:"project_id"`
-	ConnectorID         string                 `json:"connector_id"`
-	Type                domain.ConnectorType   `json:"type"`
-	DisplayName         string                 `json:"display_name"`
-	Status              domain.ConnectorStatus `json:"status"`
-	SecretProvider      string                 `json:"secret_provider,omitempty"`
-	SecretRefID         string                 `json:"secret_ref_id,omitempty"`
-	SecretRefVersion    string                 `json:"secret_ref_version,omitempty"`
-	SecretLastRotatedAt *time.Time             `json:"secret_last_rotated_at,omitempty"`
-	ConfigChecksum      string                 `json:"config_checksum,omitempty"`
-	LastSyncAt          *time.Time             `json:"last_sync_at,omitempty"`
-	CreatedAt           time.Time              `json:"created_at"`
-	UpdatedAt           time.Time              `json:"updated_at"`
+	TenantID    string                 `json:"tenant_id"`
+	WorkspaceID string                 `json:"workspace_id"`
+	ProjectID   string                 `json:"project_id"`
+	ConnectorID string                 `json:"connector_id"`
+	Type        domain.ConnectorType   `json:"type"`
+	DisplayName string                 `json:"display_name"`
+	Status      domain.ConnectorStatus `json:"status"`
+	// Disabled is an operator-controlled eligibility gate. It is orthogonal to
+	// provider health so a connector can remain observable while all new work
+	// is stopped deliberately.
+	Disabled bool `json:"disabled"`
+	// LifecycleGeneration fences stale asynchronous callbacks. Any lifecycle
+	// action increments it; writes carrying an older generation are rejected.
+	LifecycleGeneration int64      `json:"lifecycle_generation"`
+	SecretProvider      string     `json:"secret_provider,omitempty"`
+	SecretRefID         string     `json:"secret_ref_id,omitempty"`
+	SecretRefVersion    string     `json:"secret_ref_version,omitempty"`
+	SecretLastRotatedAt *time.Time `json:"secret_last_rotated_at,omitempty"`
+	ConfigChecksum      string     `json:"config_checksum,omitempty"`
+	LastSyncAt          *time.Time `json:"last_sync_at,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 // TenancyConnectorState stores observed health and provider metadata for a connector.
@@ -1153,6 +1160,34 @@ type TenancyConnectorState struct {
 type TenancyConnectorWithState struct {
 	Connector TenancyConnector      `json:"connector"`
 	State     TenancyConnectorState `json:"state"`
+}
+
+// TenancyConnectorLifecycleStore contains the atomic lifecycle mutations used
+// by operator actions. It intentionally remains a capability interface so
+// alternate Store implementations are not forced to pretend they support
+// lifecycle fencing until they implement the same contract.
+type TenancyConnectorLifecycleStore interface {
+	DisconnectTenancyConnector(ctx context.Context, workspaceID string, projectID string, connectorID string, now time.Time) (TenancyConnectorWithState, error)
+	SetTenancyConnectorDisabled(ctx context.Context, workspaceID string, projectID string, connectorID string, disabled bool, now time.Time) (TenancyConnectorWithState, error)
+}
+
+// TenancyConnectorEligibilityStore provides lifecycle-aware connector lists.
+// Implementations must apply the disabled/disconnected predicate before the
+// limit so callers cannot accidentally select an ineligible connector or hide
+// an eligible one behind stale rows.
+type TenancyConnectorEligibilityStore interface {
+	ListEligibleTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
+	ListEligibleTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
+}
+
+// TenancyConnectorLifecycleSecretStore fences secret mutations against the
+// connector lifecycle generation in the same database operation. This keeps a
+// stale start/validation callback from recreating or deleting a secret after
+// an operator has disconnected or paused the connector.
+type TenancyConnectorLifecycleSecretStore interface {
+	CreateTenancyConnectorSecretEnvelopeIfAbsentAtGeneration(ctx context.Context, envelope TenancyConnectorSecretEnvelope, expectedGeneration int64) (TenancyConnectorSecretEnvelope, bool, error)
+	UpsertTenancyConnectorSecretEnvelopeAtGeneration(ctx context.Context, envelope TenancyConnectorSecretEnvelope, expectedGeneration int64) error
+	DeleteTenancyConnectorSecretEnvelopeAtGeneration(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string, expectedGeneration int64) error
 }
 
 const (
@@ -2490,6 +2525,9 @@ func NormalizeTenancyConnectorForWrite(connector TenancyConnector) (TenancyConne
 	case domain.ConnectorStatusPending, domain.ConnectorStatusActive, domain.ConnectorStatusDegraded, domain.ConnectorStatusDisconnected:
 	default:
 		return TenancyConnector{}, fmt.Errorf("invalid connector status")
+	}
+	if normalized.LifecycleGeneration < 0 {
+		return TenancyConnector{}, fmt.Errorf("connector lifecycle generation cannot be negative")
 	}
 	normalized.SecretProvider = strings.TrimSpace(connector.SecretProvider)
 	normalized.SecretRefID = strings.TrimSpace(connector.SecretRefID)

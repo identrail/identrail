@@ -1246,23 +1246,71 @@ func (s *Service) activeAWSConnectionForScan(ctx context.Context, record db.Scan
 			if stored.Connector.Type != domain.ConnectorTypeAWS {
 				return AWSConnectionStatus{}, false, ErrInvalidScanRequest
 			}
+			if stored.Connector.Disabled || stored.Connector.Status == domain.ConnectorStatusDisconnected {
+				return AWSConnectionStatus{}, false, fmt.Errorf("aws connector %q is disabled or disconnected", source.ConnectorID)
+			}
 			status := s.awsConnectionStatusFromStored(ctx, stored)
 			if !status.Connected {
 				return AWSConnectionStatus{}, false, fmt.Errorf("aws connector %q is not active in project %q", source.ConnectorID, project.ProjectID)
 			}
 			return status, true, nil
 		}
-		items, err := s.Store.ListTenancyConnectors(ctx, project.WorkspaceID, project.ProjectID, domain.ConnectorTypeAWS, 25)
+		items, err := s.listEligibleAWSConnectors(ctx, project.WorkspaceID, project.ProjectID, 25)
 		if err != nil {
 			return AWSConnectionStatus{}, false, fmt.Errorf("list scoped aws connectors: %w", err)
 		}
-		return s.firstActiveAWSConnection(ctx, items)
+		status, ok, err := s.firstActiveAWSConnection(ctx, items)
+		if err != nil {
+			return AWSConnectionStatus{}, false, err
+		}
+		if !ok {
+			return AWSConnectionStatus{}, false, fmt.Errorf("no eligible aws connector for project %q", project.ProjectID)
+		}
+		return status, true, nil
 	}
-	items, err := s.Store.ListTenancyConnectors(ctx, "", "", domain.ConnectorTypeAWS, 25)
+	items, err := s.listEligibleAWSConnectorsUnscoped(ctx, 25)
 	if err != nil {
 		return AWSConnectionStatus{}, false, fmt.Errorf("list aws connectors: %w", err)
 	}
 	return s.firstActiveAWSConnection(ctx, items)
+}
+
+func (s *Service) listEligibleAWSConnectors(ctx context.Context, workspaceID string, projectID string, limit int) ([]db.TenancyConnectorWithState, error) {
+	if eligibleStore, ok := s.Store.(db.TenancyConnectorEligibilityStore); ok {
+		return eligibleStore.ListEligibleTenancyConnectors(ctx, workspaceID, projectID, domain.ConnectorTypeAWS, limit)
+	}
+	// Preserve compatibility with narrow test and plugin stores while keeping
+	// the lifecycle predicate in this selector as a defensive fallback.
+	items, err := s.Store.ListTenancyConnectors(ctx, workspaceID, projectID, domain.ConnectorTypeAWS, 1000)
+	if err != nil {
+		return nil, err
+	}
+	return filterEligibleAWSConnectors(items, limit), nil
+}
+
+func (s *Service) listEligibleAWSConnectorsUnscoped(ctx context.Context, limit int) ([]db.TenancyConnectorWithState, error) {
+	if eligibleStore, ok := s.Store.(db.TenancyConnectorEligibilityStore); ok {
+		return eligibleStore.ListEligibleTenancyConnectorsUnscoped(ctx, domain.ConnectorTypeAWS, limit)
+	}
+	items, err := s.Store.ListTenancyConnectors(ctx, "", "", domain.ConnectorTypeAWS, 1000)
+	if err != nil {
+		return nil, err
+	}
+	return filterEligibleAWSConnectors(items, limit), nil
+}
+
+func filterEligibleAWSConnectors(items []db.TenancyConnectorWithState, limit int) []db.TenancyConnectorWithState {
+	eligible := make([]db.TenancyConnectorWithState, 0, len(items))
+	for _, item := range items {
+		if item.Connector.Disabled || item.Connector.Status == domain.ConnectorStatusDisconnected {
+			continue
+		}
+		eligible = append(eligible, item)
+		if limit > 0 && len(eligible) >= limit {
+			break
+		}
+	}
+	return eligible
 }
 
 func (s *Service) firstActiveAWSConnection(ctx context.Context, items []db.TenancyConnectorWithState) (AWSConnectionStatus, bool, error) {
@@ -1275,6 +1323,9 @@ func (s *Service) firstActiveAWSConnection(ctx context.Context, items []db.Tenan
 		return left.UpdatedAt.After(right.UpdatedAt)
 	})
 	for _, item := range items {
+		if item.Connector.Disabled || item.Connector.Status == domain.ConnectorStatusDisconnected {
+			continue
+		}
 		status := s.awsConnectionStatusFromStored(ctx, item)
 		if status.Connected {
 			return status, true, nil

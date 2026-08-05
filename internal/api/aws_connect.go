@@ -53,6 +53,10 @@ var ErrAWSConnectionValidatorUnavailable = errors.New("aws connection validator 
 // ErrAWSConnectorConfigUnavailable indicates the CloudFormation setup flow is not configured.
 var ErrAWSConnectorConfigUnavailable = errors.New("aws connector config unavailable")
 
+// ErrAWSConnectorLifecycleBlocked indicates that an operator has deliberately
+// stopped this connector and it cannot be used for new validation or work.
+var ErrAWSConnectorLifecycleBlocked = errors.New("aws connector lifecycle is blocked")
+
 // AWSConnectorScopeType names the AWS estate boundary the connector is intended
 // to cover. It is operator intent only; observed coverage is recorded separately.
 type AWSConnectorScopeType string
@@ -135,6 +139,7 @@ type AWSConnectionUpsertRequest struct {
 	AutoOnboardNewAccounts bool                         `json:"auto_onboard_new_accounts,omitempty"`
 	allowSetupContract     bool
 	preserveLaunchMetadata map[string]any
+	lifecycleGeneration    int64
 }
 
 // AWSConnectorStartRequest starts the CloudFormation-based AWS connector flow.
@@ -301,6 +306,8 @@ type AWSConnectionStatus struct {
 	ConnectorID            string                              `json:"connector_id,omitempty"`
 	DisplayName            string                              `json:"display_name,omitempty"`
 	Status                 domain.ConnectorStatus              `json:"status"`
+	Disabled               bool                                `json:"disabled"`
+	LifecycleGeneration    int64                               `json:"lifecycle_generation"`
 	HealthStatus           string                              `json:"health_status"`
 	RoleARN                string                              `json:"role_arn,omitempty"`
 	ExternalIDConfigured   bool                                `json:"external_id_configured"`
@@ -334,6 +341,8 @@ type AWSConnectionStatus struct {
 	CreatedAt              *time.Time                          `json:"created_at,omitempty"`
 	UpdatedAt              *time.Time                          `json:"updated_at,omitempty"`
 	LastValidatedAt        *time.Time                          `json:"last_validated_at,omitempty"`
+	CleanupStatus          string                              `json:"cleanup_status,omitempty"`
+	CleanupRequired        bool                                `json:"cleanup_required"`
 }
 
 type awsConnectorSetupContract struct {
@@ -409,6 +418,9 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	} else {
 		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
 		if err == nil {
+			if err := ensureAWSConnectorLifecycleStartAllowed(stored); err != nil {
+				return AWSConnectorStartResponse{}, err
+			}
 			return s.resumeAWSConnectorStart(ctx, stored, setup, request, templateURL, accountID)
 		}
 		if !errors.Is(err, db.ErrNotFound) {
@@ -547,6 +559,9 @@ func (s *Service) startAWSStackSetConnector(
 	if connectorID != "" {
 		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
 		if err == nil {
+			if err := ensureAWSConnectorLifecycleStartAllowed(stored); err != nil {
+				return AWSConnectorStartResponse{}, err
+			}
 			return s.resumeAWSStackSetConnectorStart(ctx, stored, setup, request, templateURL, accountID, templateChecksum)
 		}
 		if !errors.Is(err, db.ErrNotFound) {
@@ -668,6 +683,9 @@ func (s *Service) startAWSManualConnector(
 	} else {
 		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
 		if err == nil {
+			if err := ensureAWSConnectorLifecycleStartAllowed(stored); err != nil {
+				return AWSConnectorStartResponse{}, err
+			}
 			return s.resumeAWSManualConnectorStart(ctx, stored)
 		}
 		if !errors.Is(err, db.ErrNotFound) {
@@ -753,6 +771,9 @@ func (s *Service) resumeAWSManualConnectorStart(ctx context.Context, stored db.T
 	if stored.Connector.Type != domain.ConnectorTypeAWS {
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 	}
+	if err := ensureAWSConnectorLifecycleStartAllowed(stored); err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
 	defaultScope, defaultDeployment := awsMetadataSetupFallback(stored.State.Metadata)
 	setup := awsMetadataSetupContract(stored.State.Metadata, defaultScope, defaultDeployment)
 	if setup.ScopeType != AWSConnectorScopeManualRole || setup.DeploymentMethod != AWSConnectorDeploymentManual {
@@ -796,10 +817,7 @@ func (s *Service) recoverAWSManualConnectorExternalID(ctx context.Context, store
 	if err != nil {
 		return db.TenancyConnectorWithState{}, "", err
 	}
-	secret, created, err := s.Store.CreateTenancyConnectorSecretEnvelopeIfAbsent(
-		db.WithScope(ctx, db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID}),
-		secret,
-	)
+	secret, created, err := s.createAWSExternalIDSecretIfCurrent(ctx, stored, secret)
 	if err != nil {
 		return db.TenancyConnectorWithState{}, "", fmt.Errorf("recover manual aws connector external id envelope: %w", err)
 	}
@@ -841,6 +859,9 @@ func (s *Service) resumeAWSStackSetConnectorStart(
 	if stored.Connector.Type != domain.ConnectorTypeAWS {
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 	}
+	if err := ensureAWSConnectorLifecycleStartAllowed(stored); err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
 	defaultScope, defaultDeployment := awsMetadataSetupFallback(stored.State.Metadata)
 	setup := awsMetadataSetupContract(stored.State.Metadata, defaultScope, defaultDeployment)
 	if !awsConnectorDeploymentIsStackSet(setup.DeploymentMethod) {
@@ -866,7 +887,7 @@ func (s *Service) resumeAWSStackSetConnectorStart(
 		if err != nil {
 			return AWSConnectorStartResponse{}, err
 		}
-		secret, created, err := s.Store.CreateTenancyConnectorSecretEnvelopeIfAbsent(db.WithScope(ctx, db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID}), secret)
+		secret, created, err := s.createAWSExternalIDSecretIfCurrent(ctx, stored, secret)
 		if err != nil {
 			return AWSConnectorStartResponse{}, fmt.Errorf("recover aws stackset connector external id envelope: %w", err)
 		}
@@ -978,6 +999,9 @@ func (s *Service) resumeAWSConnectorStart(
 	if stored.Connector.Type != domain.ConnectorTypeAWS {
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 	}
+	if err := ensureAWSConnectorLifecycleStartAllowed(stored); err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
 	defaultScope, defaultDeployment := awsMetadataSetupFallback(stored.State.Metadata)
 	setup := awsMetadataSetupContract(stored.State.Metadata, defaultScope, defaultDeployment)
 	if setup.ScopeType != AWSConnectorScopeSingleAccount || setup.DeploymentMethod != AWSConnectorDeploymentCloudFormation {
@@ -1002,7 +1026,7 @@ func (s *Service) resumeAWSConnectorStart(
 		if err != nil {
 			return AWSConnectorStartResponse{}, err
 		}
-		secret, created, err := s.Store.CreateTenancyConnectorSecretEnvelopeIfAbsent(db.WithScope(ctx, db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID}), secret)
+		secret, created, err := s.createAWSExternalIDSecretIfCurrent(ctx, stored, secret)
 		if err != nil {
 			return AWSConnectorStartResponse{}, fmt.Errorf("recover aws connector external id envelope: %w", err)
 		}
@@ -1424,6 +1448,9 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
+	if !awsConnectorLifecycleMutationAllowed(stored) {
+		return AWSConnectionStatus{}, ErrAWSConnectorLifecycleBlocked
+	}
 	externalID := strings.TrimSpace(request.ExternalID)
 	if externalID == "" {
 		var err error
@@ -1457,6 +1484,7 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 		AutoOnboardNewAccounts: setup.AutoOnboardNewAccounts,
 		allowSetupContract:     true,
 		preserveLaunchMetadata: awsConnectorLaunchMetadataForExternalID(stored.State.Metadata, externalID),
+		lifecycleGeneration:    stored.Connector.LifecycleGeneration,
 	})
 	if err != nil {
 		return AWSConnectionStatus{}, err
@@ -1530,6 +1558,49 @@ func (s *Service) PollAWSConnector(ctx context.Context, connectorID string, requ
 	return awsConnectorSetupPublicConnectionStatus(s.awsConnectionStatusFromStored(ctx, stored)), nil
 }
 
+// DisconnectAWSConnector stops local eligibility immediately, invalidates the
+// encrypted external-id envelope, and reports provider cleanup as pending.
+// The generation fence prevents callbacks already in flight from reviving it.
+func (s *Service) DisconnectAWSConnector(ctx context.Context, connectorID string, request AWSConnectorPollRequest) (AWSConnectionStatus, error) {
+	if strings.TrimSpace(request.ProjectID) == "" || strings.TrimSpace(connectorID) == "" {
+		return AWSConnectionStatus{}, ErrInvalidAWSConnectionRequest
+	}
+	project, _, err := s.requireScopedProject(ctx, request.WorkspaceID, request.ProjectID)
+	if err != nil {
+		return AWSConnectionStatus{}, err
+	}
+	lifecycleStore, ok := s.Store.(db.TenancyConnectorLifecycleStore)
+	if !ok {
+		return AWSConnectionStatus{}, ErrAWSConnectorConfigUnavailable
+	}
+	stored, err := lifecycleStore.DisconnectTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID), s.Now().UTC())
+	if err != nil {
+		return AWSConnectionStatus{}, err
+	}
+	return awsConnectorSetupPublicConnectionStatus(s.awsConnectionStatusFromStored(ctx, stored)), nil
+}
+
+// SetAWSConnectorDisabled changes the explicit operator eligibility gate while
+// retaining the connector and its diagnostic history for later review.
+func (s *Service) SetAWSConnectorDisabled(ctx context.Context, connectorID string, request AWSConnectorPollRequest, disabled bool) (AWSConnectionStatus, error) {
+	if strings.TrimSpace(request.ProjectID) == "" || strings.TrimSpace(connectorID) == "" {
+		return AWSConnectionStatus{}, ErrInvalidAWSConnectionRequest
+	}
+	project, _, err := s.requireScopedProject(ctx, request.WorkspaceID, request.ProjectID)
+	if err != nil {
+		return AWSConnectionStatus{}, err
+	}
+	lifecycleStore, ok := s.Store.(db.TenancyConnectorLifecycleStore)
+	if !ok {
+		return AWSConnectionStatus{}, ErrAWSConnectorConfigUnavailable
+	}
+	stored, err := lifecycleStore.SetTenancyConnectorDisabled(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID), disabled, s.Now().UTC())
+	if err != nil {
+		return AWSConnectionStatus{}, err
+	}
+	return awsConnectorSetupPublicConnectionStatus(s.awsConnectionStatusFromStored(ctx, stored)), nil
+}
+
 func (s *Service) AWSConnectorPolicy(ctx context.Context, connectorID string, request AWSConnectorPollRequest) (AWSConnectorPolicyResponse, error) {
 	if strings.TrimSpace(connectorID) != "" {
 		if _, err := s.PollAWSConnector(ctx, connectorID, request); err != nil {
@@ -1560,6 +1631,19 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 	normalized, err := normalizeAWSConnectionRequest(request)
 	if err != nil {
 		return AWSConnectionStatus{}, err
+	}
+	existing, existingErr := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, normalized.ConnectorID)
+	switch {
+	case existingErr == nil:
+		if !awsConnectorLifecycleMutationAllowed(existing) {
+			return AWSConnectionStatus{}, ErrAWSConnectorLifecycleBlocked
+		}
+		normalized.lifecycleGeneration = existing.Connector.LifecycleGeneration
+	case errors.Is(existingErr, db.ErrNotFound):
+		// A first-time manual upsert starts at generation zero. The fenced
+		// connector write and secret write below still agree on that generation.
+	case existingErr != nil:
+		return AWSConnectionStatus{}, existingErr
 	}
 	setupInput := awsConnectorSetupInput{
 		ScopeType:               AWSConnectorScopeManualRole,
@@ -1670,14 +1754,15 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 		state.LastErrorMessage = firstAWSRemediation(copyAWSDiagnostics(validation.Diagnostics), checks)
 	}
 	connector := db.TenancyConnector{
-		TenantID:    scope.TenantID,
-		WorkspaceID: project.WorkspaceID,
-		ProjectID:   project.ProjectID,
-		ConnectorID: normalized.ConnectorID,
-		Type:        domain.ConnectorTypeAWS,
-		DisplayName: normalized.DisplayName,
-		Status:      status,
-		UpdatedAt:   now,
+		TenantID:            scope.TenantID,
+		WorkspaceID:         project.WorkspaceID,
+		ProjectID:           project.ProjectID,
+		ConnectorID:         normalized.ConnectorID,
+		Type:                domain.ConnectorTypeAWS,
+		DisplayName:         normalized.DisplayName,
+		Status:              status,
+		LifecycleGeneration: normalized.lifecycleGeneration,
+		UpdatedAt:           now,
 	}
 	if normalized.ExternalID != "" {
 		connector.SecretProvider = "secret-envelope"
@@ -1689,10 +1774,10 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 		return AWSConnectionStatus{}, fmt.Errorf("persist aws connector: %w", err)
 	}
 	if normalized.ExternalID != "" {
-		if err := s.persistAWSExternalID(ctx, scope.TenantID, project.WorkspaceID, project.ProjectID, normalized.ConnectorID, normalized.ExternalID, now); err != nil {
+		if err := s.persistAWSExternalID(ctx, scope.TenantID, project.WorkspaceID, project.ProjectID, normalized.ConnectorID, normalized.ExternalID, now, normalized.lifecycleGeneration); err != nil {
 			return AWSConnectionStatus{}, err
 		}
-	} else if err := s.clearAWSExternalID(ctx, scope.TenantID, project.WorkspaceID, project.ProjectID, normalized.ConnectorID); err != nil {
+	} else if err := s.clearAWSExternalID(ctx, scope.TenantID, project.WorkspaceID, project.ProjectID, normalized.ConnectorID, normalized.lifecycleGeneration); err != nil {
 		return AWSConnectionStatus{}, err
 	}
 	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, normalized.ConnectorID)
@@ -2531,10 +2616,12 @@ func awsConnectionStatusFromStored(stored db.TenancyConnectorWithState) AWSConne
 	}
 	status := AWSConnectionStatus{
 		Provider:               "aws",
-		Connected:              stored.Connector.Status == domain.ConnectorStatusActive && stored.State.HealthStatus == "healthy",
+		Connected:              !stored.Connector.Disabled && stored.Connector.Status == domain.ConnectorStatusActive && stored.State.HealthStatus == "healthy",
 		ConnectorID:            stored.Connector.ConnectorID,
 		DisplayName:            stored.Connector.DisplayName,
 		Status:                 stored.Connector.Status,
+		Disabled:               stored.Connector.Disabled,
+		LifecycleGeneration:    stored.Connector.LifecycleGeneration,
 		HealthStatus:           firstNonEmptyAWSValue(stored.State.HealthStatus, "unknown"),
 		RoleARN:                awsMetadataString(metadata, "role_arn"),
 		ExternalID:             awsMetadataString(metadata, "external_id"),
@@ -2567,9 +2654,22 @@ func awsConnectionStatusFromStored(stored db.TenancyConnectorWithState) AWSConne
 		CreatedAt:              &createdAt,
 		UpdatedAt:              &updatedAt,
 		LastValidatedAt:        validatedAt,
+		CleanupStatus:          awsMetadataString(metadata, "cleanup_status"),
+		CleanupRequired:        awsMetadataBool(metadata, "cleanup_required"),
 	}
 	status.RemediationMessage = firstAWSRemediation(status.Diagnostics, status.PermissionChecks)
 	return status
+}
+
+func awsConnectorLifecycleMutationAllowed(stored db.TenancyConnectorWithState) bool {
+	return !stored.Connector.Disabled && stored.Connector.Status != domain.ConnectorStatusDisconnected
+}
+
+func ensureAWSConnectorLifecycleStartAllowed(stored db.TenancyConnectorWithState) error {
+	if !awsConnectorLifecycleMutationAllowed(stored) {
+		return ErrAWSConnectorLifecycleBlocked
+	}
+	return nil
 }
 
 func (s *Service) awsConnectionStatusFromStored(ctx context.Context, stored db.TenancyConnectorWithState) AWSConnectionStatus {
@@ -2626,7 +2726,7 @@ func (s *Service) decryptAWSExternalIDEnvelope(connector db.TenancyConnector, se
 	return strings.TrimSpace(string(plaintext)), nil
 }
 
-func (s *Service) persistAWSExternalID(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, externalID string, rotatedAt time.Time) error {
+func (s *Service) persistAWSExternalID(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, externalID string, rotatedAt time.Time, expectedGeneration int64) error {
 	if strings.TrimSpace(externalID) == "" {
 		return nil
 	}
@@ -2634,7 +2734,14 @@ func (s *Service) persistAWSExternalID(ctx context.Context, tenantID string, wor
 	if err != nil {
 		return err
 	}
-	if err := s.Store.UpsertTenancyConnectorSecretEnvelope(db.WithScope(ctx, db.Scope{TenantID: tenantID, WorkspaceID: workspaceID}), secret); err != nil {
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: tenantID, WorkspaceID: workspaceID})
+	if generationStore, ok := s.Store.(db.TenancyConnectorLifecycleSecretStore); ok {
+		if err := generationStore.UpsertTenancyConnectorSecretEnvelopeAtGeneration(scopedCtx, secret, expectedGeneration); err != nil {
+			return fmt.Errorf("persist aws connector external id envelope: %w", err)
+		}
+		return nil
+	}
+	if err := s.Store.UpsertTenancyConnectorSecretEnvelope(scopedCtx, secret); err != nil {
 		return fmt.Errorf("persist aws connector external id envelope: %w", err)
 	}
 	return nil
@@ -2666,14 +2773,14 @@ func (s *Service) newAWSExternalIDSecretEnvelope(tenantID string, workspaceID st
 	return secret, nil
 }
 
-func (s *Service) clearAWSExternalID(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string) error {
-	err := s.Store.DeleteTenancyConnectorSecretEnvelope(
-		db.WithScope(ctx, db.Scope{TenantID: tenantID, WorkspaceID: workspaceID}),
-		workspaceID,
-		projectID,
-		connectorID,
-		awsExternalIDSecretName,
-	)
+func (s *Service) clearAWSExternalID(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, expectedGeneration int64) error {
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: tenantID, WorkspaceID: workspaceID})
+	var err error
+	if generationStore, ok := s.Store.(db.TenancyConnectorLifecycleSecretStore); ok {
+		err = generationStore.DeleteTenancyConnectorSecretEnvelopeAtGeneration(scopedCtx, workspaceID, projectID, connectorID, awsExternalIDSecretName, expectedGeneration)
+	} else {
+		err = s.Store.DeleteTenancyConnectorSecretEnvelope(scopedCtx, workspaceID, projectID, connectorID, awsExternalIDSecretName)
+	}
 	if errors.Is(err, db.ErrNotFound) {
 		return nil
 	}
@@ -2681,6 +2788,21 @@ func (s *Service) clearAWSExternalID(ctx context.Context, tenantID string, works
 		return fmt.Errorf("clear aws connector external id envelope: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) createAWSExternalIDSecretIfCurrent(ctx context.Context, stored db.TenancyConnectorWithState, secret db.TenancyConnectorSecretEnvelope) (db.TenancyConnectorSecretEnvelope, bool, error) {
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID})
+	if generationStore, ok := s.Store.(db.TenancyConnectorLifecycleSecretStore); ok {
+		return generationStore.CreateTenancyConnectorSecretEnvelopeIfAbsentAtGeneration(scopedCtx, secret, stored.Connector.LifecycleGeneration)
+	}
+	current, err := s.Store.GetTenancyConnector(scopedCtx, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID)
+	if err != nil {
+		return db.TenancyConnectorSecretEnvelope{}, false, err
+	}
+	if current.Connector.LifecycleGeneration != stored.Connector.LifecycleGeneration || !awsConnectorLifecycleMutationAllowed(current) {
+		return db.TenancyConnectorSecretEnvelope{}, false, db.ErrConflict
+	}
+	return s.Store.CreateTenancyConnectorSecretEnvelopeIfAbsent(scopedCtx, secret)
 }
 
 func awsExternalIDAAD(tenantID string, workspaceID string, projectID string, connectorID string) []byte {

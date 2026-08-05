@@ -195,6 +195,113 @@ func TestMemoryStoreListTenancyConnectorsUnscopedWithoutLimit(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreConnectorLifecycleFencesStaleCallbacksAndInvalidatesSecrets(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "workspace-a", ProjectID: "project-1", Name: "Project 1", Slug: "project-1"}); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	connector := TenancyConnector{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod",
+		Type: domain.ConnectorTypeAWS, DisplayName: "Production AWS", Status: domain.ConnectorStatusActive,
+	}
+	if err := store.UpsertTenancyConnector(ctx, connector, TenancyConnectorState{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod", HealthStatus: "healthy",
+		Metadata: map[string]any{"external_id": "sensitive-external-id", "external_id_configured": true},
+	}); err != nil {
+		t.Fatalf("seed connector: %v", err)
+	}
+	if err := store.UpsertTenancyConnectorSecretEnvelope(ctx, TenancyConnectorSecretEnvelope{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod", SecretName: "external_id",
+		EnvelopeVersion: 1, Envelope: secretstore.Envelope{Algorithm: secretstore.AlgorithmAES256GCM, KeyVersion: "v1", Nonce: []byte("123456789012"), Ciphertext: []byte("ciphertext")},
+		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed connector secret: %v", err)
+	}
+
+	disabled, err := store.SetTenancyConnectorDisabled(ctx, "workspace-a", "project-1", "aws-prod", true, time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("disable connector: %v", err)
+	}
+	if !disabled.Connector.Disabled || disabled.Connector.LifecycleGeneration != 1 {
+		t.Fatalf("expected disabled generation 1, got %+v", disabled.Connector)
+	}
+	disabled.State.Metadata["lifecycle_state"] = "tampered"
+	storedAfterDisable, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("reload disabled connector: %v", err)
+	}
+	if storedAfterDisable.State.Metadata["lifecycle_state"] == "tampered" {
+		t.Fatal("lifecycle response metadata must not alias persisted MemoryStore state")
+	}
+	staleSecret := TenancyConnectorSecretEnvelope{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod", SecretName: "stale",
+		EnvelopeVersion: 1,
+		Envelope:        secretstore.Envelope{Algorithm: secretstore.AlgorithmAES256GCM, KeyVersion: "v1", Nonce: []byte("123456789012"), Ciphertext: []byte("stale")},
+		CreatedAt:       time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	if _, _, err := store.CreateTenancyConnectorSecretEnvelopeIfAbsentAtGeneration(ctx, staleSecret, 0); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected stale secret create to be fenced, got %v", err)
+	}
+	if err := store.UpsertTenancyConnectorSecretEnvelopeAtGeneration(ctx, staleSecret, 0); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected stale secret upsert to be fenced, got %v", err)
+	}
+	if err := store.DeleteTenancyConnectorSecretEnvelopeAtGeneration(ctx, "workspace-a", "project-1", "aws-prod", "external_id", 0); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected stale secret delete to be fenced, got %v", err)
+	}
+	sameDisabled, err := store.SetTenancyConnectorDisabled(ctx, "workspace-a", "project-1", "aws-prod", true, time.Date(2026, 8, 5, 12, 1, 0, 0, time.UTC))
+	if err != nil || sameDisabled.Connector.LifecycleGeneration != 1 {
+		t.Fatalf("expected idempotent disable, got connector=%+v err=%v", sameDisabled.Connector, err)
+	}
+
+	stale := disabled.Connector
+	stale.Status = domain.ConnectorStatusActive
+	stale.Disabled = false
+	stale.LifecycleGeneration = 0
+	stale.UpdatedAt = time.Date(2026, 8, 5, 12, 2, 0, 0, time.UTC)
+	if err := store.UpsertTenancyConnector(ctx, stale, disabled.State); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected stale callback to be fenced, got %v", err)
+	}
+
+	disconnected, err := store.DisconnectTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod", time.Date(2026, 8, 5, 12, 3, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("disconnect connector: %v", err)
+	}
+	if disconnected.Connector.Status != domain.ConnectorStatusDisconnected || disconnected.Connector.Disabled || disconnected.Connector.LifecycleGeneration != 2 {
+		t.Fatalf("unexpected disconnected connector: %+v", disconnected.Connector)
+	}
+	if disconnected.State.Metadata["cleanup_status"] != "pending" || disconnected.State.Metadata["cleanup_required"] != true {
+		t.Fatalf("expected honest pending cleanup state, got %+v", disconnected.State.Metadata)
+	}
+	if disconnected.State.Metadata["external_id"] != nil || disconnected.State.Metadata["external_id_configured"] != false {
+		t.Fatalf("expected external id metadata to be invalidated, got %+v", disconnected.State.Metadata)
+	}
+	disconnected.State.Metadata["cleanup_status"] = "tampered"
+	storedAfterDisconnect, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("reload disconnected connector: %v", err)
+	}
+	if storedAfterDisconnect.State.Metadata["cleanup_status"] == "tampered" {
+		t.Fatal("disconnect response metadata must not alias persisted MemoryStore state")
+	}
+	if _, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", "external_id"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected connector secret to be invalidated, got %v", err)
+	}
+	repeated, err := store.DisconnectTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod", time.Date(2026, 8, 5, 12, 4, 0, 0, time.UTC))
+	if err != nil || repeated.Connector.LifecycleGeneration != 2 {
+		t.Fatalf("expected idempotent disconnect, got connector=%+v err=%v", repeated.Connector, err)
+	}
+	if _, err := store.SetTenancyConnectorDisabled(ctx, "workspace-a", "project-1", "aws-prod", false, time.Now().UTC()); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected disconnected connector to reject enable, got %v", err)
+	}
+}
+
 func TestMemoryStoreClaimKubernetesEnrollmentToken(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

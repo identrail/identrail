@@ -75,6 +75,38 @@ func TestAWSRegistrationConnectsWithoutRoleCopyPaste(t *testing.T) {
 	}
 }
 
+func TestAWSRegistrationLifecycleFenceAcknowledgesCallbackAfterDisable(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+	})
+	if err != nil {
+		t.Fatalf("start connector: %v", err)
+	}
+	stale, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("load connector before lifecycle action: %v", err)
+	}
+	lifecycleStore, ok := svc.Store.(db.TenancyConnectorLifecycleStore)
+	if !ok {
+		t.Fatal("test store does not implement connector lifecycle actions")
+	}
+	if _, err := lifecycleStore.SetTenancyConnectorDisabled(ctx, "workspace-a", "project-1", started.ConnectorID, true, time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("disable connector: %v", err)
+	}
+	if err := svc.persistAWSRegistrationProgress(ctx, stale, AWSConnectorOnboardingRegistering, "arn:aws:iam::123456789012:role/IdentrailReadOnly", "123456789012", "us-east-1"); err != nil {
+		t.Fatalf("late disabled callback should be acknowledged, got %v", err)
+	}
+	current, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("reload disabled connector: %v", err)
+	}
+	if !current.Connector.Disabled || current.Connector.LifecycleGeneration != 1 || current.Connector.Status != domain.ConnectorStatusPending {
+		t.Fatalf("late callback changed disabled connector: %+v", current.Connector)
+	}
+}
+
 func TestAWSRegistrationAllowsAuthenticatedBoundStackUpdateAfterAttemptExpiry(t *testing.T) {
 	svc, ctx := newAWSRegistrationTestService(t)
 	responder := &recordingAWSCloudFormationResponder{}

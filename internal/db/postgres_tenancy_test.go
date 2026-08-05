@@ -95,6 +95,8 @@ func TestPostgresStoreUpsertAndGetTenancyConnector(t *testing.T) {
 			"aws",
 			"Production AWS",
 			"active",
+			false,
+			int64(0),
 			"",
 			"",
 			"",
@@ -144,11 +146,12 @@ func TestPostgresStoreUpsertAndGetTenancyConnector(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"tenant_id", "workspace_id", "project_id", "connector_id", "type", "display_name", "status",
+		"disabled", "lifecycle_generation",
 		"secret_provider", "secret_ref_id", "secret_ref_version", "secret_last_rotated_at",
 		"config_checksum", "last_sync_at", "created_at", "updated_at", "health_status", "sync_cursor",
 		"last_successful_sync_at", "last_error_code", "last_error_message", "metadata", "observed_at", "state_updated_at",
 	}).AddRow(
-		"tenant-a", "workspace-a", "project-1", "aws-123456789012", "aws", "Production AWS", "active",
+		"tenant-a", "workspace-a", "project-1", "aws-123456789012", "aws", "Production AWS", "active", false, int64(0),
 		nil, nil, nil, nil, nil, nil, now, now, "healthy", nil, nil, nil, nil,
 		[]byte(`{"role_arn":"arn:aws:iam::123456789012:role/IdentrailReadOnly"}`),
 		now, now,
@@ -182,7 +185,7 @@ func TestPostgresStoreCreateTenancyConnectorWithSecretEnvelopeIfAbsentCreatesAto
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO tenancy_connectors").
-		WithArgs("tenant-a", "workspace-a", "project-1", "aws-prod", "aws", "Production AWS", "pending", "secret-envelope", "secret-ref", "test-v1", sqlmock.AnyArg(), "", nil, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs("tenant-a", "workspace-a", "project-1", "aws-prod", "aws", "Production AWS", "pending", false, int64(0), "secret-envelope", "secret-ref", "test-v1", sqlmock.AnyArg(), "", nil, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO tenancy_connector_states").
 		WithArgs("tenant-a", "workspace-a", "project-1", "aws-prod", "unknown", "", nil, "", "", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
@@ -222,11 +225,12 @@ func TestPostgresStoreCreateTenancyConnectorWithSecretEnvelopeIfAbsentReturnsExi
 	mock.ExpectCommit()
 	rows := sqlmock.NewRows([]string{
 		"tenant_id", "workspace_id", "project_id", "connector_id", "type", "display_name", "status",
+		"disabled", "lifecycle_generation",
 		"secret_provider", "secret_ref_id", "secret_ref_version", "secret_last_rotated_at",
 		"config_checksum", "last_sync_at", "created_at", "updated_at", "health_status", "sync_cursor",
 		"last_successful_sync_at", "last_error_code", "last_error_message", "metadata", "observed_at", "state_updated_at",
 	}).AddRow(
-		"tenant-a", "workspace-a", "project-1", "aws-prod", "aws", "Existing AWS", "pending",
+		"tenant-a", "workspace-a", "project-1", "aws-prod", "aws", "Existing AWS", "pending", false, int64(0),
 		"secret-envelope", "existing-secret-ref", "test-v1", now, nil, nil, now, now, "unknown", nil, nil, nil, nil,
 		[]byte(`{"launch_url":"https://console.aws.amazon.com/cloudformation/home"}`),
 		now, now,
@@ -364,11 +368,12 @@ func TestPostgresStoreListTenancyConnectors(t *testing.T) {
 	now := time.Now().UTC()
 	rows := sqlmock.NewRows([]string{
 		"tenant_id", "workspace_id", "project_id", "connector_id", "type", "display_name", "status",
+		"disabled", "lifecycle_generation",
 		"secret_provider", "secret_ref_id", "secret_ref_version", "secret_last_rotated_at",
 		"config_checksum", "last_sync_at", "created_at", "updated_at", "health_status", "sync_cursor",
 		"last_successful_sync_at", "last_error_code", "last_error_message", "metadata", "observed_at", "state_updated_at",
 	}).AddRow(
-		"tenant-a", "workspace-a", "project-1", "aws-123456789012", "aws", "Production AWS", "active",
+		"tenant-a", "workspace-a", "project-1", "aws-123456789012", "aws", "Production AWS", "active", false, int64(0),
 		nil, nil, nil, nil, nil, nil, now, now, "healthy", nil, nil, nil, nil,
 		[]byte(`{"region":"us-west-2"}`), now, now,
 	)
@@ -745,15 +750,16 @@ func TestPostgresStoreListTenancyConnectorsUnscopedWithoutLimit(t *testing.T) {
 	now := time.Now().UTC()
 	rows := sqlmock.NewRows([]string{
 		"tenant_id", "workspace_id", "project_id", "connector_id", "type", "display_name", "status",
+		"disabled", "lifecycle_generation",
 		"secret_provider", "secret_ref_id", "secret_ref_version", "secret_last_rotated_at",
 		"config_checksum", "last_sync_at", "created_at", "updated_at", "health_status", "sync_cursor",
 		"last_successful_sync_at", "last_error_code", "last_error_message", "metadata", "observed_at", "state_updated_at",
 	}).AddRow(
-		"tenant-a", "workspace-a", "project-1", "github-a", "github", "GitHub A", "active",
+		"tenant-a", "workspace-a", "project-1", "github-a", "github", "GitHub A", "active", false, int64(0),
 		nil, nil, nil, nil, nil, nil, now, now, "healthy", nil, nil, nil, nil,
 		[]byte(`{"installation_id":101}`), now, now,
 	).AddRow(
-		"tenant-a", "workspace-b", "project-2", "github-b", "github", "GitHub B", "active",
+		"tenant-a", "workspace-b", "project-2", "github-b", "github", "GitHub B", "active", false, int64(0),
 		nil, nil, nil, nil, nil, nil, now, now, "healthy", nil, nil, nil, nil,
 		[]byte(`{"installation_id":202}`), now, now,
 	)

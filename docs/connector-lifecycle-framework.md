@@ -65,6 +65,22 @@ Healthy preflight moves a pending Kubernetes connector to `active`. Missing RBAC
   - allowed only from `disconnected`
   - transitions to `pending` for safe revalidation
 
+## Durable operator gates and stale-write protection
+
+The connector row carries two lifecycle controls in addition to provider health:
+
+- `disabled` pauses eligibility without erasing the connector or its diagnostics.
+  Disabled connectors are excluded from new scans and AWS validation.
+- `lifecycle_generation` is an optimistic fence. Disconnect, disable, and enable
+  advance the generation; a callback or worker that read an older generation
+  receives a conflict instead of overwriting the operator decision.
+
+The AWS lifecycle API exposes explicit `POST` actions for `/disconnect`,
+`/disable`, and `/enable`. Disconnect is idempotent, clears local secret
+envelopes, and records provider cleanup as pending. It does not claim that an
+AWS role, stack, or StackSet was deleted unless a separate verified cleanup
+operation proves that outcome.
+
 ## Health Normalization
 
 Provider health outputs are normalized using `NormalizeHealthStatus`:

@@ -422,6 +422,21 @@ x-identrail-route-authorizations:
     resource_type: connector
     resource_id_param: connector_id
   - method: POST
+    path: /v1/connectors/aws/{connector_id}/disconnect
+    action: tenancy.write
+    resource_type: connector
+    resource_id_param: connector_id
+  - method: POST
+    path: /v1/connectors/aws/{connector_id}/disable
+    action: tenancy.write
+    resource_type: connector
+    resource_id_param: connector_id
+  - method: POST
+    path: /v1/connectors/aws/{connector_id}/enable
+    action: tenancy.write
+    resource_type: connector
+    resource_id_param: connector_id
+  - method: POST
     path: /v1/connectors/aws/{connector_id}/refresh-policy
     action: tenancy.write
     resource_type: connector
@@ -3603,6 +3618,117 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/connectors/aws/{connector_id}/disconnect:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: connector_id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [ProjectManagement]
+      summary: Disconnect an AWS connector
+      operationId: disconnectAWSConnector
+      description: Stops local eligibility, invalidates encrypted local connector secrets, advances the lifecycle generation fence, and records provider cleanup as pending. This operation does not claim that a remote role, stack, or StackSet was deleted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AWSConnectorPollRequest"
+      responses:
+        "200":
+          description: Disconnected AWS connector with pending provider cleanup
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/AWSConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/connectors/aws/{connector_id}/disable:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: connector_id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [ProjectManagement]
+      summary: Pause an AWS connector
+      operationId: disableAWSConnector
+      description: Pauses eligibility without deleting connector state or diagnostics. New scans and validation are blocked until the connector is explicitly enabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AWSConnectorPollRequest"
+      responses:
+        "200":
+          description: Paused AWS connector
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/AWSConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/connectors/aws/{connector_id}/enable:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: connector_id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [ProjectManagement]
+      summary: Resume an AWS connector
+      operationId: enableAWSConnector
+      description: Clears the explicit pause gate and advances the lifecycle generation fence. A disconnected connector cannot be enabled through this action.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AWSConnectorPollRequest"
+      responses:
+        "200":
+          description: Enabled AWS connector
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/AWSConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /v1/connectors/aws/{connector_id}/refresh-policy:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -11784,6 +11910,9 @@ components:
             $ref: "#/components/schemas/ConnectorCapability"
     AWSConnectorPollRequest:
       type: object
+      required:
+        - workspace_id
+        - project_id
       properties:
         workspace_id:
           type: string
@@ -12021,6 +12150,13 @@ components:
         status:
           type: string
           enum: [pending, active, degraded, disconnected]
+        disabled:
+          type: boolean
+          description: Explicit operator gate. Disabled connectors are ineligible for scans and validation.
+        lifecycle_generation:
+          type: integer
+          format: int64
+          description: Optimistic fence used to reject stale asynchronous lifecycle writes.
         health_status:
           type: string
           enum: [unknown, healthy, warning, error]
@@ -12083,6 +12219,11 @@ components:
           $ref: "#/components/schemas/AWSConnectorCapabilities"
         remediation_message:
           type: string
+        cleanup_status:
+          type: string
+          description: Provider cleanup state after disconnect. `pending` means remote deletion still requires a separate verified operation.
+        cleanup_required:
+          type: boolean
         launch_url:
           type: string
           format: uri

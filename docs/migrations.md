@@ -85,6 +85,16 @@ Current sequence in `migrations/`:
 32. `000029_webhook_events_processing_status` - processing-state metadata for webhook event replay safety
 33. `000030_repo_scan_source_metadata` - non-secret repo scan source metadata for connector-backed private repository scans
 34. `000031_incremental_repo_scans` - repo scan mode/revision metadata plus per-repository scan cursors for delta and deep scan scheduling
+35. `000032_repo_finding_lifecycle` - repository finding lifecycle and review metadata
+36. `000033_scan_source_metadata` - scan-source scope and connector metadata
+37. `000034_aws_account_region_coverage` - AWS account/region coverage registry
+38. `000035_user_data_exports` - user data export jobs and retention metadata
+39. `000036_workspace_lifecycle` - workspace suspension, deletion, and purge lifecycle
+40. `000037_aws_platform_baseline_results` - AWS baseline verification results
+41. `000038_repo_scan_source_health` - repository scan source health metadata
+42. `000039_aws_connector_onboarding_attempts` - versioned AWS registration attempts
+43. `000040_aws_organization_rollouts` - organization StackSet rollout envelopes and targets
+44. `000041_connector_lifecycle_hardening` - explicit connector disable gate and lifecycle-generation fence for stale asynchronous writes
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.

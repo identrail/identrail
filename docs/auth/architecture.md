@@ -180,6 +180,9 @@ Connector endpoints are project-scoped. The route shape stays flat (`/v1/connect
 | POST | `/v1/connectors/aws` | Shipped |
 | POST | `/v1/connectors/aws/:id/validate` | Shipped |
 | GET | `/v1/connectors/aws/:id/poll` | Shipped |
+| POST | `/v1/connectors/aws/:id/disable` | Shipped |
+| POST | `/v1/connectors/aws/:id/enable` | Shipped |
+| POST | `/v1/connectors/aws/:id/disconnect` | Shipped |
 | POST | `/v1/connectors/aws/:id/refresh-policy` | Shipped |
 | POST | `/v1/connectors/github` | Shipped |
 | POST | `/v1/connectors/github/pat` | Shipped |

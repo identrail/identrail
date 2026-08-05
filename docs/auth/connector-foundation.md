@@ -1,6 +1,6 @@
 # Connector Foundation
 
-Every connector in Identrail (AWS, Kubernetes, GitHub, future ones) shares one Go interface, one status state machine, and one error taxonomy. PR 6 ships this foundation. PRs 7, 8, 9 fill it in for the three providers. Future connectors implement the same shape.
+Every connector in Identrail (AWS, Kubernetes, GitHub, and future providers) is expected to use the shared status and health contracts. Migration `000041_connector_lifecycle_hardening` adds the durable operator gate and lifecycle-generation fence; this slice wires those guarantees through the AWS lifecycle path.
 
 This is a contract document, not an API doc. It describes what every connector promises to look like.
 
@@ -40,9 +40,10 @@ Five methods. Every method takes a context. Every method returns a typed error f
 
 The state model has two parts that work together:
 
-1. A **lifecycle status** persisted in `tenancy_connectors.status`, which is one of `pending`, `active`, `degraded`, or `disconnected` at any moment. These are the four values the existing CHECK constraint already allows (see `migrations/000013_connectors_state_scan_policies.up.sql`), so PR 6 does not need to widen that constraint.
-2. A separate `disabled BOOLEAN NOT NULL DEFAULT FALSE` column added in PR 6, orthogonal to the lifecycle status. An admin pause sets this flag to true; resume clears it. The lifecycle status keeps its previous value while paused, which is why `disabled` is a flag and not a status.
-3. A **transient in-memory state** called `validating`. It is not persisted. While `Validate()` is running for a connector, in-process code remembers it is validating; if the process dies mid-validation, the row is still recorded as `pending` and the next attempt restarts cleanly.
+1. A **lifecycle status** persisted in `tenancy_connectors.status`, which is one of `pending`, `active`, `degraded`, or `disconnected` at any moment. These are the four values the existing CHECK constraint already allows (see `migrations/000013_connectors_state_scan_policies.up.sql`), so the lifecycle-hardening migration does not need to widen that constraint.
+2. A separate `disabled BOOLEAN NOT NULL DEFAULT FALSE` column, orthogonal to the lifecycle status. An admin pause sets this flag to true; enable clears it. The lifecycle status keeps its previous value while paused, which is why `disabled` is a flag and not a status.
+3. A `lifecycle_generation BIGINT NOT NULL DEFAULT 0` fence. Disconnect, pause, and enable advance it; asynchronous writes carrying an older generation are rejected, so late callbacks cannot resurrect access.
+4. A **transient in-memory state** called `validating`. It is not persisted. While `Validate()` is running for a connector, in-process code remembers it is validating; if the process dies mid-validation, the row is still recorded as `pending` and the next attempt restarts cleanly.
 
 Specific connectors do not invent their own lifecycle values.
 
@@ -133,15 +134,18 @@ type ConnectorError struct {
 
 Code is shipped to the frontend; Cause is logged server-side and never crosses the API boundary.
 
-## Health Endpoint Contract
+## Health and Eligibility Contract
 
-Every connector exposes the same health shape via `GET /v1/connectors/:id/health`:
+AWS lifecycle status responses expose the following eligibility fields alongside
+provider health (the flat AWS routes also require explicit workspace and project
+scope):
 
 ```json
 {
   "connector_id": "uuid",
   "lifecycle_status": "pending|active|degraded|disconnected",
   "disabled": false,
+  "lifecycle_generation": 3,
   "validating": false,
   "last_success_at": "2026-05-10T14:23:01Z",
   "last_failure_at": "2026-05-10T14:18:00Z",
@@ -154,10 +158,11 @@ Every connector exposes the same health shape via `GET /v1/connectors/:id/health
 }
 ```
 
-The three orthogonal pieces:
+The four orthogonal pieces:
 
 - `lifecycle_status` is the persisted value from `tenancy_connectors.status`. One of four values that match the existing CHECK constraint.
-- `disabled` is the persisted boolean from the new `tenancy_connectors.disabled` column. True when an admin has paused the connector.
+- `disabled` is the persisted boolean from `tenancy_connectors.disabled`. True when an admin has paused the connector. Disabled connectors are excluded from scans and validation.
+- `lifecycle_generation` is the persisted optimistic fence. A callback that read an older generation cannot overwrite a later operator action.
 - `validating` is true only while a `Provider.Validate()` call is currently in flight in this server process. It is reported here for UI feedback during the connect flow; it is not stored in the database.
 
 `last_error` is null if there has been no recent failure. `next_scheduled_scan_at` is null for connectors that scan only on demand.
@@ -181,7 +186,7 @@ The heartbeat job is idempotent and rate-limited to prevent floods if many conne
 
 ## Per-Connector Storage
 
-The shared `tenancy_connectors` table holds the row that represents each connector. Provider-specific non-secret configuration lives in `tenancy_connectors.config` (`JSONB`). Sensitive credentials live in `tenancy_connector_secret_envelopes`, encrypted at rest.
+The shared `tenancy_connectors` table holds the row that represents each connector. Provider-specific non-secret metadata is represented by the connector checksum and state metadata. Sensitive credentials live in `tenancy_connector_secret_envelopes`, encrypted at rest.
 
 `tenancy_connectors` columns relevant here:
 
@@ -190,15 +195,15 @@ The shared `tenancy_connectors` table holds the row that represents each connect
 | `tenant_id`, `workspace_id`, `project_id`, `connector_id` | Compound primary key (existing schema). |
 | `type` | `aws`, `kubernetes`, `github` (existing CHECK constraint). |
 | `status` | One of `pending`, `active`, `degraded`, `disconnected` (existing CHECK constraint). |
-| `disabled` | `BOOLEAN NOT NULL DEFAULT FALSE`. Added in PR 6 as a separate column from `status`. |
-| `config` | `JSONB NOT NULL DEFAULT '{}'::jsonb`. Added in PR 6 for provider-specific non-secret settings (for example GHES base URL, selected repo IDs, or kubeconfig mode). |
+| `disabled` | `BOOLEAN NOT NULL DEFAULT FALSE`. An explicit operator eligibility gate. |
+| `lifecycle_generation` | `BIGINT NOT NULL DEFAULT 0`. Rejects stale asynchronous writes after lifecycle actions. |
 | `display_name` | User-facing label. |
 | `config_checksum` | Used to detect config changes. |
 | `created_at`, `updated_at` | Lifecycle timestamps. |
 
-PR 6's schema change to `tenancy_connectors` adds two columns: `disabled` and `config`. The existing `status` CHECK is unchanged. The existing FK on `(tenant_id, workspace_id, project_id)` to `tenancy_projects` and the existing indexes stay as they are.
+Migration `000041_connector_lifecycle_hardening` adds `disabled` and `lifecycle_generation`. The existing `status` CHECK is unchanged. The existing FK on `(tenant_id, workspace_id, project_id)` to `tenancy_projects` and the existing indexes stay as they are.
 
-`tenancy_connector_states` is the existing health-metadata table (note the plural). It holds `health_status`, `sync_cursor`, `last_successful_sync_at`, `last_error_code`, `last_error_message`, and `metadata`. PR 6 reuses it as-is. The `Health()` implementation reads and writes this table; the heartbeat job updates it on every probe.
+`tenancy_connector_states` is the existing health-metadata table (note the plural). It holds `health_status`, `sync_cursor`, `last_successful_sync_at`, `last_error_code`, `last_error_message`, and `metadata`. This lifecycle-hardening slice reuses it as-is. The `Health()` implementation reads and writes this table; the heartbeat job updates it on every probe.
 
 ## Frontend Contract
 
@@ -211,17 +216,17 @@ Connectors-list page (`/app/{tenant}/{workspace}/connectors`) renders all connec
 
 ## Disconnect Semantics
 
-User-initiated disconnect tears down the upstream integration but keeps the local row for audit. The flow:
+User-initiated AWS disconnect stops local access immediately and keeps the local row for audit. The flow:
 
 1. User clicks Disconnect.
 2. Confirmation modal lists what will happen: "Identrail will stop scanning. Your AWS role / GitHub installation / agent will be removed if possible."
-3. On confirm, `Provider.Disconnect()` runs. It tears down what it can on the upstream provider (deletes GitHub installation if we have permission, deletes the agent's enrollment record, clears webhook subscriptions).
-4. The `tenancy_connectors` row's `status` is set to `disconnected`. The row stays in place for audit. Scan history is retained.
-5. The same `connector_id` slug can be re-created later by recording a new row with the same slug after the disconnected row is hard-deleted, or by reusing the existing row through an explicit "reconnect" flow that resets status to `pending`. PR 6 ships the disconnect path; reconnect lands with the per-provider PRs.
+3. On confirm, the atomic lifecycle write sets `status=disconnected`, clears `disabled`, advances `lifecycle_generation`, and invalidates encrypted local secret envelopes.
+4. The row stays in place for audit and scan history is retained. AWS stack/role cleanup is recorded as `cleanup_status=pending` and must be verified separately; the API never claims remote deletion it did not perform.
+5. Repeated disconnect calls are idempotent. A later reconnect must be an explicit onboarding decision that re-establishes and validates access.
 
 Hard delete is admin-only, separate from disconnect, and removes the row entirely along with cascaded `tenancy_connector_states` history. It is a destructive operation.
 
-## Test Matrix (PR 6)
+## Test Matrix (AWS lifecycle-hardening slice)
 
 | Test | Expected |
 | --- | --- |
@@ -244,4 +249,4 @@ Hard delete is admin-only, separate from disconnect, and removes the row entirel
 - It does not define the credential format for each provider. AWS uses External ID + role ARN; GitHub uses installation ID; Kubernetes uses an enrollment token or kubeconfig. Each is per-provider.
 - It does not define the scan algorithm. That is per-provider.
 - It does not implement the per-provider connect UI flow. Each connector ships its own connect page (CloudFormation launch for AWS, App install for GitHub, Helm command for Kubernetes).
-- It does not handle the existing legacy connector code paths (`internal/api/github_connect.go` and similar). Those continue working unchanged. PRs 7, 8, 9 add the new paths alongside; old paths get retired in a follow-up after the new paths are proven in production.
+- It does not handle the existing legacy connector code paths (`internal/api/github_connect.go` and similar). Those continue working unchanged while provider-specific lifecycle adoption proceeds in follow-up work.

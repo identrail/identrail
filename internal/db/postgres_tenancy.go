@@ -1872,10 +1872,11 @@ func (p *PostgresStore) CreateTenancyConnectorWithSecretEnvelopeIfAbsent(ctx con
 		ctx,
 		`INSERT INTO tenancy_connectors (
 		     tenant_id, workspace_id, project_id, connector_id, type, display_name, status,
+		     disabled, lifecycle_generation,
 		     secret_provider, secret_ref_id, secret_ref_version, secret_last_rotated_at,
 		     config_checksum, last_sync_at, created_at, updated_at
 		 )
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), $11, NULLIF($12, ''), $13, $14, $15)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), $13, NULLIF($14, ''), $15, $16, $17)
 		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id) DO NOTHING`,
 		normalizedConnector.TenantID,
 		normalizedConnector.WorkspaceID,
@@ -1884,6 +1885,8 @@ func (p *PostgresStore) CreateTenancyConnectorWithSecretEnvelopeIfAbsent(ctx con
 		string(normalizedConnector.Type),
 		normalizedConnector.DisplayName,
 		string(normalizedConnector.Status),
+		normalizedConnector.Disabled,
+		normalizedConnector.LifecycleGeneration,
 		normalizedConnector.SecretProvider,
 		normalizedConnector.SecretRefID,
 		normalizedConnector.SecretRefVersion,
@@ -2008,25 +2011,29 @@ func (p *PostgresStore) UpsertTenancyConnector(ctx context.Context, connector Te
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(
+	result, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO tenancy_connectors (
 		     tenant_id, workspace_id, project_id, connector_id, type, display_name, status,
+		     disabled, lifecycle_generation,
 		     secret_provider, secret_ref_id, secret_ref_version, secret_last_rotated_at,
 		     config_checksum, last_sync_at, created_at, updated_at
 		 )
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), $11, NULLIF($12, ''), $13, $14, $15)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), $13, NULLIF($14, ''), $15, $16, $17)
 		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id) DO UPDATE
 		 SET type = EXCLUDED.type,
 		     display_name = EXCLUDED.display_name,
 		     status = EXCLUDED.status,
+		     disabled = EXCLUDED.disabled,
+		     lifecycle_generation = EXCLUDED.lifecycle_generation,
 		     secret_provider = EXCLUDED.secret_provider,
 		     secret_ref_id = EXCLUDED.secret_ref_id,
 		     secret_ref_version = EXCLUDED.secret_ref_version,
 		     secret_last_rotated_at = EXCLUDED.secret_last_rotated_at,
 		     config_checksum = EXCLUDED.config_checksum,
 		     last_sync_at = EXCLUDED.last_sync_at,
-		     updated_at = EXCLUDED.updated_at`,
+		     updated_at = EXCLUDED.updated_at
+		 WHERE tenancy_connectors.lifecycle_generation = EXCLUDED.lifecycle_generation`,
 		normalizedConnector.TenantID,
 		normalizedConnector.WorkspaceID,
 		normalizedConnector.ProjectID,
@@ -2034,6 +2041,8 @@ func (p *PostgresStore) UpsertTenancyConnector(ctx context.Context, connector Te
 		string(normalizedConnector.Type),
 		normalizedConnector.DisplayName,
 		string(normalizedConnector.Status),
+		normalizedConnector.Disabled,
+		normalizedConnector.LifecycleGeneration,
 		normalizedConnector.SecretProvider,
 		normalizedConnector.SecretRefID,
 		normalizedConnector.SecretRefVersion,
@@ -2048,6 +2057,13 @@ func (p *PostgresStore) UpsertTenancyConnector(ctx context.Context, connector Te
 	}
 	if err != nil {
 		return fmt.Errorf("upsert tenancy connector: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect tenancy connector lifecycle fence: %w", err)
+	}
+	if affected == 0 {
+		return ErrConflict
 	}
 	_, err = tx.ExecContext(
 		ctx,
@@ -2105,7 +2121,7 @@ func (p *PostgresStore) GetTenancyConnector(ctx context.Context, workspaceID str
 	if err != nil {
 		return TenancyConnectorWithState{}, err
 	}
-	rows, err := p.listTenancyConnectorRows(ctx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), "", 1)
+	rows, err := p.listTenancyConnectorRows(ctx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), "", 1, false)
 	if err != nil {
 		return TenancyConnectorWithState{}, err
 	}
@@ -2220,13 +2236,41 @@ func (p *PostgresStore) ListTenancyConnectors(ctx context.Context, workspaceID s
 	if limit <= 0 {
 		limit = 100
 	}
-	return p.listTenancyConnectorRows(ctx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), "", string(connectorType), limit)
+	return p.listTenancyConnectorRows(ctx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), "", string(connectorType), limit, false)
+}
+
+// ListEligibleTenancyConnectors returns only connectors that may be used for
+// new validation or scans. Eligibility is applied in SQL before LIMIT.
+func (p *PostgresStore) ListEligibleTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	return p.listTenancyConnectorRows(ctx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), "", string(connectorType), limit, true)
 }
 
 // ListTenancyConnectorsUnscoped returns connectors across all scopes for internal webhook dispatch.
 func (p *PostgresStore) ListTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	return p.listTenancyConnectorsUnscoped(ctx, connectorType, limit, false)
+}
+
+// ListEligibleTenancyConnectorsUnscoped returns eligible connectors across all
+// scopes for internal runtime selection.
+func (p *PostgresStore) ListEligibleTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	return p.listTenancyConnectorsUnscoped(ctx, connectorType, limit, true)
+}
+
+func (p *PostgresStore) listTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int, eligibleOnly bool) ([]TenancyConnectorWithState, error) {
 	query := `SELECT
 		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,
+		     c.disabled, c.lifecycle_generation,
 		     c.secret_provider, c.secret_ref_id, c.secret_ref_version, c.secret_last_rotated_at,
 		     c.config_checksum, c.last_sync_at, c.created_at, c.updated_at,
 		     COALESCE(s.health_status, 'unknown'), s.sync_cursor, s.last_successful_sync_at,
@@ -2243,6 +2287,14 @@ func (p *PostgresStore) ListTenancyConnectorsUnscoped(ctx context.Context, conne
 		query += fmt.Sprintf(" WHERE c.type = $%d", nextArg)
 		args = append(args, trimmedType)
 		nextArg++
+	}
+	if eligibleOnly {
+		if nextArg == 1 {
+			query += " WHERE"
+		} else {
+			query += " AND"
+		}
+		query += " c.disabled = FALSE AND c.status <> 'disconnected'"
 	}
 	query += " ORDER BY c.updated_at DESC"
 	if limit > 0 {
@@ -2685,9 +2737,10 @@ func scanAWSPlatformBaselineRows(rows rowsScanner) ([]AWSPlatformBaselineResult,
 	return results, rows.Err()
 }
 
-func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, connectorType string, limit int) ([]TenancyConnectorWithState, error) {
+func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, connectorType string, limit int, eligibleOnly bool) ([]TenancyConnectorWithState, error) {
 	query := `SELECT
 		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,
+		     c.disabled, c.lifecycle_generation,
 		     c.secret_provider, c.secret_ref_id, c.secret_ref_version, c.secret_last_rotated_at,
 		     c.config_checksum, c.last_sync_at, c.created_at, c.updated_at,
 		     COALESCE(s.health_status, 'unknown'), s.sync_cursor, s.last_successful_sync_at,
@@ -2717,6 +2770,9 @@ func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID s
 		args = append(args, trimmedType)
 		nextArg++
 	}
+	if eligibleOnly {
+		query += " AND c.disabled = FALSE AND c.status <> 'disconnected'"
+	}
 	query += fmt.Sprintf(" ORDER BY c.updated_at DESC LIMIT $%d", nextArg)
 	args = append(args, limit)
 
@@ -2734,6 +2790,8 @@ func scanTenancyConnectorRows(rows rowsScanner) ([]TenancyConnectorWithState, er
 		var item TenancyConnectorWithState
 		var metadata []byte
 		var secretProvider, secretRefID, secretRefVersion, configChecksum sql.NullString
+		var disabled bool
+		var lifecycleGeneration int64
 		var secretLastRotatedAt, lastSyncAt, lastSuccessfulSyncAt, observedAt, stateUpdatedAt sql.NullTime
 		var syncCursor, lastErrorCode, lastErrorMessage sql.NullString
 		if err := rows.Scan(
@@ -2744,6 +2802,8 @@ func scanTenancyConnectorRows(rows rowsScanner) ([]TenancyConnectorWithState, er
 			&item.Connector.Type,
 			&item.Connector.DisplayName,
 			&item.Connector.Status,
+			&disabled,
+			&lifecycleGeneration,
 			&secretProvider,
 			&secretRefID,
 			&secretRefVersion,
@@ -2764,6 +2824,8 @@ func scanTenancyConnectorRows(rows rowsScanner) ([]TenancyConnectorWithState, er
 			return nil, fmt.Errorf("scan tenancy connector row: %w", err)
 		}
 		item.Connector.SecretProvider = secretProvider.String
+		item.Connector.Disabled = disabled
+		item.Connector.LifecycleGeneration = lifecycleGeneration
 		item.Connector.SecretRefID = secretRefID.String
 		item.Connector.SecretRefVersion = secretRefVersion.String
 		item.Connector.ConfigChecksum = configChecksum.String
@@ -2862,6 +2924,193 @@ func (p *PostgresStore) CreateTenancyConnectorSecretEnvelopeIfAbsent(ctx context
 		return existing, false, err
 	}
 	return normalized, true, nil
+}
+
+// CreateTenancyConnectorSecretEnvelopeIfAbsentAtGeneration is the lifecycle-
+// fenced variant used by connector start recovery.
+func (p *PostgresStore) CreateTenancyConnectorSecretEnvelopeIfAbsentAtGeneration(ctx context.Context, envelope TenancyConnectorSecretEnvelope, expectedGeneration int64) (TenancyConnectorSecretEnvelope, bool, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	envelope.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, envelope.WorkspaceID)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	envelope.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeTenancyConnectorSecretEnvelopeForWrite(envelope)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	result, err := p.execContext(
+		ctx,
+		`INSERT INTO tenancy_connector_secret_envelopes (
+		     tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
+		     algorithm, key_version, nonce, ciphertext, secret_ref_id, rotated_at, rotation_due_at, created_at, updated_at
+		 )
+		 SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12, $13, $14, $15
+		   FROM tenancy_connectors c
+		  WHERE c.tenant_id = $1
+		    AND c.workspace_id = $2
+		    AND c.project_id = $3
+		    AND c.connector_id = $4
+		    AND c.lifecycle_generation = $16
+		    AND c.disabled = FALSE
+		    AND c.status <> 'disconnected'
+		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id, secret_name) DO NOTHING`,
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.ConnectorID,
+		normalized.SecretName,
+		normalized.EnvelopeVersion,
+		normalized.Envelope.Algorithm,
+		normalized.Envelope.KeyVersion,
+		normalized.Envelope.Nonce,
+		normalized.Envelope.Ciphertext,
+		normalized.SecretRefID,
+		normalized.RotatedAt,
+		normalized.RotationDueAt,
+		normalized.CreatedAt,
+		normalized.UpdatedAt,
+		expectedGeneration,
+	)
+	if isTenancyFKViolation(err) {
+		return TenancyConnectorSecretEnvelope{}, false, ErrNotFound
+	}
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, fmt.Errorf("create lifecycle-fenced connector secret envelope: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	if affected == 0 {
+		current, currentErr := p.GetTenancyConnector(ctx, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID)
+		if currentErr != nil {
+			return TenancyConnectorSecretEnvelope{}, false, currentErr
+		}
+		if current.Connector.LifecycleGeneration != expectedGeneration || current.Connector.Disabled || current.Connector.Status == "disconnected" {
+			return TenancyConnectorSecretEnvelope{}, false, ErrConflict
+		}
+		existing, existingErr := p.GetTenancyConnectorSecretEnvelope(ctx, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID, normalized.SecretName)
+		return existing, false, existingErr
+	}
+	return normalized, true, nil
+}
+
+// UpsertTenancyConnectorSecretEnvelopeAtGeneration updates a secret only when
+// the connector is still in the lifecycle generation observed by the caller.
+func (p *PostgresStore) UpsertTenancyConnectorSecretEnvelopeAtGeneration(ctx context.Context, envelope TenancyConnectorSecretEnvelope, expectedGeneration int64) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	envelope.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, envelope.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	envelope.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeTenancyConnectorSecretEnvelopeForWrite(envelope)
+	if err != nil {
+		return err
+	}
+	result, err := p.execContext(
+		ctx,
+		`INSERT INTO tenancy_connector_secret_envelopes (
+		     tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
+		     algorithm, key_version, nonce, ciphertext, secret_ref_id, rotated_at, rotation_due_at, created_at, updated_at
+		 )
+		 SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12, $13, $14, $15
+		   FROM tenancy_connectors c
+		  WHERE c.tenant_id = $1
+		    AND c.workspace_id = $2
+		    AND c.project_id = $3
+		    AND c.connector_id = $4
+		    AND c.lifecycle_generation = $16
+		    AND c.disabled = FALSE
+		    AND c.status <> 'disconnected'
+		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id, secret_name) DO UPDATE
+		 SET envelope_version = EXCLUDED.envelope_version,
+		     algorithm = EXCLUDED.algorithm,
+		     key_version = EXCLUDED.key_version,
+		     nonce = EXCLUDED.nonce,
+		     ciphertext = EXCLUDED.ciphertext,
+		     secret_ref_id = EXCLUDED.secret_ref_id,
+		     rotated_at = EXCLUDED.rotated_at,
+		     rotation_due_at = EXCLUDED.rotation_due_at,
+		     updated_at = EXCLUDED.updated_at`,
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.ConnectorID,
+		normalized.SecretName,
+		normalized.EnvelopeVersion,
+		normalized.Envelope.Algorithm,
+		normalized.Envelope.KeyVersion,
+		normalized.Envelope.Nonce,
+		normalized.Envelope.Ciphertext,
+		normalized.SecretRefID,
+		normalized.RotatedAt,
+		normalized.RotationDueAt,
+		normalized.CreatedAt,
+		normalized.UpdatedAt,
+		expectedGeneration,
+	)
+	if isTenancyFKViolation(err) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("upsert lifecycle-fenced connector secret envelope: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+// DeleteTenancyConnectorSecretEnvelopeAtGeneration removes a secret only
+// while the connector remains in the caller's eligible generation.
+func (p *PostgresStore) DeleteTenancyConnectorSecretEnvelopeAtGeneration(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string, expectedGeneration int64) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return err
+	}
+	result, err := p.execContext(ctx, `
+		DELETE FROM tenancy_connector_secret_envelopes e
+		 USING tenancy_connectors c
+		 WHERE e.tenant_id = $1 AND e.workspace_id = $2 AND e.project_id = $3 AND e.connector_id = $4 AND e.secret_name = $5
+		   AND c.tenant_id = e.tenant_id AND c.workspace_id = e.workspace_id AND c.project_id = e.project_id AND c.connector_id = e.connector_id
+		   AND c.lifecycle_generation = $6 AND c.disabled = FALSE AND c.status <> 'disconnected'`,
+		scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), strings.TrimSpace(secretName), expectedGeneration)
+	if err != nil {
+		return fmt.Errorf("delete lifecycle-fenced connector secret envelope: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		return nil
+	}
+	current, currentErr := p.GetTenancyConnector(ctx, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID))
+	if currentErr != nil {
+		return currentErr
+	}
+	if current.Connector.LifecycleGeneration != expectedGeneration || current.Connector.Disabled || current.Connector.Status == "disconnected" {
+		return ErrConflict
+	}
+	return nil
 }
 
 // UpsertTenancyConnectorSecretEnvelope persists one encrypted connector secret envelope.

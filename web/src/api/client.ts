@@ -883,6 +883,8 @@ export type AWSConnectionStatus = {
   connector_id?: string;
   display_name?: string;
   status: ConnectorLifecycleStatus;
+  disabled?: boolean;
+  lifecycle_generation?: number;
   health_status: ConnectorHealthStatus;
   role_arn?: string;
   external_id_configured: boolean;
@@ -915,6 +917,8 @@ export type AWSConnectionStatus = {
   created_at?: string;
   updated_at?: string;
   last_validated_at?: string;
+  cleanup_status?: string;
+  cleanup_required?: boolean;
 };
 
 export type AWSConnectionUpsertRequest = {
@@ -12277,6 +12281,36 @@ export const apiClient = {
     return request<{ connection: AWSConnectionStatus }>(
       `/v1/connectors/aws/${encodeURIComponent(connectorID)}/poll${buildQuery({ workspace_id: workspaceID, project_id: projectID })}`,
       auth
+    );
+  },
+  disconnectAWSConnector(connectorID: string, workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<{ connection: AWSConnectionStatus }>(
+      `/v1/connectors/aws/${encodeURIComponent(connectorID)}/disconnect`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify({ workspace_id: workspaceID, project_id: projectID })
+      }
+    );
+  },
+  disableAWSConnector(connectorID: string, workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<{ connection: AWSConnectionStatus }>(
+      `/v1/connectors/aws/${encodeURIComponent(connectorID)}/disable`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify({ workspace_id: workspaceID, project_id: projectID })
+      }
+    );
+  },
+  enableAWSConnector(connectorID: string, workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<{ connection: AWSConnectionStatus }>(
+      `/v1/connectors/aws/${encodeURIComponent(connectorID)}/enable`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify({ workspace_id: workspaceID, project_id: projectID })
+      }
     );
   },
   validateAWSConnector(connectorID: string, payload: AWSConnectorValidateRequest, auth?: RequestAuthContext) {

@@ -550,6 +550,12 @@ func awsRegistrationPhaseMatchesResource(phase string, resourceType string) bool
 }
 
 func (s *Service) persistAWSRegistrationProgress(ctx context.Context, stored db.TenancyConnectorWithState, status AWSConnectorOnboardingStatus, roleARN string, accountID string, region string) error {
+	if !awsConnectorLifecycleMutationAllowed(stored) {
+		// The operator's disconnect/disable decision is authoritative. A late
+		// provider callback is acknowledged by the caller but cannot mutate the
+		// connector back into an eligible state.
+		return nil
+	}
 	metadata := copyAWSMetadata(stored.State.Metadata)
 	setup := awsMetadataSetupContract(metadata, AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation)
 	applyAWSConnectorSetupMetadata(metadata, setup, status)
@@ -572,10 +578,13 @@ func (s *Service) persistAWSRegistrationProgress(ctx context.Context, stored db.
 	stored.State.UpdatedAt = now
 	stored.Connector.Status = domain.ConnectorStatusPending
 	stored.Connector.UpdatedAt = now
-	return s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State)
+	return s.persistAWSRegistrationState(ctx, stored)
 }
 
 func (s *Service) persistAWSRegistrationFailure(ctx context.Context, stored db.TenancyConnectorWithState, roleARN string, accountID string, region string, code string, message string) error {
+	if !awsConnectorLifecycleMutationAllowed(stored) {
+		return nil
+	}
 	metadata := copyAWSMetadata(stored.State.Metadata)
 	setup := awsMetadataSetupContract(metadata, AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation)
 	applyAWSConnectorSetupMetadata(metadata, setup, AWSConnectorOnboardingNeedsFix)
@@ -592,7 +601,7 @@ func (s *Service) persistAWSRegistrationFailure(ctx context.Context, stored db.T
 	stored.State.UpdatedAt = now
 	stored.Connector.Status = domain.ConnectorStatusDegraded
 	stored.Connector.UpdatedAt = now
-	return s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State)
+	return s.persistAWSRegistrationState(ctx, stored)
 }
 
 func (s *Service) isAWSRegistrationTopicARN(topicARN string) bool {
@@ -780,6 +789,9 @@ func (s *Service) reconcileAWSConnectorFromOnboardingAttempt(ctx context.Context
 	if err != nil {
 		return err
 	}
+	if !awsConnectorLifecycleMutationAllowed(stored) {
+		return nil
+	}
 	switch attempt.Status {
 	case db.AWSConnectorOnboardingAttemptWaiting:
 		return s.persistAWSRegistrationProgress(ctx, stored, AWSConnectorOnboardingWaitingForAWS, attempt.RoleARN, attempt.AWSAccountID, attempt.DeploymentRegion)
@@ -801,6 +813,9 @@ func (s *Service) reconcileAWSConnectorFromOnboardingAttempt(ctx context.Context
 }
 
 func (s *Service) persistAWSRegistrationConnected(ctx context.Context, stored db.TenancyConnectorWithState, attempt db.AWSConnectorOnboardingAttempt) error {
+	if !awsConnectorLifecycleMutationAllowed(stored) {
+		return nil
+	}
 	metadata := copyAWSMetadata(stored.State.Metadata)
 	setup := awsMetadataSetupContract(metadata, AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation)
 	applyAWSConnectorSetupMetadata(metadata, setup, AWSConnectorOnboardingConnected)
@@ -823,10 +838,13 @@ func (s *Service) persistAWSRegistrationConnected(ctx context.Context, stored db
 	stored.State.UpdatedAt = now
 	stored.Connector.Status = domain.ConnectorStatusActive
 	stored.Connector.UpdatedAt = now
-	return s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State)
+	return s.persistAWSRegistrationState(ctx, stored)
 }
 
 func (s *Service) persistAWSRegistrationTerminalFailure(ctx context.Context, stored db.TenancyConnectorWithState, attempt db.AWSConnectorOnboardingAttempt, code string, message string) error {
+	if !awsConnectorLifecycleMutationAllowed(stored) {
+		return nil
+	}
 	metadata := copyAWSMetadata(stored.State.Metadata)
 	setup := awsMetadataSetupContract(metadata, AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation)
 	applyAWSConnectorSetupMetadata(metadata, setup, AWSConnectorOnboardingFailed)
@@ -849,7 +867,26 @@ func (s *Service) persistAWSRegistrationTerminalFailure(ctx context.Context, sto
 	stored.State.UpdatedAt = now
 	stored.Connector.Status = domain.ConnectorStatusDegraded
 	stored.Connector.UpdatedAt = now
-	return s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State)
+	return s.persistAWSRegistrationState(ctx, stored)
+}
+
+// persistAWSRegistrationState converts a lifecycle-fence conflict into an
+// acknowledged no-op only when the operator action won the race. A conflict
+// on an otherwise eligible connector remains an error so competing provider
+// updates are retried rather than silently discarded.
+func (s *Service) persistAWSRegistrationState(ctx context.Context, stored db.TenancyConnectorWithState) error {
+	err := s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State)
+	if !errors.Is(err, db.ErrConflict) {
+		return err
+	}
+	current, loadErr := s.Store.GetTenancyConnector(ctx, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID)
+	if loadErr != nil {
+		return loadErr
+	}
+	if !awsConnectorLifecycleMutationAllowed(current) {
+		return nil
+	}
+	return err
 }
 
 func awsOnboardingAttemptCancelable(status string) bool {

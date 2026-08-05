@@ -2247,6 +2247,8 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws connector request"})
 			case errors.Is(err, ErrAWSConnectorConfigUnavailable):
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws connector cloudformation flow is not configured"})
+			case errors.Is(err, ErrAWSConnectorLifecycleBlocked):
+				c.JSON(http.StatusConflict, gin.H{"error": "aws connector is disabled or disconnected"})
 			default:
 				if logger != nil {
 					logger.Error("start aws connector", telemetry.ZapError(err))
@@ -2281,6 +2283,8 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws connection request"})
 			case errors.Is(err, ErrAWSConnectionValidatorUnavailable):
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws connection validator unavailable"})
+			case errors.Is(err, ErrAWSConnectorLifecycleBlocked):
+				c.JSON(http.StatusConflict, gin.H{"error": "aws connector is disabled or disconnected"})
 			default:
 				if logger != nil {
 					logger.Error("validate aws connector", telemetry.ZapError(err))
@@ -2323,6 +2327,89 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		}
 		c.JSON(http.StatusOK, gin.H{"connection": record})
 	})
+
+	for _, lifecycleAction := range []struct {
+		path   string
+		method func(context.Context, string, AWSConnectorPollRequest) (AWSConnectionStatus, error)
+	}{
+		{path: "/connectors/aws/:connector_id/disconnect", method: svc.DisconnectAWSConnector},
+	} {
+		v1.POST(lifecycleAction.path, func(c *gin.Context) {
+			if !featureConnectorAWS {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			if svc == nil {
+				tenancyServiceUnavailable(c)
+				return
+			}
+			var request AWSConnectorPollRequest
+			if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+				return
+			}
+			record, err := lifecycleAction.method(c.Request.Context(), c.Param("connector_id"), request)
+			if err != nil {
+				switch {
+				case errors.Is(err, ErrInvalidAWSConnectionRequest):
+					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws connector request"})
+				case errors.Is(err, db.ErrNotFound):
+					c.JSON(http.StatusNotFound, gin.H{"error": "aws connector not found"})
+				case errors.Is(err, db.ErrConflict):
+					c.JSON(http.StatusConflict, gin.H{"error": "aws connector lifecycle state cannot be changed"})
+				default:
+					if logger != nil {
+						logger.Error("disconnect aws connector", telemetry.ZapError(err))
+					}
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to disconnect aws connector"})
+				}
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"connection": record})
+		})
+	}
+
+	for _, lifecycleAction := range []struct {
+		path     string
+		disabled bool
+	}{
+		{path: "/connectors/aws/:connector_id/disable", disabled: true},
+		{path: "/connectors/aws/:connector_id/enable", disabled: false},
+	} {
+		v1.POST(lifecycleAction.path, func(c *gin.Context) {
+			if !featureConnectorAWS {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			if svc == nil {
+				tenancyServiceUnavailable(c)
+				return
+			}
+			var request AWSConnectorPollRequest
+			if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+				return
+			}
+			record, err := svc.SetAWSConnectorDisabled(c.Request.Context(), c.Param("connector_id"), request, lifecycleAction.disabled)
+			if err != nil {
+				switch {
+				case errors.Is(err, ErrInvalidAWSConnectionRequest):
+					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws connector request"})
+				case errors.Is(err, db.ErrNotFound):
+					c.JSON(http.StatusNotFound, gin.H{"error": "aws connector not found"})
+				case errors.Is(err, db.ErrConflict):
+					c.JSON(http.StatusConflict, gin.H{"error": "aws connector lifecycle state cannot be changed"})
+				default:
+					if logger != nil {
+						logger.Error("change aws connector eligibility", telemetry.ZapError(err))
+					}
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to change aws connector eligibility"})
+				}
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"connection": record})
+		})
+	}
 
 	v1.POST("/connectors/aws/:connector_id/refresh-policy", func(c *gin.Context) {
 		if !featureConnectorAWS {
