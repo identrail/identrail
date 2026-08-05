@@ -126,7 +126,7 @@ func TestReconcileAWSOrganizationRolloutPreservesRetryableValidatorDiagnostic(t 
 	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
 	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
 	svc.AWSConnectorValidator = &fakeAWSConnectorValidator{result: AWSConnectionValidationResult{
-		Diagnostics: []AWSConnectionDiagnostic{{Code: "aws_identity_metadata_unexpected", Retryable: true}},
+		Diagnostics: []AWSConnectionDiagnostic{{Code: "aws_identity_metadata_unexpected"}},
 	}}
 
 	_, _, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)

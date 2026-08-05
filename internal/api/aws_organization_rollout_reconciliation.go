@@ -469,5 +469,12 @@ func rolloutValidationDiagnosticRetryable(diagnostic AWSConnectionDiagnostic) bo
 		return true
 	}
 	code := strings.ToLower(strings.TrimSpace(diagnostic.Code))
+	switch code {
+	case "aws_identity_metadata_unexpected", "aws_identity_metadata_failed", "identity_metadata_unexpected":
+		// GetCallerIdentity has already failed after AssumeRole. The member
+		// account and role have not been disproven, so the operator must be
+		// able to retry after endpoint or session-credential recovery.
+		return true
+	}
 	return strings.Contains(code, "thrott") || strings.Contains(code, "timeout") || strings.Contains(code, "unavailable") || strings.Contains(code, "network") || strings.Contains(code, "expired")
 }
