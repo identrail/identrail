@@ -160,6 +160,70 @@ func TestReconcileAWSOrganizationRolloutRecordsTransientValidationFailure(t *tes
 	}
 }
 
+func TestReconcileAWSOrganizationRolloutKeepsPermissionFailuresRetryable(t *testing.T) {
+	tests := []struct {
+		name        string
+		checks      []AWSConnectionPermissionCheck
+		failureCode string
+	}{
+		{
+			name: "assume role trust failure",
+			checks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: false},
+				{Name: "iam:ListRoles", Passed: true},
+			},
+			failureCode: "aws_member_assume_role_failed",
+		},
+		{
+			name: "iam read permission failure",
+			checks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true},
+				{Name: "iam:ListRoles", Passed: false},
+			},
+			failureCode: "aws_member_permission_denied",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+			setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
+			svc.AWSConnectorValidator = &fakeAWSConnectorValidator{result: AWSConnectionValidationResult{
+				AccountID:        "222222222222",
+				PermissionChecks: testCase.checks,
+			}}
+
+			_, status, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+			if err != nil {
+				t.Fatalf("reconcile rollout: %v", err)
+			}
+			if status.Status != db.AWSOrganizationRolloutStatusPartial {
+				t.Fatalf("expected partial rollout after permission failure, got %q", status.Status)
+			}
+			store := svc.Store.(db.AWSOrganizationRolloutStore)
+			target, err := store.GetAWSOrganizationRolloutTarget(ctx, rollout.RolloutID, "222222222222", "us-east-1")
+			if err != nil {
+				t.Fatalf("load failed target: %v", err)
+			}
+			if target.FailureCode != testCase.failureCode || !target.Retryable {
+				t.Fatalf("expected repairable permission failure, got %+v", target)
+			}
+
+			rollout = keepAWSRolloutRetryableForTest(t, svc, ctx, rollout)
+			if _, err := svc.RetryAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID, AWSOrganizationRolloutRetryRequest{AccountIDs: []string{"222222222222"}}); err != nil {
+				t.Fatalf("retry repaired permission target: %v", err)
+			}
+			retried, err := store.GetAWSOrganizationRolloutTarget(ctx, rollout.RolloutID, "222222222222", "us-east-1")
+			if err != nil {
+				t.Fatalf("load retried target: %v", err)
+			}
+			if retried.State != db.AWSOrganizationRolloutTargetValidating || retried.FailureCode != "" {
+				t.Fatalf("expected permission target to be reset for retry, got %+v", retried)
+			}
+		})
+	}
+}
+
 func TestReconcileAWSOrganizationRolloutRecordsValidatorUnavailable(t *testing.T) {
 	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
 	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")

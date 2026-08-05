@@ -372,7 +372,11 @@ func (s *Service) reconcileAWSOrganizationRolloutMemberTarget(ctx context.Contex
 		if strings.TrimSpace(check.Name) == "sts:AssumeRole" {
 			code = "aws_member_assume_role_failed"
 		}
-		return false, s.recordAWSOrganizationRolloutValidationFailure(ctx, store, target, now, code, "The member role could not satisfy the read-only validation contract.", false)
+		// Trust and permission failures are repairable configuration failures:
+		// once the member role is corrected, the operator must be able to use
+		// Retry failed targets without starting a replacement rollout. Account
+		// mismatches remain non-retryable because they disprove target scope.
+		return false, s.recordAWSOrganizationRolloutValidationFailure(ctx, store, target, now, code, "The member role could not satisfy the read-only validation contract.", true)
 	}
 	if !hasSTSCheck || !hasIAMCheck {
 		return false, s.recordAWSOrganizationRolloutValidationFailure(ctx, store, target, now, "aws_validation_incomplete", "AWS member-role validation did not return both the STS assume-role and IAM read checks.", true)
