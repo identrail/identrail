@@ -21826,7 +21826,15 @@ function AWSOrganizationRolloutPanel({
   const derivedExcludedAccountIDs = setupMode !== 'selected_accounts' ? excludedAccountIDs : [];
   const derivedAutoDeployNewAccounts =
     setupMode === 'organization' || setupMode === 'selected_ous' ? autoDeployNewAccounts : false;
-  const hasTargetScope = derivedTargetOUIDs.length > 0 || derivedTargetAccountIDs.length > 0;
+  // Selected-accounts mode must always carry an explicit account list. The
+  // derived OU list falls back to the organization root so the API can expand
+  // scope in organization/selected_ous modes, but that same fallback would
+  // silently broaden a selected-accounts rollout to every account under the
+  // root if we treated the OU scope alone as sufficient here.
+  const hasTargetScope =
+    setupMode === 'selected_accounts'
+      ? derivedTargetAccountIDs.length > 0
+      : derivedTargetOUIDs.length > 0 || derivedTargetAccountIDs.length > 0;
   const readyToLaunch =
     Boolean(controllingConnectorID) &&
     Boolean(controllingAccountID) &&

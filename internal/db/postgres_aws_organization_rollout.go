@@ -177,14 +177,19 @@ func (p *PostgresStore) ListMonitoredAWSOrganizationRollouts(ctx context.Context
 	if effectiveLimit <= 0 || effectiveLimit > 200 {
 		effectiveLimit = 50
 	}
+	// Apply the monitored-status filter inside the subquery so DISTINCT ON
+	// selects the newest monitored rollout per connector. Filtering after
+	// DISTINCT ON would drop a connector entirely whenever its latest row is
+	// retired (canceled/expired), even though an earlier monitored rollout
+	// still needs drift reconciliation.
 	rows, err := p.queryContextAnyScope(ctx, `SELECT `+awsOrganizationRolloutColumns+`
         FROM aws_organization_rollouts AS rollout
         WHERE rollout.rollout_id IN (
             SELECT DISTINCT ON (tenant_id, workspace_id, project_id, controlling_connector_id) rollout_id
             FROM aws_organization_rollouts
+            WHERE status IN ('created', 'launching', 'in_progress', 'reconciling', 'completed', 'partial', 'failed')
             ORDER BY tenant_id, workspace_id, project_id, controlling_connector_id, created_at DESC, rollout_id DESC
         )
-          AND status IN ('created', 'launching', 'in_progress', 'reconciling', 'completed', 'partial', 'failed')
         ORDER BY updated_at ASC
         LIMIT $1`, effectiveLimit)
 	if err != nil {

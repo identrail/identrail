@@ -397,12 +397,22 @@ func (s *Service) reconcileAWSOrganizationInventory(ctx context.Context, store d
 			}
 			target.AccountName = account.Name
 			target.OUPath = account.OUPath
+			// Stamp LastTransitionAt whenever inventory-driven reconciliation
+			// actually changes the target state, so timeline and timeout logic
+			// see when the transition happened rather than an old instant
+			// carried over from a prior state.
 			if _, excluded := excludedAccounts[accountID]; excluded {
+				if target.State != db.AWSOrganizationRolloutTargetExcluded {
+					target.LastTransitionAt = now
+				}
 				target.State = db.AWSOrganizationRolloutTargetExcluded
 				target.FailureCode = ""
 				target.FailureMessage = ""
 				target.Retryable = false
 			} else if awsOrganizationInventoryAccountInactive(account.Status) {
+				if target.State != db.AWSOrganizationRolloutTargetSuspended {
+					target.LastTransitionAt = now
+				}
 				target.State = db.AWSOrganizationRolloutTargetSuspended
 				target.FailureCode = "organization_account_inactive"
 				target.FailureMessage = "AWS Organizations reports this account as inactive."
@@ -412,6 +422,7 @@ func (s *Service) reconcileAWSOrganizationInventory(ctx context.Context, store d
 				target.FailureCode = "organization_account_reactivated"
 				target.FailureMessage = "The AWS account is active again and its connector role must be revalidated."
 				target.Retryable = true
+				target.LastTransitionAt = now
 			}
 			if !target.IsManagement && target.State != db.AWSOrganizationRolloutTargetExcluded && target.State != db.AWSOrganizationRolloutTargetSuspended {
 				if instance, ok := stackInstances[key]; ok {

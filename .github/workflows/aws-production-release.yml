@@ -20,10 +20,17 @@ concurrency:
 jobs:
   resolve:
     name: Resolve production release
+    # Gate the auto-triggered path to `push`-originated Publish Container
+    # Images runs. Without the event filter, an ad-hoc `workflow_dispatch` of
+    # the image workflow (which may have been fired against any ref that the
+    # image workflow itself accepts) would satisfy the success+dev-branch
+    # check here and auto-launch a production deploy we did not intend.
     if: >-
       github.repository == 'identrail/identrail' &&
       (github.event_name == 'workflow_dispatch' ||
-       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'dev'))
+       (github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'dev'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

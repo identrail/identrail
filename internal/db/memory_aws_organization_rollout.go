@@ -580,6 +580,25 @@ func awsOrganizationRolloutMonitored(status string) bool {
 	}
 }
 
+// awsOrganizationRolloutCancelableOnLifecycleChange returns true when a
+// controlling-connector pause or disconnect should force the rollout into
+// canceled. It intentionally excludes `completed`, matching the Postgres
+// cancellation predicate, so completed rollouts remain intact for drift
+// monitoring instead of being retired by a lifecycle change.
+func awsOrganizationRolloutCancelableOnLifecycleChange(status string) bool {
+	switch status {
+	case AWSOrganizationRolloutStatusCreated,
+		AWSOrganizationRolloutStatusLaunching,
+		AWSOrganizationRolloutStatusInProgress,
+		AWSOrganizationRolloutStatusReconciling,
+		AWSOrganizationRolloutStatusPartial,
+		AWSOrganizationRolloutStatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
 // awsOrganizationRolloutTargetStateTerminal returns true for target states
 // that reconciliation considers durable outcomes. A terminal target may only
 // be transitioned by another terminal event (e.g., connected → failed if

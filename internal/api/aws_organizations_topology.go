@@ -141,6 +141,12 @@ func (s *Service) GetAWSOrganizationsTopology(ctx context.Context, workspaceID s
 	if err != nil {
 		return AWSOrganizationsTopologyResult{}, err
 	}
+	// Reject malformed filters before entering the live branch. Otherwise a
+	// bad request still calls AWS Organizations, and its failure is masked as
+	// a live discovery error instead of surfacing as a 400 to the caller.
+	if !validAWSOrganizationsTopologyFilters(request) {
+		return AWSOrganizationsTopologyResult{}, ErrInvalidAWSConnectionRequest
+	}
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected && s.AWSOrganizationInventoryFactory != nil {
 		inventory, err := s.AWSOrganizationInventoryFactory(ctx, connection)
 		if err != nil {

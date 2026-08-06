@@ -5,6 +5,12 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
+# When this test runs inside GitHub Actions the shell inherits GITHUB_OUTPUT
+# from the workflow step. prepare_aws_api_deploy.sh writes deployment paths
+# there, which would leak test-only values into the surrounding step's
+# outputs. Unset it so the script's step-output behavior stays hermetic.
+unset GITHUB_OUTPUT
+
 export AWS_REGION=us-east-1
 export AWS_ROLE_ARN=arn:aws:iam::111111111111:role/IdentrailGithubDeployRole
 export TF_STATE_BUCKET=identrail-test-state
