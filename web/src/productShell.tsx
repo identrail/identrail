@@ -22269,6 +22269,7 @@ export function ProductAWSConnectPage() {
   const scopeKeyRef = useRef(scopeKey);
   selectedEnvironmentIDRef.current = selectedEnvironmentID;
   scopeKeyRef.current = scopeKey;
+  const disconnectedConnector = Boolean(connection?.connector_id && connection.status === 'disconnected');
 
   const hydrateAWSConnectorRepair = useCallback(
     async (candidate: AWSConnectionStatus) => {
@@ -22529,6 +22530,23 @@ export function ProductAWSConnectPage() {
           return;
         }
         setConnection(response.connection);
+        if (action === 'disconnect') {
+          // The disconnected record is an audit trail, not a reconnect
+          // candidate. Clear prepared onboarding and credential drafts so
+          // the next start request necessarily creates a fresh connector.
+          awsStartRequestRef.current += 1;
+          awsStackSetOnboardingRequestRef.current += 1;
+          setAWSCloudFormationStart(null);
+          setAWSStackSetOnboarding(null);
+          setAWSStackSetOnboardingError('');
+          setAWSSetupMessage('');
+          setAWSForm((current) => ({
+            ...current,
+            roleARN: '',
+            externalID: '',
+            sessionName: 'identrail-connector-validation'
+          }));
+        }
         setBaseline(null);
         setSuccessMessage(
           action === 'disconnect'
@@ -22710,7 +22728,7 @@ export function ProductAWSConnectPage() {
       connectorScope === 'organization' ||
       connectorScope === 'selected_ous' ||
       connectorScope === 'selected_accounts';
-    if (!isStackSetConnector || !connection?.connector_id) {
+    if (!isStackSetConnector || !connection?.connector_id || disconnectedConnector) {
       return;
     }
     // Only refetch when the currently-selected wizard mode matches the
@@ -22724,6 +22742,7 @@ export function ProductAWSConnectPage() {
   }, [
     connection?.connector_id,
     connection?.scope_type,
+    disconnectedConnector,
     awsSetupMode,
     refreshStackSetOnboarding
   ]);
@@ -22894,6 +22913,12 @@ export function ProductAWSConnectPage() {
       })
     : null;
   const activeConnectorID = (() => {
+    // A disconnected connector is terminal. Fresh onboarding must omit its
+    // id so the API creates a new connector instead of attempting to resume
+    // the record that was intentionally invalidated by disconnect.
+    if (disconnectedConnector) {
+      return '';
+    }
     if (isManualSetup) {
       return (
         manualAWSStart?.connector_id ??
@@ -23562,12 +23587,10 @@ export function ProductAWSConnectPage() {
   };
 
   const connectedNow = Boolean(connection?.connected);
-  const disconnectedConnector = Boolean(connection?.connector_id && connection.status === 'disconnected');
   const showAWSSetupControls =
     Boolean(selectedEnvironmentID) &&
     (!connectedNow || manageConnectionOpen) &&
-    !connection?.disabled &&
-    !disconnectedConnector;
+    !connection?.disabled;
   const awaitingFirstConnectLoad = loadingConnection && !connection && !errorMessage;
   const connectSubtitle = (() => {
     if (awaitingFirstConnectLoad || environmentScope.loading) {
@@ -23635,7 +23658,7 @@ export function ProductAWSConnectPage() {
   const stackSetLaunchURL =
     stackSetAWSStart?.launch_url ??
     (persistedLaunchURLMatchesMode && isStackSetSetup ? connection?.launch_url ?? '' : '');
-  const hasConnectorSetup = Boolean(awsCloudFormationStart || connection?.connector_id);
+  const hasConnectorSetup = Boolean(awsCloudFormationStart || activeConnectorID);
   const hasRoleOnlyConnection = Boolean(connection?.role_arn && !connection?.connector_id && !awsCloudFormationStart);
   const showOperationalPanels = Boolean(
     connection?.connected ||

@@ -177,6 +177,48 @@ func TestRouterAWSConnectorLifecycleDisconnectIsIdempotentAndBlocksLateValidatio
 	}
 }
 
+func TestAWSLifecycleRejectsNonAWSConnector(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	if err := store.UpsertTenancyConnector(ctx, db.TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "github-prod",
+		Type:        domain.ConnectorTypeGitHub,
+		DisplayName: "Production GitHub",
+		Status:      domain.ConnectorStatusActive,
+	}, db.TenancyConnectorState{
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-1",
+		ConnectorID:  "github-prod",
+		HealthStatus: "healthy",
+		Metadata:     map[string]any{},
+		ObservedAt:   now,
+		UpdatedAt:    now,
+	}); err != nil {
+		t.Fatalf("seed non-AWS connector: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	request := AWSConnectorPollRequest{WorkspaceID: "workspace-a", ProjectID: "project-1"}
+	if _, err := svc.DisconnectAWSConnector(ctx, "github-prod", request); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("disconnecting a non-AWS connector must be rejected, got %v", err)
+	}
+	if _, err := svc.SetAWSConnectorDisabled(ctx, "github-prod", request, true); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("changing a non-AWS connector gate must be rejected, got %v", err)
+	}
+
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "github-prod")
+	if err != nil {
+		t.Fatalf("reload non-AWS connector: %v", err)
+	}
+	if stored.Connector.Status != domain.ConnectorStatusActive || stored.Connector.Disabled || stored.Connector.LifecycleGeneration != 0 {
+		t.Fatalf("non-AWS lifecycle state was mutated: %+v", stored.Connector)
+	}
+}
+
 func TestRouterAWSConnectionRejectsUnsupportedScopeOverride(t *testing.T) {
 	r := newAWSConnectionTestRouter(t, &fakeAWSConnectorValidator{})
 

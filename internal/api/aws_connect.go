@@ -1558,6 +1558,17 @@ func (s *Service) PollAWSConnector(ctx context.Context, connectorID string, requ
 	return awsConnectorSetupPublicConnectionStatus(s.awsConnectionStatusFromStored(ctx, stored)), nil
 }
 
+func (s *Service) requireAWSConnectorForLifecycleMutation(ctx context.Context, project db.TenancyProject, connectorID string) error {
+	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
+	if err != nil {
+		return err
+	}
+	if stored.Connector.Type != domain.ConnectorTypeAWS {
+		return ErrInvalidAWSConnectionRequest
+	}
+	return nil
+}
+
 // DisconnectAWSConnector stops local eligibility immediately, invalidates the
 // encrypted external-id envelope, and reports provider cleanup as pending.
 // The generation fence prevents callbacks already in flight from reviving it.
@@ -1569,11 +1580,15 @@ func (s *Service) DisconnectAWSConnector(ctx context.Context, connectorID string
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
+	connectorID = strings.TrimSpace(connectorID)
+	if err := s.requireAWSConnectorForLifecycleMutation(ctx, project, connectorID); err != nil {
+		return AWSConnectionStatus{}, err
+	}
 	lifecycleStore, ok := s.Store.(db.TenancyConnectorLifecycleStore)
 	if !ok {
 		return AWSConnectionStatus{}, ErrAWSConnectorConfigUnavailable
 	}
-	stored, err := lifecycleStore.DisconnectTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID), s.Now().UTC())
+	stored, err := lifecycleStore.DisconnectTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID, s.Now().UTC())
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
@@ -1590,11 +1605,15 @@ func (s *Service) SetAWSConnectorDisabled(ctx context.Context, connectorID strin
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
+	connectorID = strings.TrimSpace(connectorID)
+	if err := s.requireAWSConnectorForLifecycleMutation(ctx, project, connectorID); err != nil {
+		return AWSConnectionStatus{}, err
+	}
 	lifecycleStore, ok := s.Store.(db.TenancyConnectorLifecycleStore)
 	if !ok {
 		return AWSConnectionStatus{}, ErrAWSConnectorConfigUnavailable
 	}
-	stored, err := lifecycleStore.SetTenancyConnectorDisabled(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(connectorID), disabled, s.Now().UTC())
+	stored, err := lifecycleStore.SetTenancyConnectorDisabled(ctx, project.WorkspaceID, project.ProjectID, connectorID, disabled, s.Now().UTC())
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
