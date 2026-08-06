@@ -432,7 +432,7 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	}
 	displayName := strings.TrimSpace(request.DisplayName)
 	if displayName == "" {
-		displayName = "AWS account"
+		displayName = awsConnectorDefaultDisplayName("AWS account", connectorID)
 	}
 	if err := validateAWSConnectorStartIdentity(connectorID, displayName); err != nil {
 		return AWSConnectorStartResponse{}, err
@@ -576,7 +576,7 @@ func (s *Service) startAWSStackSetConnector(
 	}
 	displayName := strings.TrimSpace(request.DisplayName)
 	if displayName == "" {
-		displayName = awsConnectorStackSetDisplayName(setup)
+		displayName = awsConnectorDefaultDisplayName(awsConnectorStackSetDisplayName(setup), connectorID)
 	}
 	if err := validateAWSConnectorStartIdentity(connectorID, displayName); err != nil {
 		return AWSConnectorStartResponse{}, err
@@ -694,7 +694,7 @@ func (s *Service) startAWSManualConnector(
 	}
 	displayName := strings.TrimSpace(request.DisplayName)
 	if displayName == "" {
-		displayName = "AWS account"
+		displayName = awsConnectorDefaultDisplayName("AWS account", connectorID)
 	}
 	if err := validateAWSConnectorStartIdentity(connectorID, displayName); err != nil {
 		return AWSConnectorStartResponse{}, err
@@ -1903,6 +1903,22 @@ func awsConnectorStackSetDisplayName(setup awsConnectorSetupContract) string {
 	default:
 		return "AWS StackSet"
 	}
+}
+
+// awsConnectorDefaultDisplayName keeps server-generated names unique across
+// retained disconnected connector records. A connector ID is immutable for a
+// record, so including it prevents a fresh onboarding flow from colliding with
+// the database's project/type/display-name uniqueness constraint.
+func awsConnectorDefaultDisplayName(prefix string, connectorID string) string {
+	prefix = strings.TrimSpace(prefix)
+	connectorID = strings.TrimSpace(connectorID)
+	if prefix == "" {
+		prefix = "AWS connector"
+	}
+	if connectorID == "" {
+		return prefix
+	}
+	return prefix + " (" + connectorID + ")"
 }
 
 func normalizeAWSConnectorTemplateChecksum(checksum string) string {

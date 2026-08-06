@@ -177,6 +177,48 @@ func TestRouterAWSConnectorLifecycleDisconnectIsIdempotentAndBlocksLateValidatio
 	}
 }
 
+func TestRouterAWSConnectorFreshDefaultNameDoesNotCollideAfterDisconnect(t *testing.T) {
+	r := newAWSConnectorFlowTestRouter(t, &fakeAWSConnectorValidator{})
+	startBody := `{"workspace_id":"workspace-a","project_id":"project-1","region":"us-east-1"}`
+	firstResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws", startBody)
+	if firstResp.Code != http.StatusOK {
+		t.Fatalf("expected first connector start 200, got %d body=%s", firstResp.Code, firstResp.Body.String())
+	}
+	var first AWSConnectorStartResponse
+	if err := json.Unmarshal(firstResp.Body.Bytes(), &first); err != nil {
+		t.Fatalf("decode first connector start: %v", err)
+	}
+	if first.Connection.DisplayName == "AWS account" || !strings.Contains(first.Connection.DisplayName, first.ConnectorID) {
+		t.Fatalf("expected first default name to include its connector identity, got %+v", first.Connection)
+	}
+
+	disconnectResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws/"+first.ConnectorID+"/disconnect", `{"workspace_id":"workspace-a","project_id":"project-1"}`)
+	if disconnectResp.Code != http.StatusOK {
+		t.Fatalf("expected disconnect 200, got %d body=%s", disconnectResp.Code, disconnectResp.Body.String())
+	}
+
+	secondResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws", startBody)
+	if secondResp.Code != http.StatusOK {
+		t.Fatalf("expected fresh connector start 200, got %d body=%s", secondResp.Code, secondResp.Body.String())
+	}
+	var second AWSConnectorStartResponse
+	if err := json.Unmarshal(secondResp.Body.Bytes(), &second); err != nil {
+		t.Fatalf("decode second connector start: %v", err)
+	}
+	if second.ConnectorID == first.ConnectorID || second.Connection.DisplayName == first.Connection.DisplayName {
+		t.Fatalf("expected fresh onboarding to use a new unique default name, first=%+v second=%+v", first.Connection, second.Connection)
+	}
+}
+
+func TestAWSConnectorDefaultDisplayNameIncludesConnectorIdentity(t *testing.T) {
+	for _, prefix := range []string{"AWS account", "AWS organization", "AWS StackSet"} {
+		name := awsConnectorDefaultDisplayName(prefix, "aws-connector-123")
+		if name != prefix+" (aws-connector-123)" {
+			t.Fatalf("expected %q default name to include connector identity, got %q", prefix, name)
+		}
+	}
+}
+
 func TestAWSLifecycleRejectsNonAWSConnector(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
