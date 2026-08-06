@@ -3,7 +3,7 @@ Description: Identrail read-only machine identity connector role.
 
 Metadata:
   IdentrailConnector:
-    Version: '2.0.0'
+    Version: '2.1.0'
 
 Parameters:
   IdentrailAccountId:
@@ -192,7 +192,7 @@ Resources:
         Ref: RegistrationAttemptId
       RegistrationToken:
         Ref: RegistrationToken
-      TemplateVersion: '2.0.0'
+      TemplateVersion: '2.1.0'
 
   IdentrailReadOnlyRole:
     Type: AWS::IAM::Role
@@ -277,6 +277,17 @@ Resources:
                 Effect: Allow
                 Action: sts:GetCallerIdentity
                 Resource: '*'
+              - Sid: OrganizationRolloutInventory
+                Effect: Allow
+                Action:
+                  - organizations:DescribeOrganization
+                  - organizations:ListAccountsForParent
+                  - organizations:ListDelegatedAdministrators
+                  - organizations:ListDelegatedServicesForAccount
+                  - organizations:ListOrganizationalUnitsForParent
+                  - organizations:ListRoots
+                  - cloudformation:ListStackInstances
+                Resource: '*'
 
   IdentrailConnectorRegistration:
     Type: Custom::IdentrailAWSConnectorRegistration
@@ -301,7 +312,7 @@ Resources:
         Fn::GetAtt:
           - IdentrailReadOnlyRole
           - Arn
-      TemplateVersion: '2.0.0'
+      TemplateVersion: '2.1.0'
 
   IdentrailRolloutRegistration:
     Type: Custom::IdentrailAWSConnectorRegistration
@@ -329,7 +340,7 @@ Resources:
         Fn::GetAtt:
           - IdentrailReadOnlyRole
           - Arn
-      TemplateVersion: '2.0.0'
+      TemplateVersion: '2.1.0'
 
 Outputs:
   RoleArn:

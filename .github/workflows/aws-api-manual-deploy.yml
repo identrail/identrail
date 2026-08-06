@@ -55,6 +55,11 @@ on:
         default: identrail/dev/aws-api.tfstate
   workflow_call:
     inputs:
+      source_ref:
+        description: "Exact dev commit whose Terraform and application images are being deployed."
+        required: false
+        type: string
+        default: ""
       operation:
         description: "Run a Terraform plan or apply for the AWS API hosting stack."
         required: false
@@ -109,6 +114,21 @@ on:
         required: false
         type: string
         default: ""
+      aws_cfn_template_url:
+        description: "Immutable public S3 URL for the connector CloudFormation template."
+        required: false
+        type: string
+        default: ""
+      aws_cfn_template_sha256:
+        description: "SHA-256 digest for the connector CloudFormation template."
+        required: false
+        type: string
+        default: ""
+      enable_aws_connector_registration:
+        description: "Create and wire the regional SNS/SQS registration provider."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -174,6 +194,9 @@ jobs:
       API_CORS_ALLOWED_ORIGINS_JSON: ${{ vars.API_CORS_ALLOWED_ORIGINS_JSON || '["https://app.identrail.com","https://identrail.com","https://www.identrail.com"]' }}
       API_TRUSTED_PROXY_CIDR_BLOCKS_JSON: ${{ vars.API_TRUSTED_PROXY_CIDR_BLOCKS_JSON || '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' }}
       API_EXTRA_ENVIRONMENT_JSON: ${{ vars.API_EXTRA_ENVIRONMENT_JSON || '{}' }}
+      API_AWS_CFN_TEMPLATE_URL: ${{ inputs.aws_cfn_template_url || '' }}
+      API_AWS_CFN_TEMPLATE_SHA256: ${{ inputs.aws_cfn_template_sha256 || '' }}
+      API_AWS_CONNECTOR_REGISTRATION_ENABLED: ${{ inputs.enable_aws_connector_registration }}
       API_EXTRA_SECRETS_JSON: ${{ secrets.API_EXTRA_SECRETS_JSON || '{}' }}
       API_SECRET_KMS_KEY_ARNS_JSON: ${{ vars.API_SECRET_KMS_KEY_ARNS_JSON || '[]' }}
       API_CONNECTOR_ROLE_ARNS_JSON: ${{ vars.API_CONNECTOR_ROLE_ARNS_JSON || '[]' }}
@@ -181,6 +204,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e

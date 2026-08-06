@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/apprunner v1.42.2
 	github.com/aws/aws-sdk-go-v2/service/batch v1.68.2
 	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.53.0
+	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.70.1
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.58.2
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.72.2
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.49.2
@@ -25,6 +26,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iam v1.57.0
 	github.com/aws/aws-sdk-go-v2/service/kms v1.55.2
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.101.0
+	github.com/aws/aws-sdk-go-v2/service/organizations v1.47.0
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.26.2
 	github.com/aws/aws-sdk-go-v2/service/rds v1.123.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.106.2

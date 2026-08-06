@@ -8842,6 +8842,7 @@ export type AWSFanOutExecutionResult = {
 
 export type AWSOrganizationsTopologyStatus = AWSCoveragePlanStatus;
 export type AWSOrganizationsTopologyFixtureState = AWSCoveragePlanFixtureState;
+export type AWSOrganizationsTopologySource = AWSOrganizationsTopologyFixtureState | 'live';
 export type AWSOrganizationsAccountStatus = 'active' | 'suspended' | 'closed' | 'pending_activation' | 'pending_closure';
 
 export type AWSOrganizationsTopologyAccount = {
@@ -8918,7 +8919,7 @@ export type AWSOrganizationsTopologyResult = {
   partition: string;
   version: string;
   status: AWSOrganizationsTopologyStatus;
-  fixture_state: AWSOrganizationsTopologyFixtureState;
+  fixture_state: AWSOrganizationsTopologySource;
   confidence: number;
   filtered_accounts: number;
   summary: AWSOrganizationsTopologySummary;

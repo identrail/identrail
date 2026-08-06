@@ -175,6 +175,80 @@ func TestReconcileAWSOrganizationRolloutConnectsValidatedMembers(t *testing.T) {
 	}
 }
 
+func TestReconcileAWSOrganizationRolloutsContinuesMonitoringCompletedConnection(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
+	svc.AWSConnectorValidator = &fakeAWSConnectorValidator{result: AWSConnectionValidationResult{
+		AccountID: "222222222222",
+		PermissionChecks: []AWSConnectionPermissionCheck{
+			{Name: "sts:AssumeRole", Passed: true},
+			{Name: "iam:ListRoles", Passed: true},
+		},
+	}}
+	_, completed, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("complete rollout: %v", err)
+	}
+	if completed.Status != db.AWSOrganizationRolloutStatusCompleted {
+		t.Fatalf("expected completed rollout before drift, got %q", completed.Status)
+	}
+
+	inventory := &staticAWSOrganizationInventory{snapshot: liveAWSOrganizationSnapshot()}
+	inventory.snapshot.StackInstances = []AWSOrganizationStackInstance{{
+		AccountID: "222222222222", Region: "us-east-1", StackSetID: "stackset-1", StackID: "stack-1", Status: "current", DriftStatus: "drifted",
+	}}
+	svc.AWSOrganizationInventoryFactory = func(context.Context, AWSConnectionStatus) (AWSOrganizationInventory, error) {
+		return inventory, nil
+	}
+
+	processed, err := svc.ReconcileAWSOrganizationRollouts(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("monitor completed rollout: %v", err)
+	}
+	if processed != 1 {
+		t.Fatalf("expected completed connection to remain monitored, processed %d rollouts", processed)
+	}
+	status, err := svc.GetAWSOrganizationRolloutStatus(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("load drifted rollout: %v", err)
+	}
+	if status.Status != db.AWSOrganizationRolloutStatusPartial {
+		t.Fatalf("expected drift to reopen completed rollout as partial, got status=%q summary=%+v targets=%+v", status.Status, status.Summary, status.Targets)
+	}
+	for _, target := range status.Targets {
+		if target.AccountID == "222222222222" && (target.State != db.AWSOrganizationRolloutTargetFailed || target.FailureCode != "stack_instance_drifted") {
+			t.Fatalf("expected completed target drift to be recorded, got %+v", target)
+		}
+	}
+}
+
+func TestListMonitoredAWSOrganizationRolloutsPrefersNewestConnectorRollout(t *testing.T) {
+	svc, ctx, first := startAWSRolloutForReconciliationTest(t, "222222222222")
+	store := svc.Store.(db.AWSOrganizationRolloutStore)
+	first.Status = db.AWSOrganizationRolloutStatusCompleted
+	first.UpdatedAt = svc.Now().UTC()
+	if _, err := store.UpdateAWSOrganizationRollout(ctx, first, first.Version); err != nil {
+		t.Fatalf("complete first rollout: %v", err)
+	}
+	svc.Now = func() time.Time { return first.CreatedAt.Add(time.Minute) }
+	second, err := svc.StartAWSOrganizationRollout(ctx, AWSOrganizationRolloutStartRequest{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ControllingConnectorID: "aws-mgmt",
+		OrganizationID: "o-fixture001", ManagementAccountID: "111111111111",
+		SelectedAccountIDs: []string{"333333333333"}, TargetRegions: []string{"us-east-1"},
+	})
+	if err != nil {
+		t.Fatalf("start replacement rollout: %v", err)
+	}
+
+	monitored, err := store.ListMonitoredAWSOrganizationRollouts(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("list monitored rollouts: %v", err)
+	}
+	if len(monitored) != 1 || monitored[0].RolloutID != second.RolloutID {
+		t.Fatalf("expected only newest connector rollout %q, got %+v", second.RolloutID, monitored)
+	}
+}
+
 func TestReconcileAWSOrganizationRolloutRejectsMismatchedSTSIdentity(t *testing.T) {
 	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
 	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")

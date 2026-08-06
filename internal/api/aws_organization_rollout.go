@@ -29,13 +29,10 @@ const (
 // rollout can be approved.
 var ErrAWSOrganizationRolloutControllingUnready = errors.New("aws controlling account is not validated")
 
-// ErrAWSOrganizationRolloutOUMembershipUnsupported reports that an OU-only
-// rollout was requested. Slice 1 does not resolve OU membership from AWS
-// Organizations; without an expected-target expansion, an OU-only rollout
-// would admit any non-excluded account callback and could not tell the
-// operator which accounts to expect. The next slice adds the membership
-// resolver alongside the reconciliation loop; today the caller must also
-// supply selected_account_ids.
+// ErrAWSOrganizationRolloutOUMembershipUnsupported protects test and embedded
+// service configurations that do not install a live Organizations inventory
+// provider. Production expands OU membership from AWS before persisting a
+// rollout, so its expected target set is complete from the first response.
 var ErrAWSOrganizationRolloutOUMembershipUnsupported = errors.New("aws rollout ou membership resolver unavailable")
 
 // ErrAWSOrganizationRolloutMixedPartition reports that the requested
@@ -254,16 +251,15 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 	if !connection.Connected {
 		return AWSOrganizationRolloutStatus{}, ErrAWSOrganizationRolloutControllingUnready
 	}
-	if strings.TrimSpace(connection.AccountID) != managementAccountID {
-		return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
-	}
-
 	controllingRole := strings.TrimSpace(strings.ToLower(request.ControllingRole))
 	if controllingRole == "" {
 		controllingRole = db.AWSOrganizationRolloutControllingManagement
 	}
 	if controllingRole != db.AWSOrganizationRolloutControllingManagement &&
 		controllingRole != db.AWSOrganizationRolloutControllingDelegatedAdmin {
+		return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
+	}
+	if controllingRole == db.AWSOrganizationRolloutControllingManagement && strings.TrimSpace(connection.AccountID) != managementAccountID {
 		return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
 	}
 	deploymentMode := strings.TrimSpace(strings.ToLower(request.DeploymentMode))
@@ -283,12 +279,43 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 	selectedOUs := trimAndDedupeAWSStringSlice(request.SelectedOUIDs)
 	selectedAccounts := trimAndDedupeAWSStringSlice(request.SelectedAccountIDs)
 	excludedAccounts := trimAndDedupeAWSStringSlice(request.ExcludedAccountIDs)
-	// Slice 1 does not expand OU membership from AWS Organizations. Without
-	// that expansion, an OU-only rollout would seed only the management
-	// account and admit any non-excluded caller, which cannot honestly report
-	// coverage. The reconciliation slice adds the membership resolver;
-	// today the operator must also list the accounts explicitly.
-	if len(selectedOUs) > 0 && len(selectedAccounts) == 0 {
+	var inventorySnapshot *AWSOrganizationInventorySnapshot
+	if s.AWSOrganizationInventoryFactory != nil {
+		inventory, inventoryErr := s.AWSOrganizationInventoryFactory(ctx, connection)
+		if inventoryErr != nil {
+			return AWSOrganizationRolloutStatus{}, fmt.Errorf("create aws organization inventory: %w", inventoryErr)
+		}
+		snapshot, inventoryErr := inventory.Discover(ctx, AWSOrganizationInventoryRequest{StackSetName: stackSetName, ControllingRole: controllingRole})
+		if inventoryErr != nil {
+			return AWSOrganizationRolloutStatus{}, fmt.Errorf("discover aws organization inventory: %w", inventoryErr)
+		}
+		if snapshot.OrganizationID != organizationID || snapshot.ManagementAccountID != managementAccountID || snapshot.Partition != partition {
+			return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
+		}
+		knownOUs := map[string]struct{}{}
+		for _, unit := range append(append([]AWSOrganizationInventoryOU(nil), snapshot.Roots...), snapshot.OrganizationalUnits...) {
+			knownOUs[unit.ID] = struct{}{}
+		}
+		for _, ouID := range selectedOUs {
+			if _, ok := knownOUs[ouID]; !ok {
+				return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
+			}
+		}
+		accountsByID := awsOrganizationInventoryAccountMap(snapshot)
+		selectedAccounts = awsOrganizationInventorySelectedAccounts(snapshot, selectedOUs, selectedAccounts)
+		for _, accountID := range append(append([]string(nil), selectedAccounts...), excludedAccounts...) {
+			if _, ok := accountsByID[accountID]; !ok {
+				return AWSOrganizationRolloutStatus{}, ErrInvalidAWSConnectionRequest
+			}
+		}
+		if controllingRole == db.AWSOrganizationRolloutControllingDelegatedAdmin {
+			controlling, ok := accountsByID[strings.TrimSpace(connection.AccountID)]
+			if !ok || !awsOrganizationInventoryHasCloudFormationDelegation(controlling) {
+				return AWSOrganizationRolloutStatus{}, ErrAWSOrganizationRolloutControllingUnready
+			}
+		}
+		inventorySnapshot = &snapshot
+	} else if len(selectedOUs) > 0 && len(selectedAccounts) == 0 {
 		return AWSOrganizationRolloutStatus{}, ErrAWSOrganizationRolloutOUMembershipUnsupported
 	}
 	if err := awsOrganizationRolloutValidateAccountIDs(selectedAccounts); err != nil {
@@ -378,7 +405,21 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 	}
 
 	expected := expectedAWSOrganizationRolloutTargets(created, managementAccountID)
+	accountsByID := map[string]AWSOrganizationInventoryAccount{}
+	if inventorySnapshot != nil {
+		accountsByID = awsOrganizationInventoryAccountMap(*inventorySnapshot)
+	}
 	for _, seed := range expected {
+		if account, ok := accountsByID[seed.AccountID]; ok {
+			seed.AccountName = account.Name
+			seed.OUPath = account.OUPath
+			if seed.State != db.AWSOrganizationRolloutTargetExcluded && awsOrganizationInventoryAccountInactive(account.Status) {
+				seed.State = db.AWSOrganizationRolloutTargetSuspended
+				seed.FailureCode = "organization_account_inactive"
+				seed.FailureMessage = "AWS Organizations reports this account as inactive."
+				seed.Retryable = false
+			}
+		}
 		if _, upsertErr := store.UpsertAWSOrganizationRolloutTarget(ctx, seed); upsertErr != nil {
 			// A seed failure must not leave a live envelope holding the
 			// one-active-per-controlling-connector lock: the operator would

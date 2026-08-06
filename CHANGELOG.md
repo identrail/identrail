@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Make the AWS connector release and organization rollout production-ready.
+  Hosted releases now pin one `dev` commit across migrations, API, worker, and
+  an immutable CloudFormation template, enable the registration provider, and
+  fail smoke tests when rollout or lifecycle routes are missing. Organization
+  connectors now read live Organizations and StackSet metadata to expand OUs,
+  track new, moved, suspended, and removed accounts, and detect missing,
+  unhealthy, or drifted stack instances. Template `2.1.0` adds only the
+  required read actions. The app consumes the live topology through its
+  existing coverage view, and CLI pause, resume, disconnect, and reconcile
+  commands use the same backend lifecycle.
 - Ship first slice of **AWS Organization / StackSet rollout automation**
   (#1788). One approved rollout from a validated management or
   delegated-administrator connector opens a scoped envelope with a hashed

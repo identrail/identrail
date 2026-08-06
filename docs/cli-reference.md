@@ -67,6 +67,28 @@ Key flags:
 - `--timeout`
 - `--output table|json`
 
+## AWS connector lifecycle
+
+The hosted lifecycle commands use the same scoped API operations as the app:
+
+```bash
+identrail aws-disable --workspace-id workspace-a --project-id production --connector-id aws-prod
+identrail aws-enable --workspace-id workspace-a --project-id production --connector-id aws-prod
+identrail aws-disconnect --workspace-id workspace-a --project-id production --connector-id aws-prod --confirm aws-prod
+```
+
+All commands accept `--api-url`, `--api-key`, `--tenant-id`, `--timeout`, and
+`--output table|json`. They never print the connector External ID.
+
+Refresh a live organization rollout after an AWS-side repair:
+
+```bash
+identrail aws-rollout-reconcile \
+  --workspace-id workspace-a \
+  --project-id production \
+  --rollout-id rollout-id
+```
+
 ## `identrail repo-scan`
 
 Runs the local repository exposure scanner. This is the backward-compatible long

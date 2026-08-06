@@ -62,6 +62,10 @@ func BuildRootCmd(cfg config.Config, out io.Writer) *cobra.Command {
 	root.AddCommand(buildScanCmd(cfg, out, &stateFile))
 	root.AddCommand(buildScanReplayCmd(cfg, out))
 	root.AddCommand(buildAWSStatusCmd(cfg, out))
+	root.AddCommand(buildAWSLifecycleCmd(cfg, out, "disable"))
+	root.AddCommand(buildAWSLifecycleCmd(cfg, out, "enable"))
+	root.AddCommand(buildAWSLifecycleCmd(cfg, out, "disconnect"))
+	root.AddCommand(buildAWSRolloutReconcileCmd(cfg, out))
 	root.AddCommand(buildFindingsCmd(out, &stateFile))
 	root.AddCommand(buildRepoScanCmd(cfg, out))
 	root.AddCommand(buildRepoFindingsCmd(cfg, out))
@@ -366,6 +370,151 @@ func buildAWSStatusCmd(cfg config.Config, out io.Writer) *cobra.Command {
 	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Second, "HTTP timeout for AWS status request")
 	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
 	return cmd
+}
+
+func buildAWSLifecycleCmd(cfg config.Config, out io.Writer, action string) *cobra.Command {
+	var apiURL, apiKey, tenantID, workspaceID, projectID, connectorID, confirmation, outputFormat string
+	var timeout time.Duration
+	cmd := &cobra.Command{
+		Use:   "aws-" + action,
+		Short: map[string]string{"disable": "Pause an AWS connector", "enable": "Resume an AWS connector", "disconnect": "Disconnect an AWS connector"}[action],
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			for name, value := range map[string]string{"--api-url": apiURL, "--workspace-id": workspaceID, "--project-id": projectID, "--connector-id": connectorID} {
+				if strings.TrimSpace(value) == "" {
+					return fmt.Errorf("%s is required", name)
+				}
+			}
+			if action == "disconnect" && strings.TrimSpace(confirmation) != strings.TrimSpace(connectorID) {
+				return fmt.Errorf("--confirm must exactly match --connector-id")
+			}
+			formatter, err := parseOutputFormat(outputFormat)
+			if err != nil {
+				return err
+			}
+			payload, err := json.Marshal(map[string]string{"workspace_id": strings.TrimSpace(workspaceID), "project_id": strings.TrimSpace(projectID)})
+			if err != nil {
+				return fmt.Errorf("encode aws %s request: %w", action, err)
+			}
+			endpoint := strings.TrimRight(strings.TrimSpace(apiURL), "/") + "/v1/connectors/aws/" + url.PathEscape(strings.TrimSpace(connectorID)) + "/" + action
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+			if err != nil {
+				return fmt.Errorf("build aws %s request: %w", action, err)
+			}
+			applyCLIAPIHeaders(req, apiKey, tenantID, workspaceID)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := (&http.Client{Timeout: timeout}).Do(req)
+			if err != nil {
+				return fmt.Errorf("aws %s request failed: %w", action, err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				return decodeCLIAPIError(resp, "aws "+action)
+			}
+			var response struct {
+				Connection api.AWSConnectionStatus `json:"connection"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+				return fmt.Errorf("decode aws %s response: %w", action, err)
+			}
+			if formatter == outputJSON {
+				return writeJSON(out, response)
+			}
+			return renderAWSStatusOutput(out, response.Connection)
+		},
+	}
+	cmd.Flags().StringVar(&apiURL, "api-url", defaultCLIAPIURL(), "Identrail API base URL")
+	cmd.Flags().StringVar(&apiKey, "api-key", strings.TrimSpace(os.Getenv("IDENTRAIL_API_KEY")), "API key used for the lifecycle request")
+	cmd.Flags().StringVar(&tenantID, "tenant-id", strings.TrimSpace(cfg.DefaultTenantID), "Tenant scope header")
+	cmd.Flags().StringVar(&workspaceID, "workspace-id", strings.TrimSpace(cfg.DefaultWorkspaceID), "Workspace scope header")
+	cmd.Flags().StringVar(&projectID, "project-id", "", "Environment or project ID")
+	cmd.Flags().StringVar(&connectorID, "connector-id", "", "AWS connector ID")
+	if action == "disconnect" {
+		cmd.Flags().StringVar(&confirmation, "confirm", "", "Repeat the connector ID to confirm disconnect")
+	}
+	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "HTTP request timeout")
+	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
+	return cmd
+}
+
+func buildAWSRolloutReconcileCmd(cfg config.Config, out io.Writer) *cobra.Command {
+	var apiURL, apiKey, tenantID, workspaceID, projectID, rolloutID, outputFormat string
+	var timeout time.Duration
+	cmd := &cobra.Command{
+		Use:   "aws-rollout-reconcile",
+		Short: "Refresh an AWS organization rollout from AWS",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			for name, value := range map[string]string{"--api-url": apiURL, "--workspace-id": workspaceID, "--project-id": projectID, "--rollout-id": rolloutID} {
+				if strings.TrimSpace(value) == "" {
+					return fmt.Errorf("%s is required", name)
+				}
+			}
+			formatter, err := parseOutputFormat(outputFormat)
+			if err != nil {
+				return err
+			}
+			endpoint := strings.TrimRight(strings.TrimSpace(apiURL), "/") + "/v1/workspaces/" + url.PathEscape(strings.TrimSpace(workspaceID)) + "/projects/" + url.PathEscape(strings.TrimSpace(projectID)) + "/aws/rollouts/" + url.PathEscape(strings.TrimSpace(rolloutID)) + "/reconcile"
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader("{}"))
+			if err != nil {
+				return fmt.Errorf("build aws rollout reconcile request: %w", err)
+			}
+			applyCLIAPIHeaders(req, apiKey, tenantID, workspaceID)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := (&http.Client{Timeout: timeout}).Do(req)
+			if err != nil {
+				return fmt.Errorf("aws rollout reconcile request failed: %w", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				return decodeCLIAPIError(resp, "aws rollout reconcile")
+			}
+			var response struct {
+				Rollout api.AWSOrganizationRolloutStatus `json:"rollout"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+				return fmt.Errorf("decode aws rollout reconcile response: %w", err)
+			}
+			if formatter == outputJSON {
+				return writeJSON(out, response)
+			}
+			_, err = fmt.Fprintf(out, "AWS rollout: %s status=%s connected=%d/%d failed=%d suspended=%d removed=%d\n", response.Rollout.RolloutID, response.Rollout.Status, response.Rollout.Summary.ConnectedTargets, response.Rollout.Summary.ExpectedTargets, response.Rollout.Summary.FailedTargets, response.Rollout.Summary.SuspendedTargets, response.Rollout.Summary.RemovedTargets)
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&apiURL, "api-url", defaultCLIAPIURL(), "Identrail API base URL")
+	cmd.Flags().StringVar(&apiKey, "api-key", strings.TrimSpace(os.Getenv("IDENTRAIL_API_KEY")), "API key used for reconciliation")
+	cmd.Flags().StringVar(&tenantID, "tenant-id", strings.TrimSpace(cfg.DefaultTenantID), "Tenant scope header")
+	cmd.Flags().StringVar(&workspaceID, "workspace-id", strings.TrimSpace(cfg.DefaultWorkspaceID), "Workspace scope header")
+	cmd.Flags().StringVar(&projectID, "project-id", "", "Environment or project ID")
+	cmd.Flags().StringVar(&rolloutID, "rollout-id", "", "AWS organization rollout ID")
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "HTTP request timeout")
+	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
+	return cmd
+}
+
+func applyCLIAPIHeaders(req *http.Request, apiKey, tenantID, workspaceID string) {
+	if value := strings.TrimSpace(apiKey); value != "" {
+		req.Header.Set("X-API-Key", value)
+	}
+	if value := strings.TrimSpace(tenantID); value != "" {
+		req.Header.Set("X-Identrail-Tenant-ID", value)
+	}
+	if value := strings.TrimSpace(workspaceID); value != "" {
+		req.Header.Set("X-Identrail-Workspace-ID", value)
+	}
+}
+
+func decodeCLIAPIError(resp *http.Response, operation string) error {
+	var apiErr scanReplayCLIErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err == nil && strings.TrimSpace(apiErr.Error) != "" {
+		return fmt.Errorf("%s request failed: %s (status %d)", operation, strings.TrimSpace(apiErr.Error), resp.StatusCode)
+	}
+	return fmt.Errorf("%s request failed with status %d", operation, resp.StatusCode)
 }
 
 func buildRepoScanCmd(cfg config.Config, out io.Writer) *cobra.Command {

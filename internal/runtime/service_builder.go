@@ -438,6 +438,16 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		}
 		return api.NewAWSRuntimeSignalIngester(awssignals.New(iamAPI, analyzerAPI)), nil
 	}
+	svc.AWSOrganizationInventoryFactory = func(ctx context.Context, connection api.AWSConnectionStatus) (api.AWSOrganizationInventory, error) {
+		return awsprovider.NewSDKOrganizationInventoryFromAssumeRole(
+			ctx,
+			connection.Region,
+			cfg.AWSProfile,
+			connection.RoleARN,
+			connection.ExternalID,
+			"identrail-organization-inventory",
+		)
+	}
 	svc.DefaultScope = db.Scope{
 		TenantID:    cfg.DefaultTenantID,
 		WorkspaceID: cfg.DefaultWorkspaceID,

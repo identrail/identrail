@@ -30,6 +30,8 @@ github.com/aws/aws-sdk-go-v2/service/batch v1.68.2 h1:Ngy4smx6Fl429OyEdB7cpUI4C6
 github.com/aws/aws-sdk-go-v2/service/batch v1.68.2/go.mod h1:g5szqfCT3pGgkAS2risOA5p5ocpIss7ykS2OuiZdhJg=
 github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.53.0 h1:eurjTumC70mkzHdXLYvmqpVymqLdH3XuwmtFP3llMUc=
 github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.53.0/go.mod h1:MUOahppXzAWXdNNAfce6CtNXNrjuVbOl4FWQ0NlkwAA=
+github.com/aws/aws-sdk-go-v2/service/cloudformation v1.70.1 h1:cAdsbsK6UsT29aVjpA/VcR/neSSZwq5FtwJLVzhO7bQ=
+github.com/aws/aws-sdk-go-v2/service/cloudformation v1.70.1/go.mod h1:AIfiLeQfCO8suB3zxZp155Sv9KfiDhPyF+SSIRLEUYk=
 github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.58.2 h1:kRjhsGxNZwXiqbXXCRzmhyX+lLcaAQcdX+OFhyUaBnA=
 github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.58.2/go.mod h1:xarrHzl4WJDlfZK/+92013uc9lrREhryDTqVuZbmvHg=
 github.com/aws/aws-sdk-go-v2/service/codebuild v1.72.2 h1:LBHZuOD5jHUzrM3A9RNlUtmnD+Be8U0KYN8YE0dfiys=
@@ -68,6 +70,8 @@ github.com/aws/aws-sdk-go-v2/service/kms v1.55.2 h1:IoDMH2YObXfIEQRwbWtinQXOqErs
 github.com/aws/aws-sdk-go-v2/service/kms v1.55.2/go.mod h1:LBkxep9UEXaHac8I+GW0PEd87YNcj9B9/GtHiBeSCL8=
 github.com/aws/aws-sdk-go-v2/service/lambda v1.101.0 h1:7Ajy3/Uk9NytijLJhGtYY8JCuogbIUFXlX3/yiVlEG4=
 github.com/aws/aws-sdk-go-v2/service/lambda v1.101.0/go.mod h1:sARNHpfl6YWc1y4IBQRnYTM9DndQ8JgFTZc6eIM9T0s=
+github.com/aws/aws-sdk-go-v2/service/organizations v1.47.0 h1:pbspTixTzr9O/AnKCs68XjD6lUYAoI8AtJUsXdMmAt8=
+github.com/aws/aws-sdk-go-v2/service/organizations v1.47.0/go.mod h1:m9/mMkoPC0gZenV4x7iStoVecSyLax8mfnRaglZMXGE=
 github.com/aws/aws-sdk-go-v2/service/pipes v1.26.2 h1:LsZffveexO2+j6t5mjsAuqfKfA9qH3THPJrB9PBPEec=
 github.com/aws/aws-sdk-go-v2/service/pipes v1.26.2/go.mod h1:R8BEa/ghoOI4+sNJsJz1AyreH4T0tp/SBmmNWYvd66Y=
 github.com/aws/aws-sdk-go-v2/service/rds v1.123.2 h1:NZG6gr0MJVsL7yHfzR3NP0Xs0rOd8pxFfUsznEtlGpM=

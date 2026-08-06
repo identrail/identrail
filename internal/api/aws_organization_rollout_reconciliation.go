@@ -30,12 +30,15 @@ type AWSOrganizationRolloutRetryRequest struct {
 // pass. The API returns the refreshed status separately, while this result is
 // useful to worker logs and tests without exposing provider payloads.
 type AWSOrganizationRolloutReconcileResult struct {
-	RolloutID        string `json:"rollout_id"`
-	TargetsExamined  int    `json:"targets_examined"`
-	TargetsValidated int    `json:"targets_validated"`
-	TargetsConnected int    `json:"targets_connected"`
-	TargetsFailed    int    `json:"targets_failed"`
-	TargetsDeferred  int    `json:"targets_deferred"`
+	RolloutID              string `json:"rollout_id"`
+	TargetsExamined        int    `json:"targets_examined"`
+	TargetsAdded           int    `json:"targets_added"`
+	TargetsRemoved         int    `json:"targets_removed"`
+	StackInstancesObserved int    `json:"stack_instances_observed"`
+	TargetsValidated       int    `json:"targets_validated"`
+	TargetsConnected       int    `json:"targets_connected"`
+	TargetsFailed          int    `json:"targets_failed"`
+	TargetsDeferred        int    `json:"targets_deferred"`
 }
 
 // ReconcileAWSOrganizationRollout validates registered member roles and
@@ -76,7 +79,7 @@ func (s *Service) ReconcileAWSOrganizationRollouts(ctx context.Context, limit in
 	if err != nil {
 		return 0, err
 	}
-	rollouts, err := store.ListActiveAWSOrganizationRollouts(ctx, limit)
+	rollouts, err := store.ListMonitoredAWSOrganizationRollouts(ctx, limit)
 	if err != nil {
 		return 0, err
 	}
@@ -202,7 +205,7 @@ var (
 
 func (s *Service) reconcileAWSOrganizationRollout(ctx context.Context, store db.AWSOrganizationRolloutStore, rollout db.AWSOrganizationRollout) (AWSOrganizationRolloutReconcileResult, error) {
 	result := AWSOrganizationRolloutReconcileResult{RolloutID: rollout.RolloutID}
-	if rollout.Status == db.AWSOrganizationRolloutStatusCompleted || rollout.Status == db.AWSOrganizationRolloutStatusCanceled {
+	if rollout.Status == db.AWSOrganizationRolloutStatusCanceled {
 		return result, nil
 	}
 	if err := s.ensureAWSOrganizationRolloutControllingConnector(ctx, rollout); err != nil {
@@ -213,13 +216,22 @@ func (s *Service) reconcileAWSOrganizationRollout(ctx context.Context, store db.
 		return result, err
 	}
 	now := s.Now().UTC()
-	if !now.Before(rollout.ExpiresAt) {
+	if rollout.Status != db.AWSOrganizationRolloutStatusCompleted && !now.Before(rollout.ExpiresAt) {
 		rollout.Status = db.AWSOrganizationRolloutStatusExpired
 		rollout.FailureCode = "rollout_envelope_expired"
 		rollout.FailureMessage = "The rollout envelope elapsed its 24-hour window before all targets connected."
 		rollout.UpdatedAt = now
 		_, err := store.UpdateAWSOrganizationRollout(ctx, rollout, rollout.Version)
 		return AWSOrganizationRolloutReconcileResult{}, err
+	}
+	if s.AWSOrganizationInventoryFactory != nil {
+		added, removed, instances, inventoryErr := s.reconcileAWSOrganizationInventory(ctx, store, rollout, now)
+		if inventoryErr != nil {
+			return result, inventoryErr
+		}
+		result.TargetsAdded = added
+		result.TargetsRemoved = removed
+		result.StackInstancesObserved = instances
 	}
 
 	targets, err := store.ListAWSOrganizationRolloutTargets(ctx, rollout.WorkspaceID, rollout.ProjectID, rollout.RolloutID)
@@ -323,6 +335,149 @@ func (s *Service) reconcileAWSOrganizationRollout(ctx context.Context, store db.
 		return result, err
 	}
 	return result, nil
+}
+
+func (s *Service) reconcileAWSOrganizationInventory(ctx context.Context, store db.AWSOrganizationRolloutStore, rollout db.AWSOrganizationRollout, now time.Time) (int, int, int, error) {
+	stored, err := s.Store.GetTenancyConnector(ctx, rollout.WorkspaceID, rollout.ProjectID, rollout.ControllingConnectorID)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	connection := s.awsConnectionStatusFromStored(ctx, stored)
+	inventory, err := s.AWSOrganizationInventoryFactory(ctx, connection)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("create aws organization inventory: %w", err)
+	}
+	snapshot, err := inventory.Discover(ctx, AWSOrganizationInventoryRequest{StackSetName: rollout.StackSetName, ControllingRole: rollout.ControllingRole})
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("discover aws organization inventory: %w", err)
+	}
+	if snapshot.OrganizationID != rollout.OrganizationID || snapshot.ManagementAccountID != rollout.ManagementAccountID || snapshot.Partition != rollout.Partition {
+		return 0, 0, 0, ErrInvalidAWSConnectionRequest
+	}
+
+	existingTargets, err := store.ListAWSOrganizationRolloutTargets(ctx, rollout.WorkspaceID, rollout.ProjectID, rollout.RolloutID)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	existingByKey := make(map[string]db.AWSOrganizationRolloutTarget, len(existingTargets))
+	for _, target := range existingTargets {
+		existingByKey[target.AccountID+"\x00"+target.Region] = target
+	}
+	explicitAccounts := normalizedAWSOrganizationRolloutFilter(rollout.SelectedAccountIDs, false)
+	excludedAccounts := normalizedAWSOrganizationRolloutFilter(rollout.ExcludedAccountIDs, false)
+	selectedAccounts := normalizedAWSOrganizationRolloutFilter(awsOrganizationInventorySelectedAccounts(snapshot, rollout.SelectedOUIDs, rollout.SelectedAccountIDs), false)
+	accountsByID := awsOrganizationInventoryAccountMap(snapshot)
+	stackInstances := make(map[string]AWSOrganizationStackInstance, len(snapshot.StackInstances))
+	for _, instance := range snapshot.StackInstances {
+		stackInstances[instance.AccountID+"\x00"+instance.Region] = instance
+	}
+
+	added := 0
+	removed := 0
+	for accountID := range selectedAccounts {
+		account, ok := accountsByID[accountID]
+		if !ok {
+			continue
+		}
+		_, explicit := explicitAccounts[accountID]
+		for _, region := range rollout.TargetRegions {
+			key := accountID + "\x00" + region
+			target, exists := existingByKey[key]
+			if !exists && !explicit && !rollout.AutoDeployNewAccounts {
+				continue
+			}
+			if !exists {
+				target = db.AWSOrganizationRolloutTarget{
+					RolloutID: rollout.RolloutID, AccountID: accountID, Region: region,
+					TenantID: rollout.TenantID, WorkspaceID: rollout.WorkspaceID, ProjectID: rollout.ProjectID,
+					IsManagement: accountID == rollout.ManagementAccountID, State: db.AWSOrganizationRolloutTargetPending,
+					LastTransitionAt: now,
+				}
+				added++
+			}
+			target.AccountName = account.Name
+			target.OUPath = account.OUPath
+			if _, excluded := excludedAccounts[accountID]; excluded {
+				target.State = db.AWSOrganizationRolloutTargetExcluded
+				target.FailureCode = ""
+				target.FailureMessage = ""
+				target.Retryable = false
+			} else if awsOrganizationInventoryAccountInactive(account.Status) {
+				target.State = db.AWSOrganizationRolloutTargetSuspended
+				target.FailureCode = "organization_account_inactive"
+				target.FailureMessage = "AWS Organizations reports this account as inactive."
+				target.Retryable = false
+			} else if target.State == db.AWSOrganizationRolloutTargetSuspended {
+				target.State = db.AWSOrganizationRolloutTargetFailed
+				target.FailureCode = "organization_account_reactivated"
+				target.FailureMessage = "The AWS account is active again and its connector role must be revalidated."
+				target.Retryable = true
+			}
+			if !target.IsManagement && target.State != db.AWSOrganizationRolloutTargetExcluded && target.State != db.AWSOrganizationRolloutTargetSuspended {
+				if instance, ok := stackInstances[key]; ok {
+					applyAWSOrganizationStackInstance(&target, instance, now)
+				} else if target.State == db.AWSOrganizationRolloutTargetConnected {
+					target.State = db.AWSOrganizationRolloutTargetFailed
+					target.FailureCode = "stack_instance_missing"
+					target.FailureMessage = "CloudFormation no longer reports the expected StackSet instance."
+					target.Retryable = true
+					target.LastTransitionAt = now
+				}
+			}
+			if _, err := store.UpsertAWSOrganizationRolloutTarget(ctx, target); err != nil {
+				return added, removed, len(snapshot.StackInstances), err
+			}
+			delete(existingByKey, key)
+		}
+	}
+
+	for _, target := range existingByKey {
+		if target.IsManagement || target.State == db.AWSOrganizationRolloutTargetRemoved {
+			continue
+		}
+		target.State = db.AWSOrganizationRolloutTargetRemoved
+		target.FailureCode = "organization_account_out_of_scope"
+		target.FailureMessage = "AWS Organizations no longer reports this account in the approved rollout scope."
+		target.Retryable = false
+		target.LastTransitionAt = now
+		if _, err := store.UpsertAWSOrganizationRolloutTarget(ctx, target); err != nil {
+			return added, removed, len(snapshot.StackInstances), err
+		}
+		removed++
+	}
+	return added, removed, len(snapshot.StackInstances), nil
+}
+
+func applyAWSOrganizationStackInstance(target *db.AWSOrganizationRolloutTarget, instance AWSOrganizationStackInstance, now time.Time) {
+	target.StackInstanceID = firstNonEmptyAWSValue(instance.StackSetID, instance.LastOperationID)
+	target.StackID = instance.StackID
+	target.EvidenceRef = "aws-cloudformation-stack-instance:" + target.AccountID + "/" + target.Region
+	target.LastTransitionAt = now
+	status := strings.ToLower(strings.TrimSpace(instance.Status))
+	detailed := strings.ToLower(strings.TrimSpace(instance.DetailedStatus))
+	drift := strings.ToLower(strings.TrimSpace(instance.DriftStatus))
+	switch {
+	case drift == "drifted":
+		target.State = db.AWSOrganizationRolloutTargetFailed
+		target.FailureCode = "stack_instance_drifted"
+		target.FailureMessage = "CloudFormation reports that this StackSet instance has drifted."
+		target.Retryable = true
+	case status == "inoperable" || status == "outdated" || detailed == "failed" || detailed == "cancelled":
+		target.State = db.AWSOrganizationRolloutTargetFailed
+		target.FailureCode = "stack_instance_unhealthy"
+		target.FailureMessage = firstNonEmptyAWSValue(instance.StatusReason, "CloudFormation reports an unhealthy StackSet instance.")
+		target.Retryable = true
+	case detailed == "pending" || detailed == "running":
+		target.State = db.AWSOrganizationRolloutTargetDeploying
+		target.FailureCode = ""
+		target.FailureMessage = ""
+		target.Retryable = true
+	case status == "current" && target.RoleARN == "":
+		target.State = db.AWSOrganizationRolloutTargetRegistering
+		target.FailureCode = ""
+		target.FailureMessage = ""
+		target.Retryable = true
+	}
 }
 
 func (s *Service) reconcileAWSOrganizationRolloutManagementTarget(ctx context.Context, store db.AWSOrganizationRolloutStore, rollout db.AWSOrganizationRollout, target db.AWSOrganizationRolloutTarget, now time.Time) (bool, error) {
@@ -486,6 +641,10 @@ func (s *Service) aggregateAWSOrganizationRolloutStatus(ctx context.Context, sto
 	if nextStatus == db.AWSOrganizationRolloutStatusCompleted {
 		rollout.FailureCode = ""
 		rollout.FailureMessage = ""
+		// The rollout envelope doubles as the connector's drift-monitor lease.
+		// Renew it after each healthy pass so a later detected regression gets a
+		// full repair window instead of expiring against the original setup time.
+		rollout.ExpiresAt = rollout.UpdatedAt.Add(24 * time.Hour)
 	}
 	_, err = store.UpdateAWSOrganizationRollout(ctx, rollout, rollout.Version)
 	return err

@@ -219,6 +219,45 @@ secret_kms_keys="$(json_string_array API_SECRET_KMS_KEY_ARNS_JSON '[]')"
 extra_environment="$(json_string_map API_EXTRA_ENVIRONMENT_JSON)"
 extra_secrets="$(json_string_map API_EXTRA_SECRETS_JSON)"
 
+aws_connector_registration_enabled="$(trim "${API_AWS_CONNECTOR_REGISTRATION_ENABLED:-false}")"
+case "${aws_connector_registration_enabled}" in
+  true|false) ;;
+  *) fail "API_AWS_CONNECTOR_REGISTRATION_ENABLED must be true or false" ;;
+esac
+aws_cfn_template_url="$(trim "${API_AWS_CFN_TEMPLATE_URL:-}")"
+aws_cfn_template_sha256="$(trim "${API_AWS_CFN_TEMPLATE_SHA256:-}")"
+aws_connector_environment="{}"
+if [ "${aws_connector_registration_enabled}" = "true" ]; then
+  deployment_role_arn="$(trim "${AWS_ROLE_ARN:-}")"
+  if ! [[ "${deployment_role_arn}" =~ ^arn:(aws|aws-us-gov|aws-cn):iam::([0-9]{12}):role/.+$ ]]; then
+    fail "AWS_ROLE_ARN must identify the Identrail deployment account when AWS connector registration is enabled"
+  fi
+  identrail_aws_account_id="${BASH_REMATCH[2]}"
+  if ! [[ "${aws_cfn_template_url}" =~ ^https://[^[:space:]]+/connectors/aws/sha256/[0-9a-f]{64}/identrail-readonly\.yaml$ ]]; then
+    fail "API_AWS_CFN_TEMPLATE_URL must be an immutable HTTPS /connectors/aws/sha256/<digest>/identrail-readonly.yaml URL when registration is enabled"
+  fi
+  if ! [[ "${aws_cfn_template_sha256}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    fail "API_AWS_CFN_TEMPLATE_SHA256 must use sha256:<64 lowercase hex characters> when registration is enabled"
+  fi
+  template_path_digest="$(sed -E 's#^.*/sha256/([0-9a-f]{64})/identrail-readonly\.yaml$#\1#' <<< "${aws_cfn_template_url}")"
+  if [ "${aws_cfn_template_sha256#sha256:}" != "${template_path_digest}" ]; then
+    fail "API_AWS_CFN_TEMPLATE_URL digest must match API_AWS_CFN_TEMPLATE_SHA256"
+  fi
+  aws_connector_environment="$(
+    jq -nce \
+      --arg template_url "${aws_cfn_template_url}" \
+      --arg template_sha256 "${aws_cfn_template_sha256}" \
+      --arg identrail_aws_account_id "${identrail_aws_account_id}" \
+      '{
+        IDENTRAIL_FEATURE_CONNECTOR_AWS: "true",
+        IDENTRAIL_AWS_ACCOUNT_ID: $identrail_aws_account_id,
+        IDENTRAIL_AWS_CFN_TEMPLATE_URL: $template_url,
+        IDENTRAIL_AWS_CFN_TEMPLATE_SHA256: $template_sha256,
+        IDENTRAIL_WORKER_AWS_ROLLOUT_ENABLED: "true"
+      }'
+  )"
+fi
+
 onboarding_feature_enabled="$(trim "${API_FEATURE_ONBOARDING_WIZARD:-true}")"
 case "${onboarding_feature_enabled}" in
   true|false) ;;
@@ -535,6 +574,8 @@ jq -n \
   --argjson workos_secrets "${workos_secrets}" \
   --argjson github_environment "${github_environment}" \
   --argjson github_secrets "${github_secrets}" \
+  --argjson aws_connector_environment "${aws_connector_environment}" \
+  --arg aws_connector_registration_enabled "${aws_connector_registration_enabled}" \
   --argjson api_desired_count "${api_desired_count}" \
   --argjson api_task_cpu "${api_task_cpu}" \
   --argjson api_task_memory "${api_task_memory}" \
@@ -548,6 +589,7 @@ jq -n \
     create_foundation_resources: true,
     create_api_hosting_resources: true,
     create_worker_hosting_resources: ($api_worker_enabled == "true"),
+    create_aws_connector_registration_provider: ($aws_connector_registration_enabled == "true"),
     create_runtime_secret: true,
     api_vpc_id: $api_vpc_id,
     api_public_subnet_ids: $api_public_subnet_ids,
@@ -566,7 +608,7 @@ jq -n \
     worker_desired_count: $worker_desired_count,
     worker_task_cpu: $worker_task_cpu,
     worker_task_memory: $worker_task_memory,
-    api_environment_variables: ($extra_environment + $repo_scan_environment + $email_environment + $workos_environment + $github_environment + {
+    api_environment_variables: ($extra_environment + $repo_scan_environment + $email_environment + $workos_environment + $github_environment + $aws_connector_environment + {
       IDENTRAIL_FEATURE_NEW_AUTH: "true",
       IDENTRAIL_FEATURE_ONBOARDING_WIZARD: $onboarding_feature_enabled,
       IDENTRAIL_PUBLIC_BASE_URL: "https://api.identrail.com"

@@ -1357,11 +1357,12 @@ type AWSOrganizationRolloutStore interface {
 	GetAWSOrganizationRollout(ctx context.Context, workspaceID string, projectID string, rolloutID string) (AWSOrganizationRollout, error)
 	GetAWSOrganizationRolloutAnyScope(ctx context.Context, rolloutID string) (AWSOrganizationRollout, error)
 	ListAWSOrganizationRollouts(ctx context.Context, workspaceID string, projectID string, connectorID string, limit int) ([]AWSOrganizationRollout, error)
-	// ListActiveAWSOrganizationRollouts returns active rollout envelopes across
-	// tenant scopes for the internal reconciliation worker. Callers must treat
-	// the returned scope fields as authoritative and create a scoped context
+	// ListMonitoredAWSOrganizationRollouts returns the newest non-retired
+	// rollout for each connector across tenant scopes. This keeps completed
+	// connections under drift monitoring without processing superseded rollout
+	// history. Callers must re-establish the persisted tenant/workspace scope
 	// before reading or writing targets.
-	ListActiveAWSOrganizationRollouts(ctx context.Context, limit int) ([]AWSOrganizationRollout, error)
+	ListMonitoredAWSOrganizationRollouts(ctx context.Context, limit int) ([]AWSOrganizationRollout, error)
 	UpdateAWSOrganizationRollout(ctx context.Context, rollout AWSOrganizationRollout, expectedVersion int64) (AWSOrganizationRollout, error)
 
 	UpsertAWSOrganizationRolloutTarget(ctx context.Context, target AWSOrganizationRolloutTarget) (AWSOrganizationRolloutTarget, error)

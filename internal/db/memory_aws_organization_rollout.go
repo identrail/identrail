@@ -113,20 +113,26 @@ func (m *MemoryStore) ListAWSOrganizationRollouts(ctx context.Context, workspace
 	return out, nil
 }
 
-// ListActiveAWSOrganizationRollouts is the worker-facing cross-scope read.
-// It intentionally does not require request scope; the worker derives a
-// tenant/workspace context from each returned envelope before touching its
-// targets, preserving the same boundary as the HTTP status path.
-func (m *MemoryStore) ListActiveAWSOrganizationRollouts(_ context.Context, limit int) ([]AWSOrganizationRollout, error) {
+// ListMonitoredAWSOrganizationRollouts is the worker-facing cross-scope read.
+// Only the newest rollout for a connector is monitored so completed rollout
+// history cannot duplicate provider calls after a replacement is started.
+func (m *MemoryStore) ListMonitoredAWSOrganizationRollouts(_ context.Context, limit int) ([]AWSOrganizationRollout, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	out := make([]AWSOrganizationRollout, 0)
+	latestByConnector := make(map[string]AWSOrganizationRollout)
 	for _, rollout := range m.awsOrgRollouts {
-		if !awsOrganizationRolloutActive(rollout.Status) {
-			continue
+		key := tenancyConnectorKey(rollout.TenantID, rollout.WorkspaceID, rollout.ProjectID, rollout.ControllingConnectorID)
+		latest, ok := latestByConnector[key]
+		if !ok || rollout.CreatedAt.After(latest.CreatedAt) || rollout.CreatedAt.Equal(latest.CreatedAt) && rollout.RolloutID > latest.RolloutID {
+			latestByConnector[key] = rollout
 		}
-		out = append(out, cloneAWSOrganizationRollout(rollout))
+	}
+	out := make([]AWSOrganizationRollout, 0, len(latestByConnector))
+	for _, rollout := range latestByConnector {
+		if awsOrganizationRolloutMonitored(rollout.Status) {
+			out = append(out, cloneAWSOrganizationRollout(rollout))
+		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].UpdatedAt.Before(out[j].UpdatedAt)
@@ -550,6 +556,22 @@ func awsOrganizationRolloutTargetMutationAllowed(status string) bool {
 		AWSOrganizationRolloutStatusLaunching,
 		AWSOrganizationRolloutStatusInProgress,
 		AWSOrganizationRolloutStatusReconciling,
+		AWSOrganizationRolloutStatusCompleted,
+		AWSOrganizationRolloutStatusPartial,
+		AWSOrganizationRolloutStatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func awsOrganizationRolloutMonitored(status string) bool {
+	switch status {
+	case AWSOrganizationRolloutStatusCreated,
+		AWSOrganizationRolloutStatusLaunching,
+		AWSOrganizationRolloutStatusInProgress,
+		AWSOrganizationRolloutStatusReconciling,
+		AWSOrganizationRolloutStatusCompleted,
 		AWSOrganizationRolloutStatusPartial,
 		AWSOrganizationRolloutStatusFailed:
 		return true

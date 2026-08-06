@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+tmp="$(mktemp -d)"
+trap 'rm -rf "${tmp}"' EXIT
+
+export AWS_REGION=us-east-1
+export AWS_ROLE_ARN=arn:aws:iam::111111111111:role/IdentrailGithubDeployRole
+export TF_STATE_BUCKET=identrail-test-state
+export API_VPC_ID=vpc-0123456789abcdef0
+export API_CERTIFICATE_ARN=arn:aws:acm:us-east-1:111111111111:certificate/test
+export API_CONTAINER_IMAGE=ghcr.io/identrail/identrail-api:sha-0123456789ab
+export API_DATABASE_URL_SECRET_ARN=arn:aws:secretsmanager:us-east-1:111111111111:secret:database
+export API_SESSION_KEY_SECRET_ARN=arn:aws:secretsmanager:us-east-1:111111111111:secret:session
+export API_PUBLIC_SUBNET_IDS_JSON='["subnet-1"]'
+export API_FEATURE_CONNECTOR_GITHUB_V2=false
+export API_AWS_CONNECTOR_REGISTRATION_ENABLED=true
+digest="$(printf 'a%.0s' {1..64})"
+export API_AWS_CFN_TEMPLATE_URL="https://templates.example.com/connectors/aws/sha256/${digest}/identrail-readonly.yaml"
+export API_AWS_CFN_TEMPLATE_SHA256="sha256:${digest}"
+export OUTPUT_TFVARS_PATH="${tmp}/valid.tfvars.json"
+export OUTPUT_BACKEND_CONFIG_PATH="${tmp}/backend.hcl"
+
+"${root}/scripts/prepare_aws_api_deploy.sh" >/dev/null
+jq -e --arg url "${API_AWS_CFN_TEMPLATE_URL}" --arg sha "${API_AWS_CFN_TEMPLATE_SHA256}" '
+	  .create_aws_connector_registration_provider == true and
+	  .api_environment_variables.IDENTRAIL_FEATURE_CONNECTOR_AWS == "true" and
+	  .api_environment_variables.IDENTRAIL_AWS_ACCOUNT_ID == "111111111111" and
+	  .api_environment_variables.IDENTRAIL_WORKER_AWS_ROLLOUT_ENABLED == "true" and
+  .api_environment_variables.IDENTRAIL_AWS_CFN_TEMPLATE_URL == $url and
+  .api_environment_variables.IDENTRAIL_AWS_CFN_TEMPLATE_SHA256 == $sha
+' "${OUTPUT_TFVARS_PATH}" >/dev/null
+
+wrong_digest="$(printf 'b%.0s' {1..64})"
+export API_AWS_CFN_TEMPLATE_SHA256="sha256:${wrong_digest}"
+if "${root}/scripts/prepare_aws_api_deploy.sh" >"${tmp}/invalid.out" 2>&1; then
+  echo "expected mismatched template digest to fail" >&2
+  exit 1
+fi
+grep -q "digest must match" "${tmp}/invalid.out"
+
+echo "prepare_aws_api_deploy tests passed"

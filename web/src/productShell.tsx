@@ -6252,7 +6252,7 @@ function AWSAccountsInventoryContent({
           label="Organizations accounts"
           scanned={topology?.summary.scan_eligible_accounts ?? coveredAccounts}
           total={topology?.summary.account_count ?? plan?.summary.account_count ?? 1}
-          detail={topology ? `${topology.summary.organizational_unit_count} OUs` : 'Topology pending'}
+          detail={topology ? `${topology.fixture_state === 'live' ? 'Live AWS · ' : ''}${topology.summary.organizational_unit_count} OUs` : 'Topology pending'}
         />
         <DomainCoverageCard label="Permission evidence" scanned={passedChecks} total={Math.max(totalChecks, 1)} detail="Read-only validation" />
       </section>
@@ -21810,12 +21810,9 @@ function AWSOrganizationRolloutPanel({
   const [pollEpoch, setPollEpoch] = useState(0);
   const pollGeneration = useRef(0);
   // Derive the rollout target scope from the setup mode, mirroring
-  // buildStackSetContractSnapshot / handleAWSStackSetStart. Whole-org and
-  // OU rollouts include the org root or the operator's OUs; only
-  // selected_accounts rollouts include an explicit account list. Slice 1's
-  // rollout API rejects OU-only requests until the membership resolver
-  // ships, so the launch button is only enabled when the derived scope
-  // actually names accounts (which today is only selected_accounts).
+  // buildStackSetContractSnapshot / handleAWSStackSetStart. The API expands
+  // roots and OUs from live AWS Organizations inventory before it persists
+  // the expected account set.
   const derivedTargetOUIDs = (() => {
     if (setupMode === 'selected_ous') {
       return selectedOUIDs;
@@ -21829,14 +21826,14 @@ function AWSOrganizationRolloutPanel({
   const derivedExcludedAccountIDs = setupMode !== 'selected_accounts' ? excludedAccountIDs : [];
   const derivedAutoDeployNewAccounts =
     setupMode === 'organization' || setupMode === 'selected_ous' ? autoDeployNewAccounts : false;
-  const hasExplicitAccounts = derivedTargetAccountIDs.length > 0;
+  const hasTargetScope = derivedTargetOUIDs.length > 0 || derivedTargetAccountIDs.length > 0;
   const readyToLaunch =
     Boolean(controllingConnectorID) &&
     Boolean(controllingAccountID) &&
     Boolean(organizationID) &&
     controllingConnected &&
     targetRegions.length > 0 &&
-    hasExplicitAccounts;
+    hasTargetScope;
 
   // Bounded polling budget. 30 successful ticks at 12s ≈ 6 minutes of active
   // watching, with three additional 20s tries after a transient network
@@ -22050,7 +22047,7 @@ function AWSOrganizationRolloutPanel({
               onClick={() => {
                 void handleReconcile();
               }}
-              disabled={reconcileBusy || rollout.status === 'completed' || rollout.status === 'canceled' || rollout.status === 'expired'}
+              disabled={reconcileBusy || rollout.status === 'canceled' || rollout.status === 'expired'}
             >
               {reconcileBusy ? 'Reconciling…' : 'Reconcile now'}
             </button>
@@ -22093,11 +22090,9 @@ function AWSOrganizationRolloutPanel({
           organization-scale rollout.
         </p>
       ) : null}
-      {controllingConnected && !rollout && !hasExplicitAccounts ? (
+      {controllingConnected && !rollout && !hasTargetScope ? (
         <p className="idt-aws-stackset-coverage-line" role="status">
-          This release requires selected member accounts. Switch scope to <em>Selected accounts</em> and list every target
-          account so Identrail can honestly seed and report each per-account outcome. OU-only rollouts land with the
-          reconciliation slice.
+          Choose at least one organization root, OU, or member account before starting the rollout.
         </p>
       ) : null}
       {errorMessage ? (

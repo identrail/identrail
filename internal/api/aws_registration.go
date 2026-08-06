@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	awsConnectorTemplateVersion    = "2.0.0"
+	awsConnectorTemplateVersion    = "2.1.0"
 	awsRegistrationTokenPurpose    = "aws-connector-registration-v1"
 	awsRegistrationAttemptLifetime = 2 * time.Hour
 )

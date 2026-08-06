@@ -18,6 +18,11 @@ on:
         default: migrations
   workflow_call:
     inputs:
+      source_ref:
+        description: "Exact dev commit to migrate from."
+        required: false
+        type: string
+        default: ""
       confirm_migrations:
         description: "Confirmation string for migration execution."
         required: false
@@ -57,6 +62,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e

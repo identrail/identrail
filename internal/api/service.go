@@ -170,6 +170,12 @@ type AWSCloudTrailDeliveryIngesterFactory func(ctx context.Context, connection A
 // ingester bound to one persisted AWS connector.
 type AWSRuntimeSignalFactory func(ctx context.Context, connection AWSConnectionStatus) (AWSRuntimeSignalIngester, error)
 
+// AWSOrganizationInventoryFactory creates a read-only Organizations and
+// CloudFormation StackSet inventory client bound to the validated controlling
+// connector role. The API layer consumes neutral snapshot types so AWS SDK
+// details stay inside the provider adapter.
+type AWSOrganizationInventoryFactory func(ctx context.Context, connection AWSConnectionStatus) (AWSOrganizationInventory, error)
+
 type queuedScanDepthCounter interface {
 	CountQueuedScansAnyScope(ctx context.Context, provider string) (int, error)
 }
@@ -216,6 +222,7 @@ type Service struct {
 	AWSCloudTrailLookupEventsFactory   AWSCloudTrailLookupEventsFactory
 	AWSCloudTrailDeliveryFactory       AWSCloudTrailDeliveryIngesterFactory
 	AWSRuntimeSignalFactory            AWSRuntimeSignalFactory
+	AWSOrganizationInventoryFactory    AWSOrganizationInventoryFactory
 	AWSCloudFormationTemplateURL       string
 	AWSCloudFormationTemplateSHA       string
 	AWSAccountID                       string
