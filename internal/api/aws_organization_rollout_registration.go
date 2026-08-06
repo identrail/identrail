@@ -51,6 +51,14 @@ func (s *Service) processAWSOrganizationRolloutMemberRegistration(
 	if err != nil {
 		return s.failAWSCloudFormationRequest(ctx, request, "The Identrail rollout is unknown or has been closed.", err)
 	}
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: rollout.TenantID, WorkspaceID: rollout.WorkspaceID})
+	if !awsOrganizationRolloutActiveStatus(rollout.Status) {
+		return s.failAWSCloudFormationRequest(ctx, request, "The Identrail rollout is no longer accepting registrations.", fmt.Errorf("rollout is not active"))
+	}
+	if err := s.ensureAWSOrganizationRolloutControllingConnector(scopedCtx, rollout); err != nil {
+		s.cancelAWSOrganizationRolloutForLifecycle(scopedCtx, store, rollout)
+		return s.failAWSCloudFormationRequest(ctx, request, "The controlling AWS connector is no longer eligible for this rollout.", err)
+	}
 	if !s.isAWSRegistrationTopicARN(topicARN) {
 		return s.failAWSCloudFormationRequest(ctx, request, "The Identrail rollout registration provider is unknown.", fmt.Errorf("rollout topic arn not allowlisted"))
 	}
@@ -89,8 +97,6 @@ func (s *Service) processAWSOrganizationRolloutMemberRegistration(
 		return s.failAWSCloudFormationRequest(ctx, request, "The AWS role name does not match the rollout's expected role.", fmt.Errorf("rollout role name mismatch"))
 	}
 
-	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: rollout.TenantID, WorkspaceID: rollout.WorkspaceID})
-
 	// SQS redelivery dedupe. Once a callback for this exact CloudFormation
 	// request ID has been ACKed, a redelivery re-sends SUCCESS is a no-op
 	// on the AWS side (the pre-signed callback URL is single-use) and
@@ -99,6 +105,10 @@ func (s *Service) processAWSOrganizationRolloutMemberRegistration(
 	if existing, existsErr := store.GetAWSOrganizationRolloutTarget(scopedCtx, rollout.RolloutID, accountID, region); existsErr == nil &&
 		existing.RegisterRequestID != "" && existing.RegisterRequestID == request.RequestID {
 		return nil
+	}
+	if err := s.ensureAWSOrganizationRolloutControllingConnector(scopedCtx, rollout); err != nil {
+		s.cancelAWSOrganizationRolloutForLifecycle(scopedCtx, store, rollout)
+		return s.failAWSCloudFormationRequest(ctx, request, "The controlling AWS connector is no longer eligible for this rollout.", err)
 	}
 
 	target := db.AWSOrganizationRolloutTarget{

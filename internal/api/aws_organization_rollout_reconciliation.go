@@ -118,6 +118,10 @@ func (s *Service) RetryAWSOrganizationRollout(ctx context.Context, workspaceID s
 	if err != nil {
 		return AWSOrganizationRolloutStatus{}, err
 	}
+	if err := s.ensureAWSOrganizationRolloutControllingConnector(ctx, rollout); err != nil {
+		s.cancelAWSOrganizationRolloutForLifecycle(ctx, store, rollout)
+		return AWSOrganizationRolloutStatus{}, err
+	}
 	now := s.Now().UTC()
 	if !now.Before(rollout.ExpiresAt) || rollout.Status == db.AWSOrganizationRolloutStatusExpired {
 		return AWSOrganizationRolloutStatus{}, ErrAWSOrganizationRolloutExpired
@@ -195,8 +199,13 @@ var (
 )
 
 func (s *Service) reconcileAWSOrganizationRollout(ctx context.Context, store db.AWSOrganizationRolloutStore, rollout db.AWSOrganizationRollout) (AWSOrganizationRolloutReconcileResult, error) {
+	result := AWSOrganizationRolloutReconcileResult{RolloutID: rollout.RolloutID}
 	if rollout.Status == db.AWSOrganizationRolloutStatusCompleted || rollout.Status == db.AWSOrganizationRolloutStatusCanceled {
-		return AWSOrganizationRolloutReconcileResult{}, nil
+		return result, nil
+	}
+	if err := s.ensureAWSOrganizationRolloutControllingConnector(ctx, rollout); err != nil {
+		s.cancelAWSOrganizationRolloutForLifecycle(ctx, store, rollout)
+		return result, nil
 	}
 	now := s.Now().UTC()
 	if !now.Before(rollout.ExpiresAt) {
@@ -212,7 +221,7 @@ func (s *Service) reconcileAWSOrganizationRollout(ctx context.Context, store db.
 	if err != nil {
 		return AWSOrganizationRolloutReconcileResult{}, err
 	}
-	result := AWSOrganizationRolloutReconcileResult{RolloutID: rollout.RolloutID, TargetsExamined: len(targets)}
+	result.TargetsExamined = len(targets)
 	sem := make(chan struct{}, awsOrganizationRolloutValidationConcurrency)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -292,7 +301,15 @@ func (s *Service) reconcileAWSOrganizationRollout(ctx context.Context, store db.
 	}
 	wg.Wait()
 	if firstErr != nil {
+		if errors.Is(firstErr, ErrAWSOrganizationRolloutControllingUnready) {
+			s.cancelAWSOrganizationRolloutForLifecycle(ctx, store, rollout)
+			return result, nil
+		}
 		return result, firstErr
+	}
+	if err := s.ensureAWSOrganizationRolloutControllingConnector(ctx, rollout); err != nil {
+		s.cancelAWSOrganizationRolloutForLifecycle(ctx, store, rollout)
+		return result, nil
 	}
 	if err := s.aggregateAWSOrganizationRolloutStatus(ctx, store, rollout); err != nil {
 		return result, err
@@ -301,11 +318,17 @@ func (s *Service) reconcileAWSOrganizationRollout(ctx context.Context, store db.
 }
 
 func (s *Service) reconcileAWSOrganizationRolloutManagementTarget(ctx context.Context, store db.AWSOrganizationRolloutStore, rollout db.AWSOrganizationRollout, target db.AWSOrganizationRolloutTarget, now time.Time) (bool, error) {
+	if err := s.ensureAWSOrganizationRolloutControllingConnector(ctx, rollout); err != nil {
+		return false, err
+	}
 	stored, err := s.Store.GetTenancyConnector(ctx, rollout.WorkspaceID, rollout.ProjectID, rollout.ControllingConnectorID)
 	if err != nil {
 		return false, err
 	}
 	connection := s.awsConnectionStatusFromStored(ctx, stored)
+	if err := s.ensureAWSOrganizationRolloutControllingConnector(ctx, rollout); err != nil {
+		return false, err
+	}
 	target.LastValidationAt = &now
 	target.LastTransitionAt = now
 	target.UpdatedAt = now
@@ -327,6 +350,9 @@ func (s *Service) reconcileAWSOrganizationRolloutManagementTarget(ctx context.Co
 }
 
 func (s *Service) reconcileAWSOrganizationRolloutMemberTarget(ctx context.Context, store db.AWSOrganizationRolloutStore, rollout db.AWSOrganizationRollout, target db.AWSOrganizationRolloutTarget, now time.Time) (bool, error) {
+	if err := s.ensureAWSOrganizationRolloutControllingConnector(ctx, rollout); err != nil {
+		return false, err
+	}
 	if s.AWSConnectorValidator == nil {
 		return false, s.recordAWSOrganizationRolloutValidationFailure(ctx, store, target, now, "validator_unavailable", "Member-role validation is not configured in this deployment.", true)
 	}
@@ -342,6 +368,9 @@ func (s *Service) reconcileAWSOrganizationRolloutMemberTarget(ctx context.Contex
 	})
 	if err != nil {
 		return false, s.recordAWSOrganizationRolloutValidationFailure(ctx, store, target, now, "aws_validation_error", "AWS member-role validation could not complete.", true)
+	}
+	if err := s.ensureAWSOrganizationRolloutControllingConnector(ctx, rollout); err != nil {
+		return false, err
 	}
 	for _, diagnostic := range validation.Diagnostics {
 		if strings.TrimSpace(diagnostic.Code) == "" {

@@ -20,7 +20,8 @@ const awsOrganizationRolloutColumns = `
     COALESCE(target_regions, '[]'::jsonb),
     auto_deploy_new_accounts, status,
     COALESCE(failure_code, ''), COALESCE(failure_message, ''),
-    expires_at, created_at, updated_at, version`
+    expires_at, created_at, updated_at, version,
+    controlling_connector_lifecycle_generation`
 
 func (p *PostgresStore) CreateAWSOrganizationRollout(ctx context.Context, rollout AWSOrganizationRollout) (AWSOrganizationRollout, error) {
 	normalized, err := normalizeAWSOrganizationRollout(ctx, rollout)
@@ -32,6 +33,19 @@ func (p *PostgresStore) CreateAWSOrganizationRollout(ctx context.Context, rollou
 		return AWSOrganizationRollout{}, err
 	}
 	row := p.queryRowContext(ctx, `
+        WITH eligible_connector AS (
+            SELECT connector_id
+            FROM tenancy_connectors
+            WHERE tenant_id = $2
+              AND workspace_id = $3
+              AND project_id = $4
+              AND connector_id = $5
+              AND type = 'aws'
+              AND status = 'active'
+              AND disabled = FALSE
+              AND lifecycle_generation = $29
+            FOR UPDATE
+        )
         INSERT INTO aws_organization_rollouts (
             rollout_id, tenant_id, workspace_id, project_id, controlling_connector_id,
             controlling_role, organization_id, management_account_id, partition,
@@ -39,13 +53,14 @@ func (p *PostgresStore) CreateAWSOrganizationRollout(ctx context.Context, rollou
             template_checksum, registration_secret_hash, registration_secret_key_version,
             selected_ou_ids, selected_account_ids, excluded_account_ids, target_regions,
             auto_deploy_new_accounts, status, failure_code, failure_message,
-            expires_at, created_at, updated_at, version
-        ) VALUES (
+            expires_at, created_at, updated_at, version,
+            controlling_connector_lifecycle_generation
+        ) SELECT
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
             $17::jsonb, $18::jsonb, $19::jsonb, $20::jsonb,
             $21, $22, NULLIF($23, ''), NULLIF($24, ''),
-            $25, $26, $27, $28
-        )
+            $25, $26, $27, $28, $29
+        FROM eligible_connector
         ON CONFLICT DO NOTHING
         RETURNING `+awsOrganizationRolloutColumns,
 		normalized.RolloutID,
@@ -76,6 +91,7 @@ func (p *PostgresStore) CreateAWSOrganizationRollout(ctx context.Context, rollou
 		normalized.CreatedAt,
 		normalized.UpdatedAt,
 		normalized.Version,
+		normalized.ControllingConnectorLifecycleGeneration,
 	)
 	created, err := scanAWSOrganizationRollout(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -192,7 +208,7 @@ func (p *PostgresStore) UpdateAWSOrganizationRollout(ctx context.Context, rollou
 		return AWSOrganizationRollout{}, err
 	}
 	row := p.queryRowContext(ctx, `
-        UPDATE aws_organization_rollouts
+        UPDATE aws_organization_rollouts AS rollout
         SET controlling_role = $6,
             organization_id = $7,
             management_account_id = $8,
@@ -215,8 +231,24 @@ func (p *PostgresStore) UpdateAWSOrganizationRollout(ctx context.Context, rollou
             expires_at = $25,
             updated_at = $26,
             version = version + 1
-        WHERE rollout_id = $1 AND tenant_id = $2 AND workspace_id = $3
-          AND project_id = $4 AND controlling_connector_id = $5 AND version = $27
+        WHERE rollout.rollout_id = $1 AND rollout.tenant_id = $2 AND rollout.workspace_id = $3
+          AND rollout.project_id = $4 AND rollout.controlling_connector_id = $5 AND rollout.version = $27
+          AND (
+              $22 NOT IN ('created', 'launching', 'in_progress', 'reconciling', 'partial', 'failed')
+              OR EXISTS (
+                  SELECT 1
+                  FROM tenancy_connectors AS controlling_connector
+                  WHERE controlling_connector.tenant_id = rollout.tenant_id
+                    AND controlling_connector.workspace_id = rollout.workspace_id
+                    AND controlling_connector.project_id = rollout.project_id
+                    AND controlling_connector.connector_id = rollout.controlling_connector_id
+                    AND controlling_connector.type = 'aws'
+                    AND controlling_connector.status = 'active'
+                    AND controlling_connector.disabled = FALSE
+                    AND controlling_connector.lifecycle_generation = rollout.controlling_connector_lifecycle_generation
+                  FOR UPDATE
+              )
+          )
         RETURNING `+awsOrganizationRolloutColumns,
 		normalized.RolloutID,
 		normalized.TenantID,
@@ -278,18 +310,37 @@ func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, 
 	}
 	normalized.UpdatedAt = now
 	row := p.queryRowContext(ctx, `
+        WITH eligible_rollout AS (
+            SELECT rollout.rollout_id
+            FROM aws_organization_rollouts AS rollout
+            JOIN tenancy_connectors AS controlling_connector
+              ON controlling_connector.tenant_id = rollout.tenant_id
+             AND controlling_connector.workspace_id = rollout.workspace_id
+             AND controlling_connector.project_id = rollout.project_id
+             AND controlling_connector.connector_id = rollout.controlling_connector_id
+            WHERE rollout.rollout_id = $1
+              AND rollout.tenant_id = $4
+              AND rollout.workspace_id = $5
+              AND rollout.project_id = $6
+              AND rollout.status IN ('created', 'launching', 'in_progress', 'reconciling', 'partial', 'failed')
+              AND controlling_connector.type = 'aws'
+              AND controlling_connector.status = 'active'
+              AND controlling_connector.disabled = FALSE
+              AND controlling_connector.lifecycle_generation = rollout.controlling_connector_lifecycle_generation
+            FOR UPDATE OF rollout, controlling_connector
+        )
         INSERT INTO aws_organization_rollout_targets (
             rollout_id, account_id, region, tenant_id, workspace_id, project_id,
             account_name, ou_path, is_management, state, stack_instance_id, stack_id,
             role_arn, failure_code, failure_message, retryable, evidence_ref,
             register_request_id, last_transition_at, last_validation_at,
             created_at, updated_at, version
-        ) VALUES (
+        ) SELECT
             $1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), $9, $10,
             NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, ''),
             NULLIF($14, ''), NULLIF($15, ''), $16, NULLIF($17, ''), NULLIF($18, ''),
             $19, $20, $21, $22, 1
-        )
+        FROM eligible_rollout
         ON CONFLICT (rollout_id, account_id, region) DO UPDATE
         SET account_name = COALESCE(EXCLUDED.account_name, aws_organization_rollout_targets.account_name),
             ou_path = COALESCE(EXCLUDED.ou_path, aws_organization_rollout_targets.ou_path),
@@ -349,6 +400,9 @@ func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, 
 		normalized.UpdatedAt,
 	)
 	upserted, err := scanAWSOrganizationRolloutTarget(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AWSOrganizationRolloutTarget{}, ErrConflict
+	}
 	if isTenancyFKViolation(err) {
 		return AWSOrganizationRolloutTarget{}, ErrNotFound
 	}
@@ -378,13 +432,22 @@ func (p *PostgresStore) ResetAWSOrganizationRolloutTarget(ctx context.Context, t
           AND EXISTS (
               SELECT 1
               FROM aws_organization_rollouts AS rollout
+              JOIN tenancy_connectors AS controlling_connector
+                ON controlling_connector.tenant_id = rollout.tenant_id
+               AND controlling_connector.workspace_id = rollout.workspace_id
+               AND controlling_connector.project_id = rollout.project_id
+               AND controlling_connector.connector_id = rollout.controlling_connector_id
               WHERE rollout.rollout_id = aws_organization_rollout_targets.rollout_id
                 AND rollout.tenant_id = aws_organization_rollout_targets.tenant_id
                 AND rollout.workspace_id = aws_organization_rollout_targets.workspace_id
                 AND rollout.project_id = aws_organization_rollout_targets.project_id
                 AND rollout.status IN ('created', 'launching', 'in_progress', 'reconciling', 'partial', 'failed')
                 AND rollout.expires_at > $8
-              FOR UPDATE
+                AND controlling_connector.type = 'aws'
+                AND controlling_connector.status = 'active'
+                AND controlling_connector.disabled = FALSE
+                AND controlling_connector.lifecycle_generation = rollout.controlling_connector_lifecycle_generation
+              FOR UPDATE OF rollout, controlling_connector
           )
         RETURNING `+awsOrganizationRolloutTargetColumns,
 		normalized.RolloutID,
@@ -498,6 +561,7 @@ func scanAWSOrganizationRollout(row rowScanner) (AWSOrganizationRollout, error) 
 		&rollout.CreatedAt,
 		&rollout.UpdatedAt,
 		&rollout.Version,
+		&rollout.ControllingConnectorLifecycleGeneration,
 	)
 	if err != nil {
 		return AWSOrganizationRollout{}, err

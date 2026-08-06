@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/identrail/identrail/internal/domain"
 )
 
 func (m *MemoryStore) CreateAWSOrganizationRollout(ctx context.Context, rollout AWSOrganizationRollout) (AWSOrganizationRollout, error) {
@@ -21,8 +23,13 @@ func (m *MemoryStore) CreateAWSOrganizationRollout(ctx context.Context, rollout 
 		return AWSOrganizationRollout{}, ErrConflict
 	}
 	connectorKey := tenancyConnectorKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ControllingConnectorID)
-	if _, exists := m.connectors[connectorKey]; !exists {
+	connector, exists := m.connectors[connectorKey]
+	if !exists {
 		return AWSOrganizationRollout{}, ErrNotFound
+	}
+	if connector.Type != domain.ConnectorTypeAWS || connector.Disabled || connector.Status != domain.ConnectorStatusActive ||
+		connector.LifecycleGeneration != normalized.ControllingConnectorLifecycleGeneration {
+		return AWSOrganizationRollout{}, ErrConflict
 	}
 	for _, existing := range m.awsOrgRollouts {
 		if existing.TenantID == normalized.TenantID &&
@@ -155,6 +162,14 @@ func (m *MemoryStore) UpdateAWSOrganizationRollout(ctx context.Context, rollout 
 	if existing.Version != expectedVersion {
 		return AWSOrganizationRollout{}, ErrConflict
 	}
+	normalized.ControllingConnectorLifecycleGeneration = existing.ControllingConnectorLifecycleGeneration
+	if awsOrganizationRolloutTargetMutationAllowed(normalized.Status) {
+		connector, ok := m.connectors[tenancyConnectorKey(existing.TenantID, existing.WorkspaceID, existing.ProjectID, existing.ControllingConnectorID)]
+		if !ok || connector.Type != domain.ConnectorTypeAWS || connector.Disabled || connector.Status != domain.ConnectorStatusActive ||
+			connector.LifecycleGeneration != existing.ControllingConnectorLifecycleGeneration {
+			return AWSOrganizationRollout{}, ErrConflict
+		}
+	}
 	if awsOrganizationRolloutActive(normalized.Status) {
 		for id, other := range m.awsOrgRollouts {
 			if id == normalized.RolloutID {
@@ -191,6 +206,14 @@ func (m *MemoryStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, ta
 		parent.WorkspaceID != normalized.WorkspaceID ||
 		parent.ProjectID != normalized.ProjectID {
 		return AWSOrganizationRolloutTarget{}, ErrNotFound
+	}
+	if !awsOrganizationRolloutTargetMutationAllowed(parent.Status) {
+		return AWSOrganizationRolloutTarget{}, ErrConflict
+	}
+	connector, ok := m.connectors[tenancyConnectorKey(parent.TenantID, parent.WorkspaceID, parent.ProjectID, parent.ControllingConnectorID)]
+	if !ok || connector.Type != domain.ConnectorTypeAWS || connector.Disabled || connector.Status != domain.ConnectorStatusActive ||
+		connector.LifecycleGeneration != parent.ControllingConnectorLifecycleGeneration {
+		return AWSOrganizationRolloutTarget{}, ErrConflict
 	}
 	key := awsOrganizationRolloutTargetKey(normalized.RolloutID, normalized.AccountID, normalized.Region)
 	now := time.Now().UTC()
@@ -276,6 +299,11 @@ func (m *MemoryStore) ResetAWSOrganizationRolloutTarget(ctx context.Context, tar
 	}
 	now := time.Now().UTC()
 	if !awsOrganizationRolloutRetryableStatus(parent.Status) || !now.Before(parent.ExpiresAt) {
+		return AWSOrganizationRolloutTarget{}, ErrConflict
+	}
+	connector, ok := m.connectors[tenancyConnectorKey(parent.TenantID, parent.WorkspaceID, parent.ProjectID, parent.ControllingConnectorID)]
+	if !ok || connector.Type != domain.ConnectorTypeAWS || connector.Disabled || connector.Status != domain.ConnectorStatusActive ||
+		connector.LifecycleGeneration != parent.ControllingConnectorLifecycleGeneration {
 		return AWSOrganizationRolloutTarget{}, ErrConflict
 	}
 	key := awsOrganizationRolloutTargetKey(normalized.RolloutID, normalized.AccountID, normalized.Region)
@@ -404,6 +432,9 @@ func normalizeAWSOrganizationRollout(ctx context.Context, rollout AWSOrganizatio
 	rollout.RegistrationSecretKeyVersion = strings.TrimSpace(rollout.RegistrationSecretKeyVersion)
 	rollout.ControllingRole = strings.TrimSpace(rollout.ControllingRole)
 	rollout.Status = strings.TrimSpace(rollout.Status)
+	if rollout.ControllingConnectorLifecycleGeneration < 0 {
+		return AWSOrganizationRollout{}, ErrInvalidAWSOrganizationRollout
+	}
 	rollout.SelectedOUIDs = trimAndDedupeStringSlice(rollout.SelectedOUIDs)
 	rollout.SelectedAccountIDs = trimAndDedupeStringSlice(rollout.SelectedAccountIDs)
 	rollout.ExcludedAccountIDs = trimAndDedupeStringSlice(rollout.ExcludedAccountIDs)
@@ -507,6 +538,20 @@ func awsOrganizationRolloutActive(status string) bool {
 		AWSOrganizationRolloutStatusLaunching,
 		AWSOrganizationRolloutStatusInProgress,
 		AWSOrganizationRolloutStatusReconciling:
+		return true
+	default:
+		return false
+	}
+}
+
+func awsOrganizationRolloutTargetMutationAllowed(status string) bool {
+	switch status {
+	case AWSOrganizationRolloutStatusCreated,
+		AWSOrganizationRolloutStatusLaunching,
+		AWSOrganizationRolloutStatusInProgress,
+		AWSOrganizationRolloutStatusReconciling,
+		AWSOrganizationRolloutStatusPartial,
+		AWSOrganizationRolloutStatusFailed:
 		return true
 	default:
 		return false

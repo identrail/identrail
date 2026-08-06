@@ -1285,34 +1285,38 @@ const (
 // SHA-256 hash is, and it authenticates every member-account event alongside
 // the rollout's organization/stack-set binding.
 type AWSOrganizationRollout struct {
-	RolloutID                    string    `json:"rollout_id"`
-	TenantID                     string    `json:"tenant_id"`
-	WorkspaceID                  string    `json:"workspace_id"`
-	ProjectID                    string    `json:"project_id"`
-	ControllingConnectorID       string    `json:"controlling_connector_id"`
-	ControllingRole              string    `json:"controlling_role"`
-	OrganizationID               string    `json:"organization_id"`
-	ManagementAccountID          string    `json:"management_account_id"`
-	Partition                    string    `json:"partition"`
-	DeploymentMode               string    `json:"deployment_mode"`
-	StackSetName                 string    `json:"stack_set_name"`
-	ExpectedRoleName             string    `json:"expected_role_name"`
-	TemplateVersion              string    `json:"template_version"`
-	TemplateChecksum             string    `json:"template_checksum"`
-	RegistrationSecretHash       []byte    `json:"-"`
-	RegistrationSecretKeyVersion string    `json:"-"`
-	SelectedOUIDs                []string  `json:"selected_ou_ids"`
-	SelectedAccountIDs           []string  `json:"selected_account_ids"`
-	ExcludedAccountIDs           []string  `json:"excluded_account_ids"`
-	TargetRegions                []string  `json:"target_regions"`
-	AutoDeployNewAccounts        bool      `json:"auto_deploy_new_accounts"`
-	Status                       string    `json:"status"`
-	FailureCode                  string    `json:"failure_code,omitempty"`
-	FailureMessage               string    `json:"failure_message,omitempty"`
-	ExpiresAt                    time.Time `json:"expires_at"`
-	CreatedAt                    time.Time `json:"created_at"`
-	UpdatedAt                    time.Time `json:"updated_at"`
-	Version                      int64     `json:"version"`
+	RolloutID              string `json:"rollout_id"`
+	TenantID               string `json:"tenant_id"`
+	WorkspaceID            string `json:"workspace_id"`
+	ProjectID              string `json:"project_id"`
+	ControllingConnectorID string `json:"controlling_connector_id"`
+	// ControllingConnectorLifecycleGeneration binds the rollout to the exact
+	// connector lifecycle decision that approved it. A pause or disconnect
+	// advances the connector generation and invalidates this rollout.
+	ControllingConnectorLifecycleGeneration int64     `json:"controlling_connector_lifecycle_generation"`
+	ControllingRole                         string    `json:"controlling_role"`
+	OrganizationID                          string    `json:"organization_id"`
+	ManagementAccountID                     string    `json:"management_account_id"`
+	Partition                               string    `json:"partition"`
+	DeploymentMode                          string    `json:"deployment_mode"`
+	StackSetName                            string    `json:"stack_set_name"`
+	ExpectedRoleName                        string    `json:"expected_role_name"`
+	TemplateVersion                         string    `json:"template_version"`
+	TemplateChecksum                        string    `json:"template_checksum"`
+	RegistrationSecretHash                  []byte    `json:"-"`
+	RegistrationSecretKeyVersion            string    `json:"-"`
+	SelectedOUIDs                           []string  `json:"selected_ou_ids"`
+	SelectedAccountIDs                      []string  `json:"selected_account_ids"`
+	ExcludedAccountIDs                      []string  `json:"excluded_account_ids"`
+	TargetRegions                           []string  `json:"target_regions"`
+	AutoDeployNewAccounts                   bool      `json:"auto_deploy_new_accounts"`
+	Status                                  string    `json:"status"`
+	FailureCode                             string    `json:"failure_code,omitempty"`
+	FailureMessage                          string    `json:"failure_message,omitempty"`
+	ExpiresAt                               time.Time `json:"expires_at"`
+	CreatedAt                               time.Time `json:"created_at"`
+	UpdatedAt                               time.Time `json:"updated_at"`
+	Version                                 int64     `json:"version"`
 }
 
 // AWSOrganizationRolloutTarget is one (account, region) pair a rollout intends

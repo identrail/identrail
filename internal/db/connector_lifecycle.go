@@ -25,6 +25,20 @@ func connectorLifecycleMetadata(action string, now time.Time) map[string]any {
 	}
 }
 
+func cancelAWSOrganizationRolloutsTx(ctx context.Context, tx *sql.Tx, tenantID string, workspaceID string, projectID string, connectorID string, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE aws_organization_rollouts
+		   SET status = 'canceled',
+		       failure_code = 'controlling_connector_lifecycle_changed',
+		       failure_message = 'The controlling AWS connector was paused or disconnected.',
+		       updated_at = $5,
+		       version = version + 1
+		 WHERE tenant_id = $1 AND workspace_id = $2 AND project_id = $3 AND controlling_connector_id = $4
+		   AND status IN ('created', 'launching', 'in_progress', 'reconciling', 'partial', 'failed')`,
+		tenantID, workspaceID, projectID, connectorID, now)
+	return err
+}
+
 // DisconnectTenancyConnector is the authoritative local disconnect action.
 // It advances the lifecycle generation, invalidates stored connector secrets,
 // and records that provider-side cleanup is still pending. It never claims an
@@ -82,6 +96,9 @@ func (p *PostgresStore) DisconnectTenancyConnector(ctx context.Context, workspac
 			return TenancyConnectorWithState{}, err
 		}
 		if status == "disconnected" {
+			if err := cancelAWSOrganizationRolloutsTx(ctx, tx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), now); err != nil {
+				return TenancyConnectorWithState{}, fmt.Errorf("cancel disconnected connector rollouts: %w", err)
+			}
 			if err := tx.Commit(); err != nil {
 				return TenancyConnectorWithState{}, fmt.Errorf("commit idempotent connector disconnect: %w", err)
 			}
@@ -113,6 +130,9 @@ func (p *PostgresStore) DisconnectTenancyConnector(ctx context.Context, workspac
 		DELETE FROM tenancy_connector_secret_envelopes
 		 WHERE tenant_id = $1 AND workspace_id = $2 AND project_id = $3 AND connector_id = $4`, args[:4]...); err != nil {
 		return TenancyConnectorWithState{}, fmt.Errorf("invalidate connector secrets: %w", err)
+	}
+	if err := cancelAWSOrganizationRolloutsTx(ctx, tx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), now); err != nil {
+		return TenancyConnectorWithState{}, fmt.Errorf("cancel connector rollouts: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return TenancyConnectorWithState{}, fmt.Errorf("commit connector disconnect: %w", err)
@@ -185,6 +205,11 @@ func (p *PostgresStore) SetTenancyConnectorDisabled(ctx context.Context, workspa
 			return TenancyConnectorWithState{}, ErrConflict
 		}
 		if currentDisabled == disabled {
+			if disabled {
+				if err := cancelAWSOrganizationRolloutsTx(ctx, tx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), now); err != nil {
+					return TenancyConnectorWithState{}, fmt.Errorf("cancel disabled connector rollouts: %w", err)
+				}
+			}
 			if err := tx.Commit(); err != nil {
 				return TenancyConnectorWithState{}, fmt.Errorf("commit idempotent connector gate: %w", err)
 			}
@@ -208,6 +233,11 @@ func (p *PostgresStore) SetTenancyConnectorDisabled(ctx context.Context, workspa
 	}
 	if stateAffected == 0 {
 		return TenancyConnectorWithState{}, ErrNotFound
+	}
+	if disabled {
+		if err := cancelAWSOrganizationRolloutsTx(ctx, tx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), now); err != nil {
+			return TenancyConnectorWithState{}, fmt.Errorf("cancel disabled connector rollouts: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return TenancyConnectorWithState{}, fmt.Errorf("commit connector gate state: %w", err)
@@ -246,10 +276,11 @@ func (m *MemoryStore) DisconnectTenancyConnector(ctx context.Context, workspaceI
 	if !ok {
 		return TenancyConnectorWithState{}, ErrNotFound
 	}
+	now = connectorLifecycleNow(now)
 	if connector.Status == "disconnected" {
+		cancelAWSOrganizationRolloutsLocked(m, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), now)
 		return TenancyConnectorWithState{Connector: connector, State: cloneTenancyConnectorState(m.connStates[key])}, nil
 	}
-	now = connectorLifecycleNow(now)
 	connector.Status = "disconnected"
 	connector.Disabled = false
 	connector.LifecycleGeneration++
@@ -274,6 +305,7 @@ func (m *MemoryStore) DisconnectTenancyConnector(ctx context.Context, workspaceI
 			delete(m.connSecrets, secretKey)
 		}
 	}
+	cancelAWSOrganizationRolloutsLocked(m, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), now)
 	auditEvent = &audit.AuditEvent{
 		Action:       "tenancy.connector.disconnect",
 		TenantID:     scope.TenantID,
@@ -307,13 +339,16 @@ func (m *MemoryStore) SetTenancyConnectorDisabled(ctx context.Context, workspace
 	if !ok {
 		return TenancyConnectorWithState{}, ErrNotFound
 	}
+	now = connectorLifecycleNow(now)
 	if connector.Status == "disconnected" {
 		return TenancyConnectorWithState{}, ErrConflict
 	}
 	if connector.Disabled == disabled {
+		if disabled {
+			cancelAWSOrganizationRolloutsLocked(m, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), now)
+		}
 		return TenancyConnectorWithState{Connector: connector, State: cloneTenancyConnectorState(m.connStates[key])}, nil
 	}
-	now = connectorLifecycleNow(now)
 	connector.Disabled = disabled
 	connector.LifecycleGeneration++
 	connector.UpdatedAt = now
@@ -329,6 +364,9 @@ func (m *MemoryStore) SetTenancyConnectorDisabled(ctx context.Context, workspace
 	state.UpdatedAt = now
 	m.connectors[key] = connector
 	m.connStates[key] = state
+	if disabled {
+		cancelAWSOrganizationRolloutsLocked(m, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), now)
+	}
 	auditEvent = &audit.AuditEvent{
 		Action:       "tenancy.connector." + action,
 		TenantID:     scope.TenantID,
@@ -338,6 +376,23 @@ func (m *MemoryStore) SetTenancyConnectorDisabled(ctx context.Context, workspace
 		Outcome:      "success",
 	}
 	return TenancyConnectorWithState{Connector: connector, State: cloneTenancyConnectorState(state)}, nil
+}
+
+func cancelAWSOrganizationRolloutsLocked(m *MemoryStore, tenantID string, workspaceID string, projectID string, connectorID string, now time.Time) {
+	for id, rollout := range m.awsOrgRollouts {
+		if rollout.TenantID != tenantID || rollout.WorkspaceID != workspaceID || rollout.ProjectID != projectID || rollout.ControllingConnectorID != connectorID {
+			continue
+		}
+		if !awsOrganizationRolloutTargetMutationAllowed(rollout.Status) {
+			continue
+		}
+		rollout.Status = AWSOrganizationRolloutStatusCanceled
+		rollout.FailureCode = "controlling_connector_lifecycle_changed"
+		rollout.FailureMessage = "The controlling AWS connector was paused or disconnected."
+		rollout.UpdatedAt = now
+		rollout.Version++
+		m.awsOrgRollouts[id] = cloneAWSOrganizationRollout(rollout)
+	}
 }
 
 func cloneTenancyConnectorState(state TenancyConnectorState) TenancyConnectorState {

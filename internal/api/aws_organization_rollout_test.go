@@ -162,6 +162,59 @@ func TestStartAWSOrganizationRolloutSeedsExpectedTargets(t *testing.T) {
 	}
 }
 
+func TestProcessAWSOrganizationRolloutMemberRegistrationRejectsPausedControllingConnector(t *testing.T) {
+	svc, ctx := newAWSOrganizationRolloutTestService(t)
+	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
+	svc.AWSCloudFormationResponder = newRecordingCFNResponder()
+
+	status, err := svc.StartAWSOrganizationRollout(ctx, AWSOrganizationRolloutStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ControllingConnectorID: "aws-mgmt",
+		OrganizationID:         "o-fixture001",
+		ManagementAccountID:    "111111111111",
+		SelectedAccountIDs:     []string{"222222222222"},
+		TargetRegions:          []string{"us-east-1"},
+	})
+	if err != nil {
+		t.Fatalf("start rollout: %v", err)
+	}
+	rolloutStore := svc.Store.(db.AWSOrganizationRolloutStore)
+	rollout, err := rolloutStore.GetAWSOrganizationRolloutAnyScope(ctx, status.RolloutID)
+	if err != nil {
+		t.Fatalf("load rollout: %v", err)
+	}
+	secret, err := svc.AWSOrganizationRolloutSecretForRollout(rollout)
+	if err != nil {
+		t.Fatalf("derive rollout secret: %v", err)
+	}
+	lifecycleStore := svc.Store.(db.TenancyConnectorLifecycleStore)
+	if _, err := lifecycleStore.SetTenancyConnectorDisabled(ctx, "workspace-a", "project-1", "aws-mgmt", true, svc.Now().UTC()); err != nil {
+		t.Fatalf("pause controlling connector: %v", err)
+	}
+
+	err = svc.processAWSOrganizationRolloutMemberRegistration(ctx, testAWSRegistrationTopicARN, awsCloudFormationCustomResourceRequest{
+		RequestID:   "paused-rollout-request",
+		ResponseURL: "https://cloudformation-custom-resource-response-us-east-1.s3.amazonaws.com/response",
+		StackID:     "arn:aws:cloudformation:us-east-1:222222222222:stack/StackSet-identrail-readonly-connector-stackset-instance/uuid-1",
+		ResourceProperties: map[string]any{
+			"Phase":              "Register",
+			"RolloutId":          rollout.RolloutID,
+			"RegistrationSecret": secret,
+		},
+	}, "Register")
+	if err == nil {
+		t.Fatal("expected paused rollout registration to be rejected")
+	}
+	target, err := rolloutStore.GetAWSOrganizationRolloutTarget(ctx, rollout.RolloutID, "222222222222", "us-east-1")
+	if err != nil {
+		t.Fatalf("reload paused rollout target: %v", err)
+	}
+	if target.State != db.AWSOrganizationRolloutTargetPending {
+		t.Fatalf("paused rollout callback must not advance target state, got %+v", target)
+	}
+}
+
 func TestStartAWSOrganizationRolloutRejectsSecondActiveRollout(t *testing.T) {
 	svc, ctx := newAWSOrganizationRolloutTestService(t)
 	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
