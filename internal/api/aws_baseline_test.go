@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -130,6 +131,37 @@ func TestGetAWSPlatformBaselineFallsBackToActiveConnectorResult(t *testing.T) {
 	}
 	if result.FailureReasons != nil && len(result.FailureReasons) > 0 && result.FailureReasons[0] == "aws connector is missing" {
 		t.Fatalf("default read returned stale project-level baseline: %+v", result)
+	}
+}
+
+func TestAWSPlatformBaselineFiltersLifecycleBeforeLimit(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 4, 10, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-healthy", domain.ConnectorStatusActive, "healthy", now.Add(-time.Hour))
+
+	lifecycleStore := db.TenancyConnectorLifecycleStore(store)
+	for i := 0; i < 25; i++ {
+		connectorID := fmt.Sprintf("aws-paused-%02d", i)
+		updatedAt := now.Add(time.Duration(i+1) * time.Minute)
+		seedAWSConnectorForScanTest(t, store, ctx, "project-a", connectorID, domain.ConnectorStatusActive, "healthy", updatedAt)
+		if _, err := lifecycleStore.SetTenancyConnectorDisabled(ctx, "default", "project-a", connectorID, true, updatedAt); err != nil {
+			t.Fatalf("pause connector %s: %v", connectorID, err)
+		}
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	project, err := store.GetProject(ctx, "default", "project-a")
+	if err != nil {
+		t.Fatalf("load project: %v", err)
+	}
+	connection, hasConnection, err := svc.awsBaselineConnection(ctx, project, "")
+	if err != nil {
+		t.Fatalf("select baseline connector: %v", err)
+	}
+	if !hasConnection || connection.ConnectorID != "aws-healthy" || !connection.Connected {
+		t.Fatalf("expected older healthy connector after filtering paused rows before limit, got has=%v connection=%+v", hasConnection, connection)
 	}
 }
 

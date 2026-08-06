@@ -110,6 +110,41 @@ func TestReconcileAWSOrganizationRolloutStopsAfterControllingConnectorPause(t *t
 	}
 }
 
+func TestReconcileAWSOrganizationRolloutPreservesRolloutAfterTransientControllingHealthLoss(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
+	validator := &fakeAWSConnectorValidator{}
+	svc.AWSConnectorValidator = validator
+
+	stored, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-mgmt")
+	if err != nil {
+		t.Fatalf("load controlling connector: %v", err)
+	}
+	stored.State.HealthStatus = "error"
+	stored.State.UpdatedAt = svc.Now().UTC()
+	if err := svc.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+		t.Fatalf("record transient controlling health loss: %v", err)
+	}
+
+	result, status, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if !errors.Is(err, ErrAWSOrganizationRolloutControllingUnready) {
+		t.Fatalf("expected transient controlling health loss to remain retryable, got result=%+v status=%+v err=%v", result, status, err)
+	}
+	if validator.calls != 0 {
+		t.Fatalf("unready controlling connector must not invoke member validation: calls=%d", validator.calls)
+	}
+	if status.Status != "" {
+		t.Fatalf("expected no status payload when reconciliation is retryable, got %+v", status)
+	}
+	current, err := svc.Store.(db.AWSOrganizationRolloutStore).GetAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reload rollout after transient health loss: %v", err)
+	}
+	if current.Status != rollout.Status || current.FailureCode != rollout.FailureCode {
+		t.Fatalf("transient health loss must not cancel rollout: before=%+v after=%+v", rollout, current)
+	}
+}
+
 func TestReconcileAWSOrganizationRolloutConnectsValidatedMembers(t *testing.T) {
 	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
 	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")

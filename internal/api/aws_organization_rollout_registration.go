@@ -56,7 +56,9 @@ func (s *Service) processAWSOrganizationRolloutMemberRegistration(
 		return s.failAWSCloudFormationRequest(ctx, request, "The Identrail rollout is no longer accepting registrations.", fmt.Errorf("rollout is not active"))
 	}
 	if err := s.ensureAWSOrganizationRolloutControllingConnector(scopedCtx, rollout); err != nil {
-		s.cancelAWSOrganizationRolloutForLifecycle(scopedCtx, store, rollout)
+		if errors.Is(err, ErrAWSOrganizationRolloutControllingLifecycleChanged) {
+			s.cancelAWSOrganizationRolloutForLifecycle(scopedCtx, store, rollout)
+		}
 		return s.failAWSCloudFormationRequest(ctx, request, "The controlling AWS connector is no longer eligible for this rollout.", err)
 	}
 	if !s.isAWSRegistrationTopicARN(topicARN) {
@@ -107,7 +109,9 @@ func (s *Service) processAWSOrganizationRolloutMemberRegistration(
 		return nil
 	}
 	if err := s.ensureAWSOrganizationRolloutControllingConnector(scopedCtx, rollout); err != nil {
-		s.cancelAWSOrganizationRolloutForLifecycle(scopedCtx, store, rollout)
+		if errors.Is(err, ErrAWSOrganizationRolloutControllingLifecycleChanged) {
+			s.cancelAWSOrganizationRolloutForLifecycle(scopedCtx, store, rollout)
+		}
 		return s.failAWSCloudFormationRequest(ctx, request, "The controlling AWS connector is no longer eligible for this rollout.", err)
 	}
 

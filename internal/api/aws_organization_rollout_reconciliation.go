@@ -119,7 +119,9 @@ func (s *Service) RetryAWSOrganizationRollout(ctx context.Context, workspaceID s
 		return AWSOrganizationRolloutStatus{}, err
 	}
 	if err := s.ensureAWSOrganizationRolloutControllingConnector(ctx, rollout); err != nil {
-		s.cancelAWSOrganizationRolloutForLifecycle(ctx, store, rollout)
+		if errors.Is(err, ErrAWSOrganizationRolloutControllingLifecycleChanged) {
+			s.cancelAWSOrganizationRolloutForLifecycle(ctx, store, rollout)
+		}
 		return AWSOrganizationRolloutStatus{}, err
 	}
 	now := s.Now().UTC()
@@ -204,8 +206,11 @@ func (s *Service) reconcileAWSOrganizationRollout(ctx context.Context, store db.
 		return result, nil
 	}
 	if err := s.ensureAWSOrganizationRolloutControllingConnector(ctx, rollout); err != nil {
-		s.cancelAWSOrganizationRolloutForLifecycle(ctx, store, rollout)
-		return result, nil
+		if errors.Is(err, ErrAWSOrganizationRolloutControllingLifecycleChanged) {
+			s.cancelAWSOrganizationRolloutForLifecycle(ctx, store, rollout)
+			return result, nil
+		}
+		return result, err
 	}
 	now := s.Now().UTC()
 	if !now.Before(rollout.ExpiresAt) {
@@ -301,15 +306,18 @@ func (s *Service) reconcileAWSOrganizationRollout(ctx context.Context, store db.
 	}
 	wg.Wait()
 	if firstErr != nil {
-		if errors.Is(firstErr, ErrAWSOrganizationRolloutControllingUnready) {
+		if errors.Is(firstErr, ErrAWSOrganizationRolloutControllingLifecycleChanged) {
 			s.cancelAWSOrganizationRolloutForLifecycle(ctx, store, rollout)
 			return result, nil
 		}
 		return result, firstErr
 	}
 	if err := s.ensureAWSOrganizationRolloutControllingConnector(ctx, rollout); err != nil {
-		s.cancelAWSOrganizationRolloutForLifecycle(ctx, store, rollout)
-		return result, nil
+		if errors.Is(err, ErrAWSOrganizationRolloutControllingLifecycleChanged) {
+			s.cancelAWSOrganizationRolloutForLifecycle(ctx, store, rollout)
+			return result, nil
+		}
+		return result, err
 	}
 	if err := s.aggregateAWSOrganizationRolloutStatus(ctx, store, rollout); err != nil {
 		return result, err

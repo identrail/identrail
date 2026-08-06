@@ -53,14 +53,25 @@ var (
 
 var ErrAWSOrganizationRolloutMultiRegionUnsupported = errors.New("aws organization rollout multi-region routing is unavailable")
 
+// ErrAWSOrganizationRolloutControllingLifecycleChanged indicates that the
+// connector lifecycle decision that approved the rollout is no longer the
+// current decision. This is the only controlling-connector failure that
+// terminalizes an active rollout; ordinary health loss remains retryable.
+var ErrAWSOrganizationRolloutControllingLifecycleChanged = errors.New("aws controlling connector lifecycle changed")
+
 func (s *Service) ensureAWSOrganizationRolloutControllingConnector(ctx context.Context, rollout db.AWSOrganizationRollout) error {
 	stored, err := s.Store.GetTenancyConnector(ctx, rollout.WorkspaceID, rollout.ProjectID, rollout.ControllingConnectorID)
 	if err != nil {
 		return err
 	}
-	if stored.Connector.Type != domain.ConnectorTypeAWS ||
-		stored.Connector.LifecycleGeneration != rollout.ControllingConnectorLifecycleGeneration ||
-		!s.awsConnectionStatusFromStored(ctx, stored).Connected {
+	if stored.Connector.Type != domain.ConnectorTypeAWS {
+		return ErrAWSOrganizationRolloutControllingUnready
+	}
+	if stored.Connector.LifecycleGeneration != rollout.ControllingConnectorLifecycleGeneration ||
+		stored.Connector.Disabled || stored.Connector.Status == domain.ConnectorStatusDisconnected {
+		return ErrAWSOrganizationRolloutControllingLifecycleChanged
+	}
+	if !s.awsConnectionStatusFromStored(ctx, stored).Connected {
 		return ErrAWSOrganizationRolloutControllingUnready
 	}
 	return nil

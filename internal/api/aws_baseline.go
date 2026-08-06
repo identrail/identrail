@@ -204,7 +204,7 @@ func (s *Service) awsBaselineConnection(ctx context.Context, project db.TenancyP
 		}
 		return s.awsConnectionStatusFromStored(ctx, stored), true, nil
 	}
-	items, err := s.Store.ListTenancyConnectors(ctx, project.WorkspaceID, project.ProjectID, domain.ConnectorTypeAWS, 25)
+	items, err := s.listEligibleAWSConnectors(ctx, project.WorkspaceID, project.ProjectID, 25)
 	if err != nil {
 		return AWSConnectionStatus{}, false, fmt.Errorf("list aws baseline connectors: %w", err)
 	}
