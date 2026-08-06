@@ -172,6 +172,55 @@ func TestPostgresStoreUpsertAndGetTenancyConnector(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreUpsertTenancyConnectorAndSecretEnvelopeIsAtomic(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	secret := &TenancyConnectorSecretEnvelope{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod", SecretName: "external_id",
+		EnvelopeVersion: 1,
+		Envelope: secretstore.Envelope{
+			Algorithm: secretstore.AlgorithmAES256GCM, KeyVersion: "v1", Nonce: []byte("123456789012"), Ciphertext: []byte("ciphertext"),
+		},
+		SecretRefID: "secret-envelope://aws/aws-prod/external_id",
+		RotatedAt:   now, CreatedAt: now, UpdatedAt: now,
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO tenancy_connectors").
+		WithArgs("tenant-a", "workspace-a", "project-1", "aws-prod", "aws", "Production AWS", "active", false, int64(4), "secret-envelope", "secret-envelope://aws/aws-prod/external_id", "v1", sqlmock.AnyArg(), "", nil, now, now).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO tenancy_connector_states").
+		WithArgs("tenant-a", "workspace-a", "project-1", "aws-prod", "healthy", "", nil, "", "", sqlmock.AnyArg(), now, now).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO tenancy_connector_secret_envelopes").
+		WithArgs("tenant-a", "workspace-a", "project-1", "aws-prod", "external_id", 1, secretstore.AlgorithmAES256GCM, "v1", []byte("123456789012"), []byte("ciphertext"), "secret-envelope://aws/aws-prod/external_id", now, nil, now, now).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err = store.UpsertTenancyConnectorAndSecretEnvelope(ctx, TenancyConnector{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod",
+		Type: domain.ConnectorTypeAWS, DisplayName: "Production AWS", Status: domain.ConnectorStatusActive,
+		LifecycleGeneration: 4, SecretProvider: "secret-envelope", SecretRefID: "secret-envelope://aws/aws-prod/external_id",
+		SecretRefVersion: "v1", SecretLastRotatedAt: &now, CreatedAt: now, UpdatedAt: now,
+	}, TenancyConnectorState{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod", HealthStatus: "healthy",
+		ObservedAt: now, UpdatedAt: now,
+	}, "external_id", secret)
+	if err != nil {
+		t.Fatalf("atomic connector and secret upsert: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreCreateTenancyConnectorWithSecretEnvelopeIfAbsentCreatesAtomically(t *testing.T) {
 	rawDB, mock, err := sqlmock.New()
 	if err != nil {

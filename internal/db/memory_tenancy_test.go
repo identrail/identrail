@@ -302,6 +302,96 @@ func TestMemoryStoreConnectorLifecycleFencesStaleCallbacksAndInvalidatesSecrets(
 	}
 }
 
+func TestMemoryStoreAtomicConnectorAndSecretUpsertFencesStaleValidation(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "workspace-a", ProjectID: "project-1", Name: "Project 1", Slug: "project-1"}); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	connector := TenancyConnector{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod",
+		Type: domain.ConnectorTypeAWS, DisplayName: "Production AWS", Status: domain.ConnectorStatusActive,
+		UpdatedAt: now,
+	}
+	state := TenancyConnectorState{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod", HealthStatus: "healthy",
+		Metadata: map[string]any{"role_arn": "arn:aws:iam::123456789012:role/OldRole"}, ObservedAt: now, UpdatedAt: now,
+	}
+	secret := &TenancyConnectorSecretEnvelope{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod", SecretName: "external_id",
+		EnvelopeVersion: 1,
+		Envelope: secretstore.Envelope{
+			Algorithm: secretstore.AlgorithmAES256GCM, KeyVersion: "v1", Nonce: []byte("123456789012"), Ciphertext: []byte("old-secret"),
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := store.UpsertTenancyConnectorAndSecretEnvelope(ctx, connector, state, "external_id", secret); err != nil {
+		t.Fatalf("seed connector and secret atomically: %v", err)
+	}
+
+	disabled, err := store.SetTenancyConnectorDisabled(ctx, "workspace-a", "project-1", "aws-prod", true, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("disable connector: %v", err)
+	}
+	staleConnector := connector
+	staleConnector.Status = domain.ConnectorStatusActive
+	staleConnector.UpdatedAt = now.Add(2 * time.Minute)
+	staleState := state
+	staleState.Metadata = map[string]any{"role_arn": "arn:aws:iam::123456789012:role/StaleRole"}
+	staleState.UpdatedAt = now.Add(2 * time.Minute)
+	staleSecret := *secret
+	staleSecret.Envelope.Ciphertext = []byte("stale-secret")
+	staleSecret.UpdatedAt = now.Add(2 * time.Minute)
+	if err := store.UpsertTenancyConnectorAndSecretEnvelope(ctx, staleConnector, staleState, "external_id", &staleSecret); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected stale atomic validation to conflict, got %v", err)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("reload disabled connector: %v", err)
+	}
+	if stored.Connector.LifecycleGeneration != disabled.Connector.LifecycleGeneration || stored.State.Metadata["role_arn"] != "arn:aws:iam::123456789012:role/OldRole" {
+		t.Fatalf("stale atomic validation changed connector state: %+v", stored)
+	}
+	storedSecret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", "external_id")
+	if err != nil {
+		t.Fatalf("reload original secret: %v", err)
+	}
+	if string(storedSecret.Envelope.Ciphertext) != "old-secret" {
+		t.Fatalf("stale atomic validation changed secret: %q", storedSecret.Envelope.Ciphertext)
+	}
+
+	if _, err := store.SetTenancyConnectorDisabled(ctx, "workspace-a", "project-1", "aws-prod", false, now.Add(3*time.Minute)); err != nil {
+		t.Fatalf("enable connector: %v", err)
+	}
+	stored.Connector.Status = domain.ConnectorStatusActive
+	stored.Connector.Disabled = false
+	stored.Connector.LifecycleGeneration = 2
+	stored.Connector.UpdatedAt = now.Add(4 * time.Minute)
+	stored.State.Metadata = map[string]any{"role_arn": "arn:aws:iam::123456789012:role/NewRole"}
+	stored.State.UpdatedAt = now.Add(4 * time.Minute)
+	if err := store.UpsertTenancyConnectorAndSecretEnvelope(ctx, stored.Connector, stored.State, "external_id", nil); err != nil {
+		t.Fatalf("clear connector secret atomically: %v", err)
+	}
+	updated, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("reload updated connector: %v", err)
+	}
+	if updated.State.Metadata["role_arn"] != "arn:aws:iam::123456789012:role/NewRole" {
+		t.Fatalf("atomic connector state update was not persisted: %+v", updated.State.Metadata)
+	}
+	if _, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", "external_id"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected atomic secret clear, got %v", err)
+	}
+}
+
 func TestMemoryStoreClaimKubernetesEnrollmentToken(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

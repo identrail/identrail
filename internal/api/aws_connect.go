@@ -1789,15 +1789,17 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 		connector.SecretRefVersion = s.connectorSecretManager().ActiveKeyVersion()
 		connector.SecretLastRotatedAt = &now
 	}
-	if err := s.Store.UpsertTenancyConnector(ctx, connector, state); err != nil {
-		return AWSConnectionStatus{}, fmt.Errorf("persist aws connector: %w", err)
-	}
+	var secret *db.TenancyConnectorSecretEnvelope
 	if normalized.ExternalID != "" {
-		if err := s.persistAWSExternalID(ctx, scope.TenantID, project.WorkspaceID, project.ProjectID, normalized.ConnectorID, normalized.ExternalID, now, normalized.lifecycleGeneration); err != nil {
+		envelope, err := s.newAWSExternalIDSecretEnvelope(scope.TenantID, project.WorkspaceID, project.ProjectID, normalized.ConnectorID, normalized.ExternalID, now)
+		if err != nil {
 			return AWSConnectionStatus{}, err
 		}
-	} else if err := s.clearAWSExternalID(ctx, scope.TenantID, project.WorkspaceID, project.ProjectID, normalized.ConnectorID, normalized.lifecycleGeneration); err != nil {
-		return AWSConnectionStatus{}, err
+		secret = &envelope
+	}
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: scope.TenantID, WorkspaceID: project.WorkspaceID})
+	if err := s.Store.UpsertTenancyConnectorAndSecretEnvelope(scopedCtx, connector, state, awsExternalIDSecretName, secret); err != nil {
+		return AWSConnectionStatus{}, fmt.Errorf("persist aws connector and external id atomically: %w", err)
 	}
 	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, normalized.ConnectorID)
 	if err != nil {

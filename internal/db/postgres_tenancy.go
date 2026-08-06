@@ -2011,6 +2011,142 @@ func (p *PostgresStore) UpsertTenancyConnector(ctx context.Context, connector Te
 		return err
 	}
 	defer tx.Rollback()
+	if err := p.upsertTenancyConnectorAndStateTx(ctx, tx, normalizedConnector, normalizedState, metadataPayload); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tenancy connector upsert: %w", err)
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.connector.upsert",
+		TenantID:     normalizedConnector.TenantID,
+		WorkspaceID:  normalizedConnector.WorkspaceID,
+		ResourceType: "tenancy_connector",
+		ResourceID:   normalizedConnector.ConnectorID,
+		Outcome:      "success",
+	})
+	return nil
+}
+
+// UpsertTenancyConnectorAndSecretEnvelope persists connector state and its
+// optional secret under the same lifecycle fence and transaction. This keeps
+// validation metadata and the external-id envelope from diverging when an
+// operator changes the connector lifecycle concurrently.
+func (p *PostgresStore) UpsertTenancyConnectorAndSecretEnvelope(ctx context.Context, connector TenancyConnector, state TenancyConnectorState, secretName string, envelope *TenancyConnectorSecretEnvelope) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	connector.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, connector.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	connector.WorkspaceID = resolvedWorkspaceID
+	secretName = strings.TrimSpace(secretName)
+	if secretName == "" {
+		return fmt.Errorf("secret name is required")
+	}
+	state.TenantID = scope.TenantID
+	state.WorkspaceID = resolvedWorkspaceID
+	state.ProjectID = connector.ProjectID
+	state.ConnectorID = connector.ConnectorID
+
+	normalizedConnector, err := NormalizeTenancyConnectorForWrite(connector)
+	if err != nil {
+		return err
+	}
+	normalizedState, err := NormalizeTenancyConnectorStateForWrite(state)
+	if err != nil {
+		return err
+	}
+	metadataPayload, err := json.Marshal(normalizedState.Metadata)
+	if err != nil {
+		return fmt.Errorf("marshal connector state metadata: %w", err)
+	}
+
+	var normalizedEnvelope *TenancyConnectorSecretEnvelope
+	if envelope != nil {
+		normalized := *envelope
+		normalized.TenantID = scope.TenantID
+		normalized.WorkspaceID = resolvedWorkspaceID
+		normalized.ProjectID = connector.ProjectID
+		normalized.ConnectorID = connector.ConnectorID
+		normalized.SecretName = secretName
+		value, normalizeErr := NormalizeTenancyConnectorSecretEnvelopeForWrite(normalized)
+		if normalizeErr != nil {
+			return normalizeErr
+		}
+		normalizedEnvelope = &value
+	}
+
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin atomic tenancy connector upsert: %w", err)
+	}
+	defer tx.Rollback()
+	if err := p.upsertTenancyConnectorAndStateTx(ctx, tx, normalizedConnector, normalizedState, metadataPayload); err != nil {
+		return err
+	}
+
+	if normalizedEnvelope == nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM tenancy_connector_secret_envelopes
+			 WHERE tenant_id = $1
+			   AND workspace_id = $2
+			   AND project_id = $3
+			   AND connector_id = $4
+			   AND secret_name = $5`, normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID, normalizedConnector.ConnectorID, secretName); err != nil {
+			return fmt.Errorf("delete atomic connector secret envelope: %w", err)
+		}
+	} else if _, err := tx.ExecContext(ctx, `INSERT INTO tenancy_connector_secret_envelopes (
+			 tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
+			 algorithm, key_version, nonce, ciphertext, secret_ref_id, rotated_at, rotation_due_at, created_at, updated_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12, $13, $14, $15)
+		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id, secret_name) DO UPDATE
+		 SET envelope_version = EXCLUDED.envelope_version,
+		     algorithm = EXCLUDED.algorithm,
+		     key_version = EXCLUDED.key_version,
+		     nonce = EXCLUDED.nonce,
+		     ciphertext = EXCLUDED.ciphertext,
+		     secret_ref_id = EXCLUDED.secret_ref_id,
+		     rotated_at = EXCLUDED.rotated_at,
+		     rotation_due_at = EXCLUDED.rotation_due_at,
+		     updated_at = EXCLUDED.updated_at`,
+		normalizedEnvelope.TenantID,
+		normalizedEnvelope.WorkspaceID,
+		normalizedEnvelope.ProjectID,
+		normalizedEnvelope.ConnectorID,
+		normalizedEnvelope.SecretName,
+		normalizedEnvelope.EnvelopeVersion,
+		normalizedEnvelope.Envelope.Algorithm,
+		normalizedEnvelope.Envelope.KeyVersion,
+		normalizedEnvelope.Envelope.Nonce,
+		normalizedEnvelope.Envelope.Ciphertext,
+		normalizedEnvelope.SecretRefID,
+		normalizedEnvelope.RotatedAt,
+		normalizedEnvelope.RotationDueAt,
+		normalizedEnvelope.CreatedAt,
+		normalizedEnvelope.UpdatedAt,
+	); err != nil {
+		return fmt.Errorf("upsert atomic connector secret envelope: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit atomic tenancy connector upsert: %w", err)
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.connector.upsert",
+		TenantID:     normalizedConnector.TenantID,
+		WorkspaceID:  normalizedConnector.WorkspaceID,
+		ResourceType: "tenancy_connector",
+		ResourceID:   normalizedConnector.ConnectorID,
+		Outcome:      "success",
+	})
+	return nil
+}
+
+func (p *PostgresStore) upsertTenancyConnectorAndStateTx(ctx context.Context, tx *sql.Tx, connector TenancyConnector, state TenancyConnectorState, metadataPayload []byte) error {
 	result, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO tenancy_connectors (
@@ -2034,23 +2170,23 @@ func (p *PostgresStore) UpsertTenancyConnector(ctx context.Context, connector Te
 		     last_sync_at = EXCLUDED.last_sync_at,
 		     updated_at = EXCLUDED.updated_at
 		 WHERE tenancy_connectors.lifecycle_generation = EXCLUDED.lifecycle_generation`,
-		normalizedConnector.TenantID,
-		normalizedConnector.WorkspaceID,
-		normalizedConnector.ProjectID,
-		normalizedConnector.ConnectorID,
-		string(normalizedConnector.Type),
-		normalizedConnector.DisplayName,
-		string(normalizedConnector.Status),
-		normalizedConnector.Disabled,
-		normalizedConnector.LifecycleGeneration,
-		normalizedConnector.SecretProvider,
-		normalizedConnector.SecretRefID,
-		normalizedConnector.SecretRefVersion,
-		normalizedConnector.SecretLastRotatedAt,
-		normalizedConnector.ConfigChecksum,
-		normalizedConnector.LastSyncAt,
-		normalizedConnector.CreatedAt,
-		normalizedConnector.UpdatedAt,
+		connector.TenantID,
+		connector.WorkspaceID,
+		connector.ProjectID,
+		connector.ConnectorID,
+		string(connector.Type),
+		connector.DisplayName,
+		string(connector.Status),
+		connector.Disabled,
+		connector.LifecycleGeneration,
+		connector.SecretProvider,
+		connector.SecretRefID,
+		connector.SecretRefVersion,
+		connector.SecretLastRotatedAt,
+		connector.ConfigChecksum,
+		connector.LastSyncAt,
+		connector.CreatedAt,
+		connector.UpdatedAt,
 	)
 	if isTenancyFKViolation(err) {
 		return ErrNotFound
@@ -2065,7 +2201,7 @@ func (p *PostgresStore) UpsertTenancyConnector(ctx context.Context, connector Te
 	if affected == 0 {
 		return ErrConflict
 	}
-	_, err = tx.ExecContext(
+	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO tenancy_connector_states (
 		     tenant_id, workspace_id, project_id, connector_id, health_status, sync_cursor,
@@ -2081,33 +2217,21 @@ func (p *PostgresStore) UpsertTenancyConnector(ctx context.Context, connector Te
 		     metadata = EXCLUDED.metadata,
 		     observed_at = EXCLUDED.observed_at,
 		     updated_at = EXCLUDED.updated_at`,
-		normalizedState.TenantID,
-		normalizedState.WorkspaceID,
-		normalizedState.ProjectID,
-		normalizedState.ConnectorID,
-		normalizedState.HealthStatus,
-		normalizedState.SyncCursor,
-		normalizedState.LastSuccessfulSyncAt,
-		normalizedState.LastErrorCode,
-		normalizedState.LastErrorMessage,
+		state.TenantID,
+		state.WorkspaceID,
+		state.ProjectID,
+		state.ConnectorID,
+		state.HealthStatus,
+		state.SyncCursor,
+		state.LastSuccessfulSyncAt,
+		state.LastErrorCode,
+		state.LastErrorMessage,
 		metadataPayload,
-		normalizedState.ObservedAt,
-		normalizedState.UpdatedAt,
-	)
-	if err != nil {
+		state.ObservedAt,
+		state.UpdatedAt,
+	); err != nil {
 		return fmt.Errorf("upsert tenancy connector state: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit tenancy connector upsert: %w", err)
-	}
-	audit.WriteAction(ctx, audit.AuditEvent{
-		Action:       "tenancy.connector.upsert",
-		TenantID:     normalizedConnector.TenantID,
-		WorkspaceID:  normalizedConnector.WorkspaceID,
-		ResourceType: "tenancy_connector",
-		ResourceID:   normalizedConnector.ConnectorID,
-		Outcome:      "success",
-	})
 	return nil
 }
 

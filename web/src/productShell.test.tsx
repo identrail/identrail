@@ -8426,6 +8426,152 @@ describe('Domain-first app routes', () => {
     });
   });
 
+  it('allows a paused AWS connector to be disconnected without resuming it', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        disabled: true,
+        status: 'active'
+      }
+    });
+    const disconnectAWSConnector = vi.spyOn(api.apiClient, 'disconnectAWSConnector').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-paused-connector',
+        status: 'disconnected',
+        onboarding_status: 'draft'
+      }
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const paused = await screen.findByRole('region', { name: 'AWS connector paused' });
+    fireEvent.click(within(paused).getByRole('button', { name: /^Disconnect$/i }));
+
+    await waitFor(() =>
+      expect(disconnectAWSConnector).toHaveBeenCalledWith(
+        'aws-connector-1',
+        'workspace-a',
+        'production',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(await screen.findByRole('region', { name: 'AWS connector disconnected' })).toBeInTheDocument();
+  });
+
+  it('ignores an in-flight AWS start after disconnect invalidates the lifecycle', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const startResponse = deferred<AWSConnectorStartResponse>();
+    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockReturnValue(startResponse.promise);
+    const disconnectAWSConnector = vi.spyOn(api.apiClient, 'disconnectAWSConnector').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-disconnected-after-start',
+        status: 'disconnected',
+        onboarding_status: 'draft'
+      }
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const summary = await screen.findByRole('region', { name: 'AWS connected summary' });
+    fireEvent.click(within(summary).getByRole('button', { name: /Manage connection/i }));
+    const setup = await screen.findByRole('region', { name: 'AWS account setup' });
+    fireEvent.click(within(setup).getByRole('button', { name: /^Connect AWS$/i }));
+    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(within(screen.getByRole('region', { name: 'AWS connected summary' })).getByRole('button', { name: /^Disconnect$/i }));
+    await waitFor(() => expect(disconnectAWSConnector).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('region', { name: 'AWS connector disconnected' })).toBeInTheDocument();
+
+    await act(async () => {
+      startResponse.resolve({
+        connection: {
+          ...connectedAWS,
+          connector_id: 'aws-stale-start',
+          display_name: 'Stale start response',
+          onboarding_status: 'waiting_for_aws'
+        },
+        connector_id: 'aws-stale-start',
+        external_id: 'stale-external-id',
+        launch_url: 'https://console.aws.amazon.com/cloudformation',
+        template_url: 'https://example.com/template.yaml',
+        role_name: 'IdentrailReadOnly',
+        stack_name: 'identrail-readonly-connector',
+        policy_hash: 'sha256:example',
+        template_checksum: 'sha256:example',
+        scope_type: 'single_account',
+        deployment_method: 'cloudformation',
+        onboarding_status: 'waiting_for_aws',
+        target_regions: ['us-east-1'],
+        target_account_ids: [],
+        target_ou_ids: [],
+        excluded_account_ids: [],
+        auto_onboard_new_accounts: false,
+        setup_summary: 'Stale start response.',
+        next_actions: ['launch_stack', 'refresh_status'],
+        permission_preview: [],
+        permission_tiers: []
+      });
+    });
+    expect(screen.getByRole('region', { name: 'AWS connector disconnected' })).toBeInTheDocument();
+    expect(screen.queryByText('Stale start response.')).not.toBeInTheDocument();
+  });
+
   it('clears prepared CloudFormation state before starting manual AWS setup', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });

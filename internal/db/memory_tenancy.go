@@ -1618,6 +1618,97 @@ func (m *MemoryStore) UpsertTenancyConnector(ctx context.Context, connector Tena
 	return nil
 }
 
+// UpsertTenancyConnectorAndSecretEnvelope persists connector state and its
+// optional secret under one in-memory lifecycle fence. The store lock models
+// the transaction and keeps metadata and credentials from diverging in tests
+// and local development.
+func (m *MemoryStore) UpsertTenancyConnectorAndSecretEnvelope(ctx context.Context, connector TenancyConnector, state TenancyConnectorState, secretName string, envelope *TenancyConnectorSecretEnvelope) error {
+	m.mu.Lock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	connector.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, connector.WorkspaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	connector.WorkspaceID = resolvedWorkspaceID
+	secretName = strings.TrimSpace(secretName)
+	if secretName == "" {
+		m.mu.Unlock()
+		return fmt.Errorf("secret name is required")
+	}
+	state.TenantID = scope.TenantID
+	state.WorkspaceID = resolvedWorkspaceID
+	state.ProjectID = connector.ProjectID
+	state.ConnectorID = connector.ConnectorID
+	createdAtWasZero := connector.CreatedAt.IsZero()
+
+	normalizedConnector, err := NormalizeTenancyConnectorForWrite(connector)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	normalizedState, err := NormalizeTenancyConnectorStateForWrite(state)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	var normalizedEnvelope *TenancyConnectorSecretEnvelope
+	if envelope != nil {
+		normalized := *envelope
+		normalized.TenantID = scope.TenantID
+		normalized.WorkspaceID = resolvedWorkspaceID
+		normalized.ProjectID = connector.ProjectID
+		normalized.ConnectorID = connector.ConnectorID
+		normalized.SecretName = secretName
+		value, normalizeErr := NormalizeTenancyConnectorSecretEnvelopeForWrite(normalized)
+		if normalizeErr != nil {
+			m.mu.Unlock()
+			return normalizeErr
+		}
+		normalizedEnvelope = &value
+	}
+	if _, exists := m.projects[tenancyProjectKey(normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID)]; !exists {
+		m.mu.Unlock()
+		return ErrNotFound
+	}
+
+	key := tenancyConnectorKey(normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID, normalizedConnector.ConnectorID)
+	if existing, exists := m.connectors[key]; exists {
+		if existing.LifecycleGeneration != normalizedConnector.LifecycleGeneration {
+			m.mu.Unlock()
+			return ErrConflict
+		}
+		if createdAtWasZero {
+			normalizedConnector.CreatedAt = existing.CreatedAt
+		}
+	}
+	m.connectors[key] = normalizedConnector
+	m.connStates[key] = normalizedState
+	secretKey := tenancyConnectorSecretKey(normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID, normalizedConnector.ConnectorID, secretName)
+	if normalizedEnvelope == nil {
+		delete(m.connSecrets, secretKey)
+	} else {
+		m.connSecrets[secretKey] = *normalizedEnvelope
+	}
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.connector.upsert",
+		TenantID:     normalizedConnector.TenantID,
+		WorkspaceID:  normalizedConnector.WorkspaceID,
+		ResourceType: "tenancy_connector",
+		ResourceID:   normalizedConnector.ConnectorID,
+		Outcome:      "success",
+	})
+	return nil
+}
+
 // GetTenancyConnector returns one connector and its latest state.
 func (m *MemoryStore) GetTenancyConnector(ctx context.Context, workspaceID string, projectID string, connectorID string) (TenancyConnectorWithState, error) {
 	m.mu.RLock()

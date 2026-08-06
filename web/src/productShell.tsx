@@ -22507,9 +22507,12 @@ export function ProductAWSConnectPage() {
       awsAutoPollGenerationRef.current += 1;
       awsRepairHydrationRequestRef.current += 1;
       awsStackSetOnboardingRequestRef.current += 1;
+      awsStartRequestRef.current += 1;
+      awsValidationRequestRef.current += 1;
       setLoadingConnection(false);
       setRefreshingConnection(false);
       setBaselineLoading(false);
+      setSubmitting(false);
       const requestEnvironmentID = selectedEnvironmentID;
       const requestScopeKey = scopeKeyRef.current;
       const isStale = () =>
@@ -23882,6 +23885,14 @@ export function ProductAWSConnectPage() {
                     disabled={lifecycleBusy}
                   >
                     {lifecycleBusy ? 'Updating...' : 'Resume connector'}
+                  </button>
+                  <button
+                    className="idt-btn idt-btn-ghost"
+                    type="button"
+                    onClick={() => void changeAWSLifecycle('disconnect')}
+                    disabled={lifecycleBusy}
+                  >
+                    {lifecycleBusy ? 'Updating...' : 'Disconnect'}
                   </button>
                 </div>
               </section>

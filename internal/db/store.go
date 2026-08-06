@@ -3445,6 +3445,10 @@ type Store interface {
 	DeleteProject(ctx context.Context, workspaceID string, projectID string) error
 	CreateTenancyConnectorWithSecretEnvelopeIfAbsent(ctx context.Context, connector TenancyConnector, state TenancyConnectorState, envelope TenancyConnectorSecretEnvelope) (TenancyConnectorWithState, bool, error)
 	UpsertTenancyConnector(ctx context.Context, connector TenancyConnector, state TenancyConnectorState) error
+	// UpsertTenancyConnectorAndSecretEnvelope persists connector state and its
+	// optional named secret in one lifecycle-fenced transaction. A nil envelope
+	// removes secretName in the same transaction.
+	UpsertTenancyConnectorAndSecretEnvelope(ctx context.Context, connector TenancyConnector, state TenancyConnectorState, secretName string, envelope *TenancyConnectorSecretEnvelope) error
 	GetTenancyConnector(ctx context.Context, workspaceID string, projectID string, connectorID string) (TenancyConnectorWithState, error)
 	ListTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
 	ListTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
