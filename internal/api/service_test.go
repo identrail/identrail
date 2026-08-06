@@ -35,6 +35,59 @@ func (f fakeScanner) Run(context.Context) (app.ScanResult, error) {
 	return f.result, nil
 }
 
+type unscopedConnectorFallbackStore struct {
+	db.Store
+	items         []db.TenancyConnectorWithState
+	scopedCalls   int
+	unscopedCalls int
+}
+
+func (s *unscopedConnectorFallbackStore) ListTenancyConnectors(
+	context.Context,
+	string,
+	string,
+	domain.ConnectorType,
+	int,
+) ([]db.TenancyConnectorWithState, error) {
+	s.scopedCalls++
+	return nil, errors.New("scoped connector list must not be used for an unscoped selection")
+}
+
+func (s *unscopedConnectorFallbackStore) ListTenancyConnectorsUnscoped(
+	context.Context,
+	domain.ConnectorType,
+	int,
+) ([]db.TenancyConnectorWithState, error) {
+	s.unscopedCalls++
+	return s.items, nil
+}
+
+func TestListEligibleAWSConnectorsUnscopedFallbackUsesUnscopedStore(t *testing.T) {
+	store := &unscopedConnectorFallbackStore{
+		Store: db.NewMemoryStore(),
+		items: []db.TenancyConnectorWithState{
+			{Connector: db.TenancyConnector{Type: domain.ConnectorTypeAWS, Status: domain.ConnectorStatusActive}},
+			{Connector: db.TenancyConnector{Type: domain.ConnectorTypeAWS, Status: domain.ConnectorStatusDisconnected}},
+		},
+	}
+	svc := NewService(store, fakeScanner{}, "aws")
+	store.unscopedCalls = 0
+
+	items, err := svc.listEligibleAWSConnectorsUnscoped(context.Background(), 25)
+	if err != nil {
+		t.Fatalf("list eligible unscoped AWS connectors: %v", err)
+	}
+	if store.scopedCalls != 0 {
+		t.Fatalf("expected no scoped connector list calls, got %d", store.scopedCalls)
+	}
+	if store.unscopedCalls != 1 {
+		t.Fatalf("expected one unscoped connector list call, got %d", store.unscopedCalls)
+	}
+	if len(items) != 1 || items[0].Connector.Status != domain.ConnectorStatusActive {
+		t.Fatalf("expected only the active AWS connector, got %+v", items)
+	}
+}
+
 type fakeAlerter struct {
 	calls int
 	err   error

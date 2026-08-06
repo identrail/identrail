@@ -1292,7 +1292,7 @@ func (s *Service) listEligibleAWSConnectorsUnscoped(ctx context.Context, limit i
 	if eligibleStore, ok := s.Store.(db.TenancyConnectorEligibilityStore); ok {
 		return eligibleStore.ListEligibleTenancyConnectorsUnscoped(ctx, domain.ConnectorTypeAWS, limit)
 	}
-	items, err := s.Store.ListTenancyConnectors(ctx, "", "", domain.ConnectorTypeAWS, 1000)
+	items, err := s.Store.ListTenancyConnectorsUnscoped(ctx, domain.ConnectorTypeAWS, 1000)
 	if err != nil {
 		return nil, err
 	}

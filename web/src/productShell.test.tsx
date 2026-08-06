@@ -8367,6 +8367,7 @@ describe('Domain-first app routes', () => {
       connection: {
         ...disconnectedAWS,
         connector_id: 'aws-disconnected-terminal',
+        display_name: 'Production AWS',
         status: 'disconnected',
         onboarding_status: 'draft'
       }
@@ -8410,13 +8411,15 @@ describe('Domain-first app routes', () => {
 
     const setup = await screen.findByRole('region', { name: 'AWS account setup' });
     expect(screen.getByRole('region', { name: 'AWS connector disconnected' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Display name')).toHaveValue('');
     fireEvent.click(within(setup).getByRole('button', { name: /^Connect AWS$/i }));
 
     await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
     expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({
       connector_id: undefined,
       workspace_id: 'workspace-a',
-      project_id: 'production'
+      project_id: 'production',
+      display_name: undefined
     });
     expect(startAWSConnector.mock.calls[0]?.[0]).not.toMatchObject({
       connector_id: 'aws-disconnected-terminal'

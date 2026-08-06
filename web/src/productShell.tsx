@@ -22374,6 +22374,7 @@ export function ProductAWSConnectPage() {
         const preserveManualDraft = awsSetupModeTouchedRef.current
           ? awsSetupModeRef.current === 'manual'
           : responseSetupMode === 'manual';
+        const terminalConnection = response.connection.status === 'disconnected';
         setAWSSetupMode((current) => {
           const next = awsSetupModeTouchedRef.current ? current : responseSetupMode;
           awsSetupModeRef.current = next;
@@ -22385,11 +22386,11 @@ export function ProductAWSConnectPage() {
         const ouOnlyIDs = responseOUIDs.filter((id) => AWS_OU_ID_PATTERN.test(id));
         setAWSForm((current) => ({
           ...current,
-          roleARN: response.connection.role_arn ?? (preserveManualDraft ? current.roleARN : ''),
-          externalID: preserveManualDraft ? current.externalID : '',
+          roleARN: terminalConnection ? '' : response.connection.role_arn ?? (preserveManualDraft ? current.roleARN : ''),
+          externalID: terminalConnection ? '' : preserveManualDraft ? current.externalID : '',
           region: response.connection.region ?? 'us-east-1',
-          displayName: response.connection.display_name ?? '',
-          sessionName: preserveManualDraft ? current.sessionName : 'identrail-connector-validation',
+          displayName: terminalConnection ? '' : response.connection.display_name ?? '',
+          sessionName: terminalConnection ? 'identrail-connector-validation' : preserveManualDraft ? current.sessionName : 'identrail-connector-validation',
           organizationRootID: dirty.organizationRootID
             ? current.organizationRootID
             : rootFromOUIDs ?? current.organizationRootID,
@@ -22544,6 +22545,7 @@ export function ProductAWSConnectPage() {
             ...current,
             roleARN: '',
             externalID: '',
+            displayName: '',
             sessionName: 'identrail-connector-validation'
           }));
         }
