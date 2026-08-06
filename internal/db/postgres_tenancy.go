@@ -2943,7 +2943,15 @@ func (p *PostgresStore) CreateTenancyConnectorSecretEnvelopeIfAbsentAtGeneration
 	if err != nil {
 		return TenancyConnectorSecretEnvelope{}, false, err
 	}
-	result, err := p.execContext(
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, fmt.Errorf("begin lifecycle-fenced connector secret create transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if err := lockTenancyConnectorForSecretMutation(ctx, tx, normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID, expectedGeneration); err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	result, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO tenancy_connector_secret_envelopes (
 		     tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
@@ -2987,15 +2995,28 @@ func (p *PostgresStore) CreateTenancyConnectorSecretEnvelopeIfAbsentAtGeneration
 		return TenancyConnectorSecretEnvelope{}, false, err
 	}
 	if affected == 0 {
-		current, currentErr := p.GetTenancyConnector(ctx, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID)
-		if currentErr != nil {
-			return TenancyConnectorSecretEnvelope{}, false, currentErr
+		existing, existingErr := scanTenancyConnectorSecretEnvelope(tx.QueryRowContext(
+			ctx,
+			tenancyConnectorSecretEnvelopeSelectQuery,
+			normalized.TenantID,
+			normalized.WorkspaceID,
+			normalized.ProjectID,
+			normalized.ConnectorID,
+			normalized.SecretName,
+		))
+		if errors.Is(existingErr, sql.ErrNoRows) {
+			return TenancyConnectorSecretEnvelope{}, false, ErrNotFound
 		}
-		if current.Connector.LifecycleGeneration != expectedGeneration || current.Connector.Disabled || current.Connector.Status == "disconnected" {
-			return TenancyConnectorSecretEnvelope{}, false, ErrConflict
+		if existingErr != nil {
+			return TenancyConnectorSecretEnvelope{}, false, fmt.Errorf("query existing lifecycle-fenced connector secret envelope: %w", existingErr)
 		}
-		existing, existingErr := p.GetTenancyConnectorSecretEnvelope(ctx, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID, normalized.SecretName)
-		return existing, false, existingErr
+		if err := tx.Commit(); err != nil {
+			return TenancyConnectorSecretEnvelope{}, false, fmt.Errorf("commit lifecycle-fenced connector secret create: %w", err)
+		}
+		return existing, false, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, fmt.Errorf("commit lifecycle-fenced connector secret create: %w", err)
 	}
 	return normalized, true, nil
 }
@@ -3017,7 +3038,15 @@ func (p *PostgresStore) UpsertTenancyConnectorSecretEnvelopeAtGeneration(ctx con
 	if err != nil {
 		return err
 	}
-	result, err := p.execContext(
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin lifecycle-fenced connector secret upsert transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if err := lockTenancyConnectorForSecretMutation(ctx, tx, normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID, expectedGeneration); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO tenancy_connector_secret_envelopes (
 		     tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
@@ -3072,6 +3101,9 @@ func (p *PostgresStore) UpsertTenancyConnectorSecretEnvelopeAtGeneration(ctx con
 	if affected == 0 {
 		return ErrConflict
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit lifecycle-fenced connector secret upsert: %w", err)
+	}
 	return nil
 }
 
@@ -3086,13 +3118,25 @@ func (p *PostgresStore) DeleteTenancyConnectorSecretEnvelopeAtGeneration(ctx con
 	if err != nil {
 		return err
 	}
-	result, err := p.execContext(ctx, `
-		DELETE FROM tenancy_connector_secret_envelopes e
-		 USING tenancy_connectors c
-		 WHERE e.tenant_id = $1 AND e.workspace_id = $2 AND e.project_id = $3 AND e.connector_id = $4 AND e.secret_name = $5
-		   AND c.tenant_id = e.tenant_id AND c.workspace_id = e.workspace_id AND c.project_id = e.project_id AND c.connector_id = e.connector_id
-		   AND c.lifecycle_generation = $6 AND c.disabled = FALSE AND c.status <> 'disconnected'`,
-		scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), strings.TrimSpace(secretName), expectedGeneration)
+	projectID = strings.TrimSpace(projectID)
+	connectorID = strings.TrimSpace(connectorID)
+	secretName = strings.TrimSpace(secretName)
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin lifecycle-fenced connector secret delete transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if err := lockTenancyConnectorForSecretMutation(ctx, tx, scope.TenantID, resolvedWorkspaceID, projectID, connectorID, expectedGeneration); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
+		DELETE FROM tenancy_connector_secret_envelopes
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND connector_id = $4
+		   AND secret_name = $5`,
+		scope.TenantID, resolvedWorkspaceID, projectID, connectorID, secretName)
 	if err != nil {
 		return fmt.Errorf("delete lifecycle-fenced connector secret envelope: %w", err)
 	}
@@ -3101,14 +3145,13 @@ func (p *PostgresStore) DeleteTenancyConnectorSecretEnvelopeAtGeneration(ctx con
 		return err
 	}
 	if affected > 0 {
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit lifecycle-fenced connector secret delete: %w", err)
+		}
 		return nil
 	}
-	current, currentErr := p.GetTenancyConnector(ctx, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID))
-	if currentErr != nil {
-		return currentErr
-	}
-	if current.Connector.LifecycleGeneration != expectedGeneration || current.Connector.Disabled || current.Connector.Status == "disconnected" {
-		return ErrConflict
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit lifecycle-fenced connector secret delete: %w", err)
 	}
 	return nil
 }
@@ -3171,32 +3214,39 @@ func (p *PostgresStore) UpsertTenancyConnectorSecretEnvelope(ctx context.Context
 	return nil
 }
 
-// GetTenancyConnectorSecretEnvelope loads one encrypted connector secret envelope by name.
-func (p *PostgresStore) GetTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) (TenancyConnectorSecretEnvelope, error) {
-	scope, err := RequireScope(ctx)
-	if err != nil {
-		return TenancyConnectorSecretEnvelope{}, err
-	}
-	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
-	if err != nil {
-		return TenancyConnectorSecretEnvelope{}, err
-	}
-	row := p.queryRowContext(
-		ctx,
-		`SELECT tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
-		        algorithm, key_version, nonce, ciphertext, secret_ref_id, rotated_at, rotation_due_at, created_at, updated_at
-		 FROM tenancy_connector_secret_envelopes
+const tenancyConnectorSecretEnvelopeSelectQuery = `SELECT tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
+	        algorithm, key_version, nonce, ciphertext, secret_ref_id, rotated_at, rotation_due_at, created_at, updated_at
+	 FROM tenancy_connector_secret_envelopes
+	 WHERE tenant_id = $1
+	   AND workspace_id = $2
+	   AND project_id = $3
+	   AND connector_id = $4
+	   AND secret_name = $5`
+
+func lockTenancyConnectorForSecretMutation(ctx context.Context, tx *sql.Tx, tenantID string, workspaceID string, projectID string, connectorID string, expectedGeneration int64) error {
+	var lifecycleGeneration int64
+	var disabled bool
+	var status string
+	err := tx.QueryRowContext(ctx, `SELECT lifecycle_generation, disabled, status
+		 FROM tenancy_connectors
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND project_id = $3
 		   AND connector_id = $4
-		   AND secret_name = $5`,
-		scope.TenantID,
-		resolvedWorkspaceID,
-		strings.TrimSpace(projectID),
-		strings.TrimSpace(connectorID),
-		strings.TrimSpace(secretName),
-	)
+		 FOR UPDATE`, tenantID, workspaceID, projectID, connectorID).Scan(&lifecycleGeneration, &disabled, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("lock connector lifecycle row for secret mutation: %w", err)
+	}
+	if lifecycleGeneration != expectedGeneration || disabled || status == "disconnected" {
+		return ErrConflict
+	}
+	return nil
+}
+
+func scanTenancyConnectorSecretEnvelope(row rowScanner) (TenancyConnectorSecretEnvelope, error) {
 	var item TenancyConnectorSecretEnvelope
 	var secretRefID sql.NullString
 	var rotationDueAt sql.NullTime
@@ -3217,16 +3267,42 @@ func (p *PostgresStore) GetTenancyConnectorSecretEnvelope(ctx context.Context, w
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return TenancyConnectorSecretEnvelope{}, ErrNotFound
-		}
-		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("query connector secret envelope: %w", err)
+		return TenancyConnectorSecretEnvelope{}, err
 	}
 	item.Envelope.Version = item.EnvelopeVersion
 	item.SecretRefID = secretRefID.String
 	if rotationDueAt.Valid {
 		due := rotationDueAt.Time.UTC()
 		item.RotationDueAt = &due
+	}
+	return item, nil
+}
+
+// GetTenancyConnectorSecretEnvelope loads one encrypted connector secret envelope by name.
+func (p *PostgresStore) GetTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) (TenancyConnectorSecretEnvelope, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, err
+	}
+	row := p.queryRowContext(
+		ctx,
+		tenancyConnectorSecretEnvelopeSelectQuery,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(connectorID),
+		strings.TrimSpace(secretName),
+	)
+	item, err := scanTenancyConnectorSecretEnvelope(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TenancyConnectorSecretEnvelope{}, ErrNotFound
+		}
+		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("query connector secret envelope: %w", err)
 	}
 	return item, nil
 }

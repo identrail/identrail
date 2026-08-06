@@ -877,6 +877,95 @@ func TestPostgresStoreConnectorSecretEnvelopeCRUD(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreLifecycleFencedSecretMutationsLockConnectorRow(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := workspaceLifecycleScope()
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	due := now.Add(24 * time.Hour)
+	envelope := TenancyConnectorSecretEnvelope{
+		WorkspaceID:     "workspace-a",
+		ProjectID:       "project-1",
+		ConnectorID:     "github",
+		SecretName:      "external_id",
+		EnvelopeVersion: 1,
+		Envelope: secretstore.Envelope{
+			Version:    1,
+			Algorithm:  secretstore.AlgorithmAES256GCM,
+			KeyVersion: "v1",
+			Nonce:      []byte("123456789012"),
+			Ciphertext: []byte("ciphertext"),
+		},
+		SecretRefID:   "vault://secret/v1",
+		RotatedAt:     now,
+		RotationDueAt: &due,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	lockQuery := regexp.QuoteMeta(`SELECT lifecycle_generation, disabled, status
+		 FROM tenancy_connectors
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND connector_id = $4
+		 FOR UPDATE`)
+	expectLock := func(generation int64, disabled bool, status string) {
+		mock.ExpectQuery(lockQuery).
+			WithArgs("tenant-a", "workspace-a", "project-1", "github").
+			WillReturnRows(sqlmock.NewRows([]string{"lifecycle_generation", "disabled", "status"}).AddRow(generation, disabled, status))
+	}
+
+	// Every fenced secret mutation must acquire the connector lock before it
+	// reads the lifecycle state or touches the secret row.
+	mock.ExpectBegin()
+	expectLock(7, false, "active")
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO tenancy_connector_secret_envelopes`)).
+		WithArgs("tenant-a", "workspace-a", "project-1", "github", "external_id", 1, secretstore.AlgorithmAES256GCM, "v1", []byte("123456789012"), []byte("ciphertext"), "vault://secret/v1", now, &due, now, now, int64(7)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	if _, created, err := store.CreateTenancyConnectorSecretEnvelopeIfAbsentAtGeneration(ctx, envelope, 7); err != nil || !created {
+		t.Fatalf("create lifecycle-fenced secret: created=%v err=%v", created, err)
+	}
+
+	mock.ExpectBegin()
+	expectLock(7, false, "active")
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO tenancy_connector_secret_envelopes`)).
+		WithArgs("tenant-a", "workspace-a", "project-1", "github", "external_id", 1, secretstore.AlgorithmAES256GCM, "v1", []byte("123456789012"), []byte("ciphertext"), "vault://secret/v1", now, &due, now, now, int64(7)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	if err := store.UpsertTenancyConnectorSecretEnvelopeAtGeneration(ctx, envelope, 7); err != nil {
+		t.Fatalf("upsert lifecycle-fenced secret: %v", err)
+	}
+
+	mock.ExpectBegin()
+	expectLock(7, false, "active")
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM tenancy_connector_secret_envelopes`)).
+		WithArgs("tenant-a", "workspace-a", "project-1", "github", "external_id").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	if err := store.DeleteTenancyConnectorSecretEnvelopeAtGeneration(ctx, "workspace-a", "project-1", "github", "external_id", 7); err != nil {
+		t.Fatalf("delete lifecycle-fenced secret: %v", err)
+	}
+
+	// A row that changed generation while the caller was in flight must abort
+	// before the secret statement is reached.
+	mock.ExpectBegin()
+	expectLock(8, false, "active")
+	mock.ExpectRollback()
+	if err := store.UpsertTenancyConnectorSecretEnvelopeAtGeneration(ctx, envelope, 7); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected stale lifecycle generation conflict, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreWorkspaceScopeIsolation(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
