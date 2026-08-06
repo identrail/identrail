@@ -463,7 +463,13 @@ func applyAWSOrganizationStackInstance(target *db.AWSOrganizationRolloutTarget, 
 	target.StackInstanceID = firstNonEmptyAWSValue(instance.StackSetID, instance.LastOperationID)
 	target.StackID = instance.StackID
 	target.EvidenceRef = "aws-cloudformation-stack-instance:" + target.AccountID + "/" + target.Region
-	target.LastTransitionAt = now
+	// Refresh evidence fields on every inventory pass, but only stamp
+	// LastTransitionAt when the target actually moves to a new state.
+	// Stamping unconditionally reset the registration_missing timeout each
+	// pass, so a member whose stack instance was `current` but whose
+	// registration callback never arrived stayed Registering forever instead
+	// of failing after the retry window.
+	priorState := target.State
 	status := strings.ToLower(strings.TrimSpace(instance.Status))
 	detailed := strings.ToLower(strings.TrimSpace(instance.DetailedStatus))
 	drift := strings.ToLower(strings.TrimSpace(instance.DriftStatus))
@@ -488,6 +494,9 @@ func applyAWSOrganizationStackInstance(target *db.AWSOrganizationRolloutTarget, 
 		target.FailureCode = ""
 		target.FailureMessage = ""
 		target.Retryable = true
+	}
+	if target.State != priorState {
+		target.LastTransitionAt = now
 	}
 }
 

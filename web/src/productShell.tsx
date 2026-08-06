@@ -21812,12 +21812,14 @@ function AWSOrganizationRolloutPanel({
   // Derive the rollout target scope from the setup mode, mirroring
   // buildStackSetContractSnapshot / handleAWSStackSetStart. The API expands
   // roots and OUs from live AWS Organizations inventory before it persists
-  // the expected account set.
+  // the expected account set — so selected_accounts must send an empty OU
+  // list, otherwise the server would union the explicit accounts with every
+  // account under the organization root and silently broaden the rollout.
   const derivedTargetOUIDs = (() => {
     if (setupMode === 'selected_ous') {
       return selectedOUIDs;
     }
-    if (setupMode === 'organization' || setupMode === 'selected_accounts') {
+    if (setupMode === 'organization') {
       return organizationRootID ? [organizationRootID] : [];
     }
     return [];
@@ -21826,11 +21828,6 @@ function AWSOrganizationRolloutPanel({
   const derivedExcludedAccountIDs = setupMode !== 'selected_accounts' ? excludedAccountIDs : [];
   const derivedAutoDeployNewAccounts =
     setupMode === 'organization' || setupMode === 'selected_ous' ? autoDeployNewAccounts : false;
-  // Selected-accounts mode must always carry an explicit account list. The
-  // derived OU list falls back to the organization root so the API can expand
-  // scope in organization/selected_ous modes, but that same fallback would
-  // silently broaden a selected-accounts rollout to every account under the
-  // root if we treated the OU scope alone as sufficient here.
   const hasTargetScope =
     setupMode === 'selected_accounts'
       ? derivedTargetAccountIDs.length > 0

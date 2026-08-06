@@ -10,6 +10,11 @@ trap 'rm -rf "${tmp}"' EXIT
 # there, which would leak test-only values into the surrounding step's
 # outputs. Unset it so the script's step-output behavior stays hermetic.
 unset GITHUB_OUTPUT
+# Pin the operation to plan so the test is deterministic regardless of the
+# caller's API_DEPLOY_OPERATION. Without this, invoking from a shell or
+# workflow that exports 'apply' trips the confirmation guard in
+# prepare_aws_api_deploy.sh before the tfvars assertions ever run.
+export API_DEPLOY_OPERATION=plan
 
 export AWS_REGION=us-east-1
 export AWS_ROLE_ARN=arn:aws:iam::111111111111:role/IdentrailGithubDeployRole

@@ -169,6 +169,12 @@ func buildAWSOrganizationsTopologyFromInventory(scope db.Scope, project db.Tenan
 	for _, unit := range append(append([]AWSOrganizationInventoryOU(nil), snapshot.Roots...), snapshot.OrganizationalUnits...) {
 		units = append(units, awscontract.OrganizationUnit{ID: unit.ID, Name: unit.Name, ParentID: unit.ParentID, Path: unit.Path, Enabled: true})
 	}
+	// ConnectorScoped must reflect the connector's own scope, not the raw
+	// Organizations inventory. Otherwise a selected-OU or selected-accounts
+	// connector reports every account in the tree as scan-eligible for that
+	// connector, and downstream rollout planning can pick up accounts the
+	// operator never approved.
+	scoped := awsOrganizationsTopologyConnectorScopePredicate(connection, snapshot)
 	accounts := make([]awscontract.OrganizationAccount, 0, len(snapshot.Accounts))
 	checkpoints := make([]awscontract.OrganizationsCheckpoint, 0, len(snapshot.Accounts))
 	for _, account := range snapshot.Accounts {
@@ -182,7 +188,7 @@ func buildAWSOrganizationsTopologyFromInventory(scope db.Scope, project db.Tenan
 			Partition:              snapshot.Partition,
 			Management:             account.Management,
 			DelegatedAdminServices: account.DelegatedAdminServices,
-			ConnectorScoped:        true,
+			ConnectorScoped:        scoped(account),
 		})
 		state := awscontract.CoverageStateCovered
 		if status != awscontract.OrganizationAccountActive {
@@ -333,6 +339,61 @@ func buildAWSOrganizationsTopology(scope db.Scope, project db.TenancyProject, co
 		GeneratedAt:  checkedAt,
 		UpdatedAt:    checkedAt,
 	}, nil
+}
+
+// awsOrganizationsTopologyConnectorScopePredicate returns a function that
+// answers, for each Organizations account, whether the connector's own scope
+// covers it. It mirrors the resolution the rollout planner and StackSet
+// deployment path use: excluded accounts are always out; single_account /
+// manual_role only cover the connection's own account; organization covers
+// everything except explicit exclusions; selected_ous covers accounts whose
+// ancestors intersect the connector's OU list; selected_accounts covers only
+// the explicit account list. An unrecognized scope type is treated as
+// unscoped so we fail closed rather than leaking accounts through defaults.
+func awsOrganizationsTopologyConnectorScopePredicate(connection AWSConnectionStatus, snapshot AWSOrganizationInventorySnapshot) func(AWSOrganizationInventoryAccount) bool {
+	excluded := make(map[string]struct{}, len(connection.ExcludedAccountIDs))
+	for _, accountID := range connection.ExcludedAccountIDs {
+		if id := strings.TrimSpace(accountID); id != "" {
+			excluded[id] = struct{}{}
+		}
+	}
+	targets := make(map[string]struct{}, len(connection.TargetAccountIDs))
+	for _, accountID := range connection.TargetAccountIDs {
+		if id := strings.TrimSpace(accountID); id != "" {
+			targets[id] = struct{}{}
+		}
+	}
+	ous := make(map[string]struct{}, len(connection.TargetOUIDs))
+	for _, ouID := range connection.TargetOUIDs {
+		if id := strings.TrimSpace(ouID); id != "" {
+			ous[id] = struct{}{}
+		}
+	}
+	connectionAccountID := strings.TrimSpace(connection.AccountID)
+	scopeType := connection.ScopeType
+	return func(account AWSOrganizationInventoryAccount) bool {
+		if _, blocked := excluded[account.AccountID]; blocked {
+			return false
+		}
+		switch scopeType {
+		case AWSConnectorScopeOrganization:
+			return true
+		case AWSConnectorScopeSelectedOUs:
+			for _, ancestorID := range account.AncestorIDs {
+				if _, ok := ous[strings.TrimSpace(ancestorID)]; ok {
+					return true
+				}
+			}
+			return false
+		case AWSConnectorScopeSelectedAccounts:
+			_, ok := targets[account.AccountID]
+			return ok
+		case AWSConnectorScopeSingleAccount, AWSConnectorScopeManualRole:
+			return connectionAccountID != "" && account.AccountID == connectionAccountID
+		default:
+			return false
+		}
+	}
 }
 
 func normalizeAWSOrganizationsFixtureState(requested string, connection AWSConnectionStatus, hasConnection bool) string {

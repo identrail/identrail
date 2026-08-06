@@ -358,10 +358,14 @@ func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, 
             -- partial, suspended, removed, excluded) is only replaced by
             -- another terminal state; a late in-flight callback or SQS
             -- redelivery cannot demote a reconciled target back to
-            -- validating/registering/deploying/pending.
+            -- validating/registering/pending. Deploying is the sole
+            -- non-terminal exception: inventory reconciliation may reopen
+            -- a terminal target as deploying when CloudFormation reports
+            -- an active StackSet operation, so the aggregate does not
+            -- report completed while a live deployment is still in flight.
             state = CASE
                 WHEN aws_organization_rollout_targets.state IN ('connected','failed','partial','suspended','removed','excluded')
-                     AND EXCLUDED.state NOT IN ('connected','failed','partial','suspended','removed','excluded')
+                     AND EXCLUDED.state NOT IN ('connected','failed','partial','suspended','removed','excluded','deploying')
                 THEN aws_organization_rollout_targets.state
                 ELSE EXCLUDED.state
             END,
@@ -375,7 +379,7 @@ func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, 
             register_request_id = COALESCE(EXCLUDED.register_request_id, aws_organization_rollout_targets.register_request_id),
             last_transition_at = CASE
                 WHEN aws_organization_rollout_targets.state IN ('connected','failed','partial','suspended','removed','excluded')
-                     AND EXCLUDED.state NOT IN ('connected','failed','partial','suspended','removed','excluded')
+                     AND EXCLUDED.state NOT IN ('connected','failed','partial','suspended','removed','excluded','deploying')
                 THEN aws_organization_rollout_targets.last_transition_at
                 WHEN aws_organization_rollout_targets.state <> EXCLUDED.state
                 THEN EXCLUDED.last_transition_at

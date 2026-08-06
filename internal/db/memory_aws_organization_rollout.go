@@ -116,12 +116,21 @@ func (m *MemoryStore) ListAWSOrganizationRollouts(ctx context.Context, workspace
 // ListMonitoredAWSOrganizationRollouts is the worker-facing cross-scope read.
 // Only the newest rollout for a connector is monitored so completed rollout
 // history cannot duplicate provider calls after a replacement is started.
+//
+// The monitored-status filter runs BEFORE the per-connector "latest" pick,
+// mirroring the Postgres subquery. Applying it after would drop a connector
+// entirely whenever its latest row is canceled/expired, silently disabling
+// drift/health reconciliation for connectors whose newest rollout is retired
+// but whose earlier completed/partial/failed rollout still needs monitoring.
 func (m *MemoryStore) ListMonitoredAWSOrganizationRollouts(_ context.Context, limit int) ([]AWSOrganizationRollout, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	latestByConnector := make(map[string]AWSOrganizationRollout)
 	for _, rollout := range m.awsOrgRollouts {
+		if !awsOrganizationRolloutMonitored(rollout.Status) {
+			continue
+		}
 		key := tenancyConnectorKey(rollout.TenantID, rollout.WorkspaceID, rollout.ProjectID, rollout.ControllingConnectorID)
 		latest, ok := latestByConnector[key]
 		if !ok || rollout.CreatedAt.After(latest.CreatedAt) || rollout.CreatedAt.Equal(latest.CreatedAt) && rollout.RolloutID > latest.RolloutID {
@@ -130,9 +139,7 @@ func (m *MemoryStore) ListMonitoredAWSOrganizationRollouts(_ context.Context, li
 	}
 	out := make([]AWSOrganizationRollout, 0, len(latestByConnector))
 	for _, rollout := range latestByConnector {
-		if awsOrganizationRolloutMonitored(rollout.Status) {
-			out = append(out, cloneAWSOrganizationRollout(rollout))
-		}
+		out = append(out, cloneAWSOrganizationRollout(rollout))
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].UpdatedAt.Before(out[j].UpdatedAt)
@@ -620,12 +627,22 @@ func awsOrganizationRolloutTargetStateTerminal(state string) bool {
 // awsOrganizationRolloutTargetStateAdvances returns true when transitioning
 // from `from` to `to` is a valid forward move under the promote-only rule.
 // Identical states advance; non-terminal → anything advances; a terminal
-// origin only accepts another terminal destination.
+// origin only accepts another terminal destination — with one exception:
+// inventory reconciliation may reopen a terminal target as Deploying when
+// CloudFormation reports an active StackSet operation (pending/running).
+// Without this exception a Connected target whose StackSet is actively
+// deploying would stay Connected and the aggregate would report completed
+// while a live deployment was still in flight. Registering and Validating
+// remain blocked from a terminal origin so late/duplicate registration
+// callbacks cannot demote a reconciled target.
 func awsOrganizationRolloutTargetStateAdvances(from string, to string) bool {
 	if from == to {
 		return true
 	}
 	if !awsOrganizationRolloutTargetStateTerminal(from) {
+		return true
+	}
+	if to == AWSOrganizationRolloutTargetDeploying {
 		return true
 	}
 	return awsOrganizationRolloutTargetStateTerminal(to)

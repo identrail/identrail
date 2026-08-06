@@ -46,8 +46,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${GITHUB_REF_NAME}" != "dev" ]; then
-            echo "Run this workflow from the dev branch. The AWS OIDC role trust is intentionally scoped to refs/heads/dev."
+          # Every path through this workflow must actually run on refs/heads/dev
+          # because the AWS OIDC role trust is scoped to that ref. On
+          # workflow_dispatch the caller picks the branch; on workflow_run
+          # GitHub Actions uses the repository's default branch (not the
+          # triggering run's branch). This guard fails fast if the effective
+          # ref is not dev, so an auto-triggered run against any other default
+          # branch surfaces here instead of failing opaquely at
+          # publish-template / migrate / deploy when AWS rejects the OIDC sub.
+          if [ "${GITHUB_REF_NAME}" != "dev" ]; then
+            echo "This workflow must run on refs/heads/dev; got ${GITHUB_REF_NAME}."
+            echo "For workflow_dispatch select the dev branch. For workflow_run confirm the repository default branch is still dev."
             exit 1
           fi
 
@@ -153,11 +162,70 @@ jobs:
       - name: Record production approval
         run: echo "Production deployment approved for ${{ needs.resolve.outputs.release_sha }}."
 
+  # verify-latest runs three times — once before template publishing, once
+  # immediately before migrations, and once immediately before the deploy
+  # apply. Each guard re-fetches the current head of dev so a commit pushed
+  # after approval cannot slip through the initial check and let this run
+  # migrate/deploy an older SHA than what dev now points to.
   verify-latest:
     name: Verify release is still current
     needs:
       - resolve
       - approve
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject stale production release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.resolve.outputs.release_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dev_sha="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" |
+              jq -r '.object.sha'
+          )"
+          if [ "${RELEASE_SHA}" != "${dev_sha}" ]; then
+            echo "Refusing to deploy stale commit ${RELEASE_SHA}; current dev is ${dev_sha}."
+            exit 1
+          fi
+
+  verify-latest-before-migrate:
+    name: Re-verify release is still current before migrations
+    needs:
+      - resolve
+      - publish-template
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject stale production release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.resolve.outputs.release_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dev_sha="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" |
+              jq -r '.object.sha'
+          )"
+          if [ "${RELEASE_SHA}" != "${dev_sha}" ]; then
+            echo "Refusing to migrate stale commit ${RELEASE_SHA}; current dev is ${dev_sha}."
+            exit 1
+          fi
+
+  verify-latest-before-deploy:
+    name: Re-verify release is still current before deploy
+    needs:
+      - resolve
+      - migrate
     runs-on: ubuntu-latest
     steps:
       - name: Reject stale production release
@@ -283,6 +351,7 @@ jobs:
     needs:
       - resolve
       - publish-template
+      - verify-latest-before-migrate
     permissions:
       contents: read
       id-token: write
@@ -300,6 +369,7 @@ jobs:
       - resolve
       - migrate
       - publish-template
+      - verify-latest-before-deploy
     permissions:
       contents: read
       id-token: write
