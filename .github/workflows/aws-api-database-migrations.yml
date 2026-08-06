@@ -38,6 +38,11 @@ on:
         required: false
         type: string
         default: migrations
+      require_head_sha:
+        description: "Optional: refuse to migrate unless refs/heads/dev still points at this SHA. Checked immediately before migrations run."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -213,6 +218,30 @@ jobs:
             printf '%s\n' "${database_url}"
             echo "EOF"
           } >> "${GITHUB_ENV}"
+
+      # Last gate before the destructive operation, in the same job and the
+      # same execution path as the migration itself. A separate upstream job
+      # can go stale between its check and this step; this cannot.
+      - name: Reject stale release immediately before migrating
+        if: inputs.require_head_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUIRE_HEAD_SHA: ${{ inputs.require_head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dev_sha="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" |
+              jq -r '.object.sha'
+          )"
+          if [ "${REQUIRE_HEAD_SHA}" != "${dev_sha}" ]; then
+            echo "Refusing to migrate stale commit ${REQUIRE_HEAD_SHA}; current dev is ${dev_sha}."
+            exit 1
+          fi
 
       - name: Apply database migrations
         shell: bash

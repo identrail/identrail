@@ -22962,6 +22962,15 @@ export function ProductAWSConnectPage() {
     return cloudFormationAWSStart?.connector_id ?? singleAccountConnectionID ?? '';
   })();
   activeConnectorIDRef.current = activeConnectorID;
+  // The organization rollout is always driven by the connected
+  // organization-scoped connector in the management account. That connector is
+  // independent of which target scope the operator picks for the rollout
+  // itself, so it must not come from activeConnectorID: that value is
+  // deliberately blanked whenever the setup-mode dropdown stops matching the
+  // persisted connector's scope, which left "Start rollout" permanently
+  // disabled as soon as the operator chose Selected OUs or Selected accounts.
+  const rolloutControllingConnectorID =
+    connection?.scope_type === 'organization' ? connection.connector_id ?? '' : activeConnectorID;
   const canValidateRole = Boolean(normalizeValue(awsForm.roleARN)) && (!isManualSetup || Boolean(activeConnectorID));
   const selectedAWSRegion = normalizeValue(awsForm.region) || 'us-east-1';
   const manualExternalID = normalizeValue(awsForm.externalID);
@@ -24326,7 +24335,7 @@ export function ProductAWSConnectPage() {
               <AWSOrganizationRolloutPanel
                 workspaceID={scope.workspaceID}
                 projectID={scope.projectID ?? ''}
-                controllingConnectorID={activeConnectorID}
+                controllingConnectorID={rolloutControllingConnectorID}
                 controllingAccountID={connection?.account_id ?? ''}
                 controllingConnected={Boolean(connection?.connected)}
                 organizationID={connection?.organization_id ?? ''}

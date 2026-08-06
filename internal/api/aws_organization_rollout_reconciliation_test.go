@@ -669,3 +669,113 @@ func TestRetryAWSOrganizationRolloutRejectsReplacementBeforeResettingTargets(t *
 		t.Fatalf("expected target to remain retryable and failed, got %+v", unchanged)
 	}
 }
+
+// TestApplyAWSOrganizationStackInstanceLifecycle locks in the two transitions
+// that keep a reopened target moving. A Connected target reopened as Deploying
+// by an active StackSet operation must return to Validating once the instance
+// reports current again, otherwise it sits in Deploying forever and the
+// rollout never leaves reconciling. LastTransitionAt must only move when the
+// state actually changes, so the registration timeout is not reset each pass.
+func TestApplyAWSOrganizationStackInstanceLifecycle(t *testing.T) {
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	earlier := now.Add(-90 * time.Minute)
+
+	t.Run("deploying with current instance returns to validating", func(t *testing.T) {
+		target := db.AWSOrganizationRolloutTarget{
+			AccountID: "333333333333", Region: "us-east-1",
+			State: db.AWSOrganizationRolloutTargetDeploying, RoleARN: "arn:aws:iam::333333333333:role/identrail",
+			LastTransitionAt: earlier,
+		}
+		applyAWSOrganizationStackInstance(&target, AWSOrganizationStackInstance{Status: "current"}, now)
+		if target.State != db.AWSOrganizationRolloutTargetValidating {
+			t.Fatalf("expected validating, got %q", target.State)
+		}
+		if !target.LastTransitionAt.Equal(now) {
+			t.Fatalf("expected transition stamped at now, got %s", target.LastTransitionAt)
+		}
+	})
+
+	t.Run("unchanged registering state preserves transition time", func(t *testing.T) {
+		target := db.AWSOrganizationRolloutTarget{
+			AccountID: "333333333333", Region: "us-east-1",
+			State: db.AWSOrganizationRolloutTargetRegistering, RoleARN: "",
+			LastTransitionAt: earlier,
+		}
+		applyAWSOrganizationStackInstance(&target, AWSOrganizationStackInstance{Status: "current"}, now)
+		if target.State != db.AWSOrganizationRolloutTargetRegistering {
+			t.Fatalf("expected registering, got %q", target.State)
+		}
+		if !target.LastTransitionAt.Equal(earlier) {
+			t.Fatalf("expected preserved transition time %s, got %s", earlier, target.LastTransitionAt)
+		}
+	})
+
+	t.Run("connected reopens as deploying on running operation", func(t *testing.T) {
+		target := db.AWSOrganizationRolloutTarget{
+			AccountID: "333333333333", Region: "us-east-1",
+			State: db.AWSOrganizationRolloutTargetConnected, RoleARN: "arn:aws:iam::333333333333:role/identrail",
+			LastTransitionAt: earlier,
+		}
+		applyAWSOrganizationStackInstance(&target, AWSOrganizationStackInstance{Status: "outdated", DetailedStatus: "running"}, now)
+		if target.State != db.AWSOrganizationRolloutTargetDeploying {
+			t.Fatalf("expected deploying, got %q", target.State)
+		}
+		if !target.LastTransitionAt.Equal(now) {
+			t.Fatalf("expected transition stamped at now, got %s", target.LastTransitionAt)
+		}
+	})
+}
+
+// TestAWSOrganizationRolloutExemptFromEnvelopeExpiry documents that durable
+// outcomes are never re-expired. Now that failed and partial rollouts stay in
+// the monitored set, re-expiring them would replace a real failure reason with
+// "expired" and drop them from drift monitoring 24 hours after creation.
+func TestAWSOrganizationRolloutExemptFromEnvelopeExpiry(t *testing.T) {
+	exempt := map[string]bool{
+		db.AWSOrganizationRolloutStatusCompleted:   true,
+		db.AWSOrganizationRolloutStatusFailed:      true,
+		db.AWSOrganizationRolloutStatusPartial:     true,
+		db.AWSOrganizationRolloutStatusCreated:     false,
+		db.AWSOrganizationRolloutStatusLaunching:   false,
+		db.AWSOrganizationRolloutStatusInProgress:  false,
+		db.AWSOrganizationRolloutStatusReconciling: false,
+	}
+	for status, want := range exempt {
+		if got := awsOrganizationRolloutExemptFromEnvelopeExpiry(status); got != want {
+			t.Fatalf("exempt(%q) = %v; want %v", status, got, want)
+		}
+	}
+}
+
+// TestReconcileAWSOrganizationRolloutDegradesOnInventoryFailure proves a
+// transient Organizations/StackSet discovery failure no longer aborts the
+// whole pass. Target validation must still run against the stored target set,
+// with the discovery failure surfaced on the result instead.
+func TestReconcileAWSOrganizationRolloutDegradesOnInventoryFailure(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
+	svc.AWSConnectorValidator = &fakeAWSConnectorValidator{result: AWSConnectionValidationResult{
+		AccountID: "222222222222",
+		PermissionChecks: []AWSConnectionPermissionCheck{
+			{Name: "sts:AssumeRole", Passed: true},
+			{Name: "iam:ListRoles", Passed: true},
+		},
+	}}
+	svc.AWSOrganizationInventoryFactory = func(context.Context, AWSConnectionStatus) (AWSOrganizationInventory, error) {
+		return nil, errors.New("throttled by aws organizations")
+	}
+
+	result, status, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("expected reconciliation to degrade rather than fail: %v", err)
+	}
+	if !result.InventoryDegraded || result.InventoryFailureReason == "" {
+		t.Fatalf("expected inventory degradation to be reported, got %+v", result)
+	}
+	if result.TargetsValidated == 0 {
+		t.Fatalf("expected member validation to still run, got %+v", result)
+	}
+	if status.Status != db.AWSOrganizationRolloutStatusCompleted {
+		t.Fatalf("expected validated targets to still aggregate, got %q", status.Status)
+	}
+}

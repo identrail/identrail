@@ -262,14 +262,18 @@ func buildAWSOrganizationsTopologyLiveFailure(scope db.Scope, project db.Tenancy
 		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
 		CurrentIssueNumber: awsOrganizationsTopologyCurrentIssue,
 		CurrentIssueRef:    awsIssueRef(awsOrganizationsTopologyCurrentIssue),
-		Partition:          "aws",
-		Version:            awscontract.OrganizationsTopologyVersion,
-		Status:             awsPlatformDependencyStatusBlocked,
-		FixtureState:       "live",
-		Confidence:         0,
-		Summary:            AWSOrganizationsTopologySummary{StateCounts: map[string]int{}, StatusCounts: map[string]int{}},
-		FailureReasons:     []string{message},
-		RemediationHints:   []string{"Allow the connected role to describe the organization and list roots, OUs, accounts, parents, and delegated administrators, then refresh."},
+		// Derive the partition from the connector's own region rather than
+		// hardcoding "aws". A connector in aws-cn or aws-us-gov would
+		// otherwise get a blocked summary that names the wrong partition,
+		// while the success and deterministic paths report the real one.
+		Partition:        awsStackSetPartition(connection.Region),
+		Version:          awscontract.OrganizationsTopologyVersion,
+		Status:           awsPlatformDependencyStatusBlocked,
+		FixtureState:     "live",
+		Confidence:       0,
+		Summary:          AWSOrganizationsTopologySummary{StateCounts: map[string]int{}, StatusCounts: map[string]int{}},
+		FailureReasons:   []string{message},
+		RemediationHints: []string{"Allow the connected role to describe the organization and list roots, OUs, accounts, parents, and delegated administrators, then refresh."},
 		Diagnostics: []AWSOrganizationsTopologyDiagnostic{{
 			Source:      "organizations_topology",
 			Scope:       strings.TrimSpace(request.ConnectorID),

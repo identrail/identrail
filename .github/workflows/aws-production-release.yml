@@ -95,22 +95,60 @@ jobs:
         run: |
           set -euo pipefail
 
-          runs_json="$(
-            curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs?branch=dev&head_sha=${RELEASE_SHA}&status=success&per_page=100"
-          )"
-
+          # CI and Publish Container Images are triggered independently by the
+          # same dev push, so whichever finishes first fires the workflow_run
+          # that starts this release. Failing immediately when the other gate
+          # is still running would permanently strand the release: no later
+          # event re-runs it. Poll instead, and only fail once a gate has
+          # actually concluded unsuccessfully or the budget is exhausted.
           required_workflows=("CI" "Publish Container Images")
-          for workflow in "${required_workflows[@]}"; do
-            if ! jq -e --arg workflow "${workflow}" '.workflow_runs[] | select(.name == $workflow and .conclusion == "success")' >/dev/null <<< "${runs_json}"; then
-              echo "Required workflow ${workflow} has not completed successfully for ${RELEASE_SHA}."
-              echo "Wait for dev checks and image publishing to finish, then run Deploy to prod again."
+          # 40 attempts x 30s = 20 minutes, comfortably longer than either gate.
+          max_attempts=40
+          pending=""
+
+          for attempt in $(seq 1 "${max_attempts}"); do
+            runs_json="$(
+              curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs?branch=dev&head_sha=${RELEASE_SHA}&per_page=100"
+            )"
+
+            pending=""
+            failed=""
+            for workflow in "${required_workflows[@]}"; do
+              if jq -e --arg workflow "${workflow}" \
+                  '.workflow_runs[] | select(.name == $workflow and .conclusion == "success")' \
+                  >/dev/null <<< "${runs_json}"; then
+                continue
+              fi
+              # A concluded run that is not success is terminal: stop waiting.
+              if jq -e --arg workflow "${workflow}" \
+                  '.workflow_runs[] | select(.name == $workflow and .status == "completed" and .conclusion != "success")' \
+                  >/dev/null <<< "${runs_json}"; then
+                failed="${failed} ${workflow}"
+                continue
+              fi
+              pending="${pending} ${workflow}"
+            done
+
+            if [ -n "${failed}" ]; then
+              echo "Required workflow(s)${failed} concluded unsuccessfully for ${RELEASE_SHA}."
               exit 1
             fi
+            if [ -z "${pending}" ]; then
+              echo "All required workflows succeeded for ${RELEASE_SHA}."
+              exit 0
+            fi
+
+            echo "Attempt ${attempt}/${max_attempts}: waiting on${pending} for ${RELEASE_SHA}."
+            sleep 30
           done
+
+          echo "Required workflow(s)${pending} did not complete for ${RELEASE_SHA} within the wait budget."
+          echo "Wait for dev checks and image publishing to finish, then run Deploy to prod again."
+          exit 1
 
       - name: Login to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
@@ -162,70 +200,16 @@ jobs:
       - name: Record production approval
         run: echo "Production deployment approved for ${{ needs.resolve.outputs.release_sha }}."
 
-  # verify-latest runs three times — once before template publishing, once
-  # immediately before migrations, and once immediately before the deploy
-  # apply. Each guard re-fetches the current head of dev so a commit pushed
-  # after approval cannot slip through the initial check and let this run
-  # migrate/deploy an older SHA than what dev now points to.
+  # Single post-approval freshness gate. The atomic, immediately-before-the-
+  # destructive-operation checks live inside the reusable migration and deploy
+  # workflows (require_head_ref/require_head_sha), so the check that actually
+  # matters runs in the same execution path as the operation it guards rather
+  # than in a separate job that can go stale before the operation starts.
   verify-latest:
     name: Verify release is still current
     needs:
       - resolve
       - approve
-    runs-on: ubuntu-latest
-    steps:
-      - name: Reject stale production release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ needs.resolve.outputs.release_sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          dev_sha="$(
-            curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" |
-              jq -r '.object.sha'
-          )"
-          if [ "${RELEASE_SHA}" != "${dev_sha}" ]; then
-            echo "Refusing to deploy stale commit ${RELEASE_SHA}; current dev is ${dev_sha}."
-            exit 1
-          fi
-
-  verify-latest-before-migrate:
-    name: Re-verify release is still current before migrations
-    needs:
-      - resolve
-      - publish-template
-    runs-on: ubuntu-latest
-    steps:
-      - name: Reject stale production release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ needs.resolve.outputs.release_sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          dev_sha="$(
-            curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" |
-              jq -r '.object.sha'
-          )"
-          if [ "${RELEASE_SHA}" != "${dev_sha}" ]; then
-            echo "Refusing to migrate stale commit ${RELEASE_SHA}; current dev is ${dev_sha}."
-            exit 1
-          fi
-
-  verify-latest-before-deploy:
-    name: Re-verify release is still current before deploy
-    needs:
-      - resolve
-      - migrate
     runs-on: ubuntu-latest
     steps:
       - name: Reject stale production release
@@ -320,18 +304,38 @@ jobs:
           template_url="https://${TEMPLATE_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}"
 
           aws s3api head-bucket --bucket "${TEMPLATE_BUCKET}"
-          aws s3api put-object \
+
+          # Write-once publish. --if-none-match '*' makes the PUT conditional
+          # on the key not already existing, so a SHA-addressed object can
+          # never be silently overwritten with different bytes after it has
+          # been verified and handed to customers. A PreconditionFailed means
+          # this exact digest was already published (a re-run, or a release
+          # that did not change the template); that is the expected, benign
+          # case and we fall through to verifying the stored bytes.
+          if aws s3api put-object \
             --bucket "${TEMPLATE_BUCKET}" \
             --key "${key}" \
             --body "${template}" \
             --content-type "application/x-yaml" \
-            --cache-control "public,max-age=31536000,immutable" >/dev/null
+            --if-none-match '*' \
+            --cache-control "public,max-age=31536000,immutable" >/dev/null 2>"${RUNNER_TEMP}/put-object.err"; then
+            echo "Published ${key}."
+          elif grep -qi "PreconditionFailed\|At least one of the pre-conditions" "${RUNNER_TEMP}/put-object.err"; then
+            echo "Object ${key} already exists; verifying stored bytes instead of overwriting."
+          else
+            cat "${RUNNER_TEMP}/put-object.err" >&2
+            exit 1
+          fi
 
+          # Verify the bytes actually served at the SHA-addressed URL match the
+          # digest in the path, whether we just wrote them or found them already
+          # present. This is what makes the URL safe to hand to customers.
           downloaded="${RUNNER_TEMP}/identrail-readonly.yaml"
           curl -fsSL --retry 5 --retry-all-errors "${template_url}" -o "${downloaded}"
           published_digest="$(sha256sum "${downloaded}" | awk '{print $1}')"
           if [ "${published_digest}" != "${digest}" ]; then
             echo "Published template digest ${published_digest} does not match ${digest}."
+            echo "The SHA-addressed key holds different bytes than this release's template; refusing to continue."
             exit 1
           fi
 
@@ -344,6 +348,7 @@ jobs:
             echo
             echo "- URL: \`${template_url}\`"
             echo "- SHA-256: \`${digest}\`"
+            echo "- Write mode: conditional (\`If-None-Match: *\`), digest verified after publish"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   migrate:
@@ -351,7 +356,6 @@ jobs:
     needs:
       - resolve
       - publish-template
-      - verify-latest-before-migrate
     permissions:
       contents: read
       id-token: write
@@ -361,6 +365,9 @@ jobs:
       confirm_migrations: run-api-migrations
       database_url_secret_arn: ''
       migrations_dir: ${{ needs.resolve.outputs.migrations_dir }}
+      # Re-checked inside the migration job immediately before the migration
+      # runs, so a push to dev during this workflow cannot migrate a stale SHA.
+      require_head_sha: ${{ needs.resolve.outputs.release_sha }}
     secrets: inherit
 
   deploy:
@@ -369,7 +376,6 @@ jobs:
       - resolve
       - migrate
       - publish-template
-      - verify-latest-before-deploy
     permissions:
       contents: read
       id-token: write
@@ -390,6 +396,9 @@ jobs:
       aws_cfn_template_url: ${{ needs.publish-template.outputs.template_url }}
       aws_cfn_template_sha256: ${{ needs.publish-template.outputs.template_sha256 }}
       enable_aws_connector_registration: true
+      # Re-checked inside the deploy job immediately before terraform apply,
+      # so a push to dev during this workflow cannot apply a stale SHA.
+      require_head_sha: ${{ needs.resolve.outputs.release_sha }}
     secrets: inherit
 
   smoke:

@@ -129,6 +129,11 @@ on:
         required: false
         type: boolean
         default: false
+      require_head_sha:
+        description: "Optional: refuse to apply unless refs/heads/dev still points at this SHA. Checked immediately before terraform apply."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -331,6 +336,30 @@ jobs:
             -input=false \
             -out="${RUNNER_TEMP}/identrail-api.tfplan" \
             -var-file="${{ steps.prepare.outputs.tfvars_path }}"
+
+      # Last gate before the destructive operation, in the same job and the
+      # same execution path as the apply itself. A separate upstream job can
+      # go stale between its check and this step; this cannot.
+      - name: Reject stale release immediately before apply
+        if: inputs.operation == 'apply' && inputs.require_head_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUIRE_HEAD_SHA: ${{ inputs.require_head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dev_sha="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" |
+              jq -r '.object.sha'
+          )"
+          if [ "${REQUIRE_HEAD_SHA}" != "${dev_sha}" ]; then
+            echo "Refusing to apply stale commit ${REQUIRE_HEAD_SHA}; current dev is ${dev_sha}."
+            exit 1
+          fi
 
       - name: Terraform Apply
         if: inputs.operation == 'apply'

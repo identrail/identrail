@@ -51,4 +51,20 @@ if "${root}/scripts/prepare_aws_api_deploy.sh" >"${tmp}/invalid.out" 2>&1; then
 fi
 grep -q "digest must match" "${tmp}/invalid.out"
 
+# Registration-disabled path. Without this case a regression that leaked the
+# AWS connector env vars, or flipped create_aws_connector_registration_provider
+# on, would go unnoticed because every assertion above runs with registration
+# enabled.
+export API_AWS_CONNECTOR_REGISTRATION_ENABLED=false
+export API_AWS_CFN_TEMPLATE_URL=""
+export API_AWS_CFN_TEMPLATE_SHA256=""
+export OUTPUT_TFVARS_PATH="${tmp}/disabled.tfvars.json"
+"${root}/scripts/prepare_aws_api_deploy.sh" >/dev/null
+jq -e '
+  .create_aws_connector_registration_provider == false and
+  (.api_environment_variables | has("IDENTRAIL_FEATURE_CONNECTOR_AWS") | not) and
+  (.api_environment_variables | has("IDENTRAIL_AWS_CFN_TEMPLATE_URL") | not) and
+  (.api_environment_variables | has("IDENTRAIL_AWS_CFN_TEMPLATE_SHA256") | not)
+' "${OUTPUT_TFVARS_PATH}" >/dev/null
+
 echo "prepare_aws_api_deploy tests passed"
