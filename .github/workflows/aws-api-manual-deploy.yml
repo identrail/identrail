@@ -389,12 +389,25 @@ jobs:
           marker_key="deploy-markers/${TF_STATE_KEY}.last-deployed-sha"
           echo "marker_key=${marker_key}" >> "${GITHUB_OUTPUT}"
 
-          if ! aws s3api get-object \
+          # Only a genuinely absent marker means "first deploy". Any other
+          # failure — AccessDenied because the deploy role cannot read this
+          # prefix, a wrong bucket, a network fault — must fail loudly:
+          # treating it as "no marker" would silently disable the
+          # backwards-deploy guard exactly when it is most needed.
+          if aws s3api get-object \
               --bucket "${TF_STATE_BUCKET}" \
               --key "${marker_key}" \
-              "${RUNNER_TEMP}/last-deployed-sha" >/dev/null 2>&1; then
+              "${RUNNER_TEMP}/last-deployed-sha" >/dev/null 2>"${RUNNER_TEMP}/marker-read.err"; then
+            :
+          elif grep -qi "NoSuchKey\|Not Found\|404" "${RUNNER_TEMP}/marker-read.err"; then
             echo "No previous deploy marker; recording ${REQUIRE_HEAD_SHA} after this apply."
             exit 0
+          else
+            echo "Could not read the deploy marker s3://${TF_STATE_BUCKET}/${marker_key}:"
+            cat "${RUNNER_TEMP}/marker-read.err" >&2
+            echo "Refusing to apply without the backwards-deploy guard."
+            echo "If this is AccessDenied, grant the deploy role s3:GetObject and s3:PutObject on the deploy-markers/ prefix of the Terraform state bucket."
+            exit 1
           fi
 
           last_deployed="$(tr -d '[:space:]' < "${RUNNER_TEMP}/last-deployed-sha")"

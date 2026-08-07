@@ -166,6 +166,23 @@ cutover preparation. Run `plan` first. Use `apply` only after reviewing the plan
 workflow requires the explicit confirmation string `apply-api.identrail.com` and
 persists Terraform state in the configured S3 state bucket.
 
+#### Deploy role prerequisite: backwards-deploy marker
+
+When `apply` is called with `require_head_sha` (the hosted `Deploy to prod`
+workflow always does), the deploy refuses to ship a commit that is not ahead of
+the last successfully deployed one. It tracks that in a small object beside the
+Terraform state:
+
+```
+s3://<state-bucket>/deploy-markers/<terraform-state-key>.last-deployed-sha
+```
+
+The GitHub deploy role (`AWS_ROLE_ARN`) therefore needs `s3:GetObject` and
+`s3:PutObject` on the `deploy-markers/*` prefix of the state bucket, in addition
+to its existing Terraform state permissions. If the role cannot read the marker,
+the deploy fails closed with an explicit message rather than skipping the guard.
+The first apply finds no marker, records one, and proceeds normally.
+
 For the first cost-controlled Identrail Cloud cutover, prefer the documented
 public-task bootstrap mode instead of creating NAT Gateways. Set
 `api_task_subnet_ids` to two public subnets and `api_task_assign_public_ip=true`
