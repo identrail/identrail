@@ -1,0 +1,28 @@
+# Gitleaks configuration.
+#
+# Keeps the full upstream default ruleset and adds narrowly scoped allowlist
+# entries for placeholder values that are not secrets but trip the entropy
+# based `generic-api-key` rule.
+#
+# Add an entry here only for a value that is provably not a credential, and
+# keep it pinned to both the exact literal and the file it lives in so the
+# exemption cannot silently widen to real material later.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = """
+AWS deploy-script test fixtures. prepare_aws_api_deploy_test.sh drives the
+deploy preparation script with synthetic inputs; these two use sequential hex
+(0123456789abcdef) and are a fake VPC id and a fake container image tag, not
+credentials. They are high entropy purely because they are hex.
+"""
+condition = "AND"
+paths = ['''scripts/prepare_aws_api_deploy_test\.sh''']
+regexes = [
+  '''^vpc-0123456789abcdef0$''',
+  '''^sha-0123456789ab$''',
+]
