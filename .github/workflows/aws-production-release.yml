@@ -32,7 +32,11 @@ jobs:
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.head_branch == 'dev'))
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Must exceed the release-gate polling budget below (40 x 30s = 20 minutes)
+    # plus image verification, otherwise an auto-triggered release is killed
+    # mid-wait while the sibling gate is still running and has to be recovered
+    # by hand.
+    timeout-minutes: 30
     outputs:
       release_sha: ${{ steps.release.outputs.release_sha }}
       api_container_image: ${{ steps.release.outputs.api_container_image }}
@@ -200,11 +204,16 @@ jobs:
       - name: Record production approval
         run: echo "Production deployment approved for ${{ needs.resolve.outputs.release_sha }}."
 
-  # Single post-approval freshness gate. The atomic, immediately-before-the-
-  # destructive-operation checks live inside the reusable migration and deploy
-  # workflows (require_head_ref/require_head_sha), so the check that actually
-  # matters runs in the same execution path as the operation it guards rather
-  # than in a separate job that can go stale before the operation starts.
+  # Post-approval policy gate: refuse to start shipping a commit that dev has
+  # already moved past. Equality is the right test here because this is a
+  # deliberate "don't ship a superseded release" decision at the approval
+  # boundary, not a correctness guarantee about the apply itself.
+  #
+  # The guarantees that protect the apply live inside the reusable migration
+  # and deploy workflows, in the same job as the operation: the checkout is
+  # bound to require_head_sha, lineage is re-verified against dev, and the
+  # deploy refuses to move backwards relative to the recorded deployed SHA.
+  # Those hold regardless of what dev does while this workflow runs.
   verify-latest:
     name: Verify release is still current
     needs:

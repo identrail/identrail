@@ -63,6 +63,8 @@ export OUTPUT_TFVARS_PATH="${tmp}/disabled.tfvars.json"
 jq -e '
   .create_aws_connector_registration_provider == false and
   (.api_environment_variables | has("IDENTRAIL_FEATURE_CONNECTOR_AWS") | not) and
+  (.api_environment_variables | has("IDENTRAIL_AWS_ACCOUNT_ID") | not) and
+  (.api_environment_variables | has("IDENTRAIL_WORKER_AWS_ROLLOUT_ENABLED") | not) and
   (.api_environment_variables | has("IDENTRAIL_AWS_CFN_TEMPLATE_URL") | not) and
   (.api_environment_variables | has("IDENTRAIL_AWS_CFN_TEMPLATE_SHA256") | not)
 ' "${OUTPUT_TFVARS_PATH}" >/dev/null

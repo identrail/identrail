@@ -22969,8 +22969,17 @@ export function ProductAWSConnectPage() {
   // deliberately blanked whenever the setup-mode dropdown stops matching the
   // persisted connector's scope, which left "Start rollout" permanently
   // disabled as soon as the operator chose Selected OUs or Selected accounts.
-  const rolloutControllingConnectorID =
-    connection?.scope_type === 'organization' ? connection.connector_id ?? '' : activeConnectorID;
+  //
+  // While a replacement StackSet setup request is in flight the persisted
+  // connection still describes the previous connector, so preferring it here
+  // would let Start rollout create a rollout that pairs the old connector with
+  // the new scope values the operator just submitted. Withhold the persisted
+  // connector until that response lands.
+  const rolloutControllingConnectorID = submitting
+    ? ''
+    : connection?.scope_type === 'organization'
+      ? connection.connector_id ?? ''
+      : activeConnectorID;
   const canValidateRole = Boolean(normalizeValue(awsForm.roleARN)) && (!isManualSetup || Boolean(activeConnectorID));
   const selectedAWSRegion = normalizeValue(awsForm.region) || 'us-east-1';
   const manualExternalID = normalizeValue(awsForm.externalID);

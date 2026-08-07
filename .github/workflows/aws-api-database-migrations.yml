@@ -219,29 +219,40 @@ jobs:
             echo "EOF"
           } >> "${GITHUB_ENV}"
 
-      # Last gate before the destructive operation, in the same job and the
-      # same execution path as the migration itself. A separate upstream job
-      # can go stale between its check and this step; this cannot.
-      - name: Reject stale release immediately before migrating
+      # Bind the checked-out tree to the release commit. Migrations are read
+      # from this checkout, so this is what actually determines which
+      # migrations run.
+      - name: Bind checkout to release commit
         if: inputs.require_head_sha != ''
         env:
-          GH_TOKEN: ${{ github.token }}
           REQUIRE_HEAD_SHA: ${{ inputs.require_head_sha }}
+          SOURCE_REF: ${{ inputs.source_ref }}
         shell: bash
         run: |
           set -euo pipefail
-          dev_sha="$(
-            curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" |
-              jq -r '.object.sha'
-          )"
-          if [ "${REQUIRE_HEAD_SHA}" != "${dev_sha}" ]; then
-            echo "Refusing to migrate stale commit ${REQUIRE_HEAD_SHA}; current dev is ${dev_sha}."
+          if ! [[ "${REQUIRE_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "require_head_sha must be a full 40-character Git commit SHA."
             exit 1
           fi
+          if [ -n "${SOURCE_REF}" ] && [ "${SOURCE_REF}" != "${REQUIRE_HEAD_SHA}" ]; then
+            echo "source_ref (${SOURCE_REF}) must equal require_head_sha (${REQUIRE_HEAD_SHA})."
+            exit 1
+          fi
+          checked_out="$(git rev-parse HEAD)"
+          if [ "${checked_out}" != "${REQUIRE_HEAD_SHA}" ]; then
+            echo "Checked-out commit ${checked_out} does not match require_head_sha ${REQUIRE_HEAD_SHA}."
+            exit 1
+          fi
+
+      # Last gate before the destructive operation, in the same job and the
+      # same execution path as the migration itself.
+      - name: Verify release lineage immediately before migrating
+        if: inputs.require_head_sha != ''
+        uses: ./.github/actions/verify-release-lineage
+        with:
+          release_sha: ${{ inputs.require_head_sha }}
+          branch: dev
+          github_token: ${{ github.token }}
 
       - name: Apply database migrations
         shell: bash

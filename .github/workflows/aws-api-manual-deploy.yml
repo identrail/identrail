@@ -216,12 +216,36 @@ jobs:
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e
 
       - name: Validate workflow ref
+        env:
+          REQUIRE_HEAD_SHA: ${{ inputs.require_head_sha }}
+          SOURCE_REF: ${{ inputs.source_ref }}
         shell: bash
         run: |
           set -euo pipefail
           if [ "${GITHUB_REF_NAME}" != "dev" ]; then
             echo "Run this workflow from the dev branch. The AWS OIDC role trust is intentionally scoped to refs/heads/dev."
             exit 1
+          fi
+
+          # Bind the checkout to the release SHA. The freshness gate later on
+          # only proves what dev points at; without this the workflow could
+          # still build and apply Terraform and application code from a
+          # different ref (a branch name, a tag, an older SHA) while that gate
+          # happily passed.
+          if [ -n "${REQUIRE_HEAD_SHA}" ]; then
+            if ! [[ "${REQUIRE_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "require_head_sha must be a full 40-character Git commit SHA."
+              exit 1
+            fi
+            if [ -n "${SOURCE_REF}" ] && [ "${SOURCE_REF}" != "${REQUIRE_HEAD_SHA}" ]; then
+              echo "source_ref (${SOURCE_REF}) must equal require_head_sha (${REQUIRE_HEAD_SHA})."
+              exit 1
+            fi
+            checked_out="$(git rev-parse HEAD)"
+            if [ "${checked_out}" != "${REQUIRE_HEAD_SHA}" ]; then
+              echo "Checked-out commit ${checked_out} does not match require_head_sha ${REQUIRE_HEAD_SHA}."
+              exit 1
+            fi
           fi
 
       - name: Validate AWS deployment secrets
@@ -338,9 +362,23 @@ jobs:
             -var-file="${{ steps.prepare.outputs.tfvars_path }}"
 
       # Last gate before the destructive operation, in the same job and the
-      # same execution path as the apply itself. A separate upstream job can
-      # go stale between its check and this step; this cannot.
-      - name: Reject stale release immediately before apply
+      # same execution path as the apply itself.
+      - name: Verify release lineage immediately before apply
+        if: inputs.operation == 'apply' && inputs.require_head_sha != ''
+        uses: ./.github/actions/verify-release-lineage
+        with:
+          release_sha: ${{ inputs.require_head_sha }}
+          branch: dev
+          github_token: ${{ github.token }}
+
+      # Monotonic guard. Lineage proves the release is still real history; it
+      # does not prevent an older queued run from applying after a newer one
+      # already shipped. This compares against the SHA recorded by the last
+      # successful apply — durable state that a concurrent push cannot move —
+      # so production can never roll backwards. The deploy concurrency group
+      # serializes applies, so exactly one run owns this marker at a time.
+      - name: Reject out-of-order deploy
+        id: lineage_marker
         if: inputs.operation == 'apply' && inputs.require_head_sha != ''
         env:
           GH_TOKEN: ${{ github.token }}
@@ -348,23 +386,63 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dev_sha="$(
+          marker_key="deploy-markers/${TF_STATE_KEY}.last-deployed-sha"
+          echo "marker_key=${marker_key}" >> "${GITHUB_OUTPUT}"
+
+          if ! aws s3api get-object \
+              --bucket "${TF_STATE_BUCKET}" \
+              --key "${marker_key}" \
+              "${RUNNER_TEMP}/last-deployed-sha" >/dev/null 2>&1; then
+            echo "No previous deploy marker; recording ${REQUIRE_HEAD_SHA} after this apply."
+            exit 0
+          fi
+
+          last_deployed="$(tr -d '[:space:]' < "${RUNNER_TEMP}/last-deployed-sha")"
+          if [ "${last_deployed}" = "${REQUIRE_HEAD_SHA}" ]; then
+            echo "Re-applying the currently deployed commit ${REQUIRE_HEAD_SHA}."
+            exit 0
+          fi
+          if ! [[ "${last_deployed}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Deploy marker holds '${last_deployed}', which is not a commit SHA; refusing to continue."
+            exit 1
+          fi
+
+          # The release must be a descendant of what is deployed today.
+          status="$(
             curl -fsSL \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" |
-              jq -r '.object.sha'
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/compare/${last_deployed}...${REQUIRE_HEAD_SHA}" |
+              jq -r '.status'
           )"
-          if [ "${REQUIRE_HEAD_SHA}" != "${dev_sha}" ]; then
-            echo "Refusing to apply stale commit ${REQUIRE_HEAD_SHA}; current dev is ${dev_sha}."
+          if [ "${status}" != "ahead" ]; then
+            echo "Refusing to deploy ${REQUIRE_HEAD_SHA}: it is not ahead of the currently deployed ${last_deployed} (status=${status})."
+            echo "Production must move forward. Roll back deliberately if this is intended."
             exit 1
           fi
+          echo "Release ${REQUIRE_HEAD_SHA} is ahead of deployed ${last_deployed}."
 
       - name: Terraform Apply
         if: inputs.operation == 'apply'
         working-directory: deploy/aws/terraform
         run: terraform apply -input=false -auto-approve "${RUNNER_TEMP}/identrail-api.tfplan"
+
+      - name: Record deployed release
+        if: inputs.operation == 'apply' && inputs.require_head_sha != ''
+        env:
+          REQUIRE_HEAD_SHA: ${{ inputs.require_head_sha }}
+          MARKER_KEY: ${{ steps.lineage_marker.outputs.marker_key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "${REQUIRE_HEAD_SHA}" > "${RUNNER_TEMP}/deployed-sha"
+          aws s3api put-object \
+            --bucket "${TF_STATE_BUCKET}" \
+            --key "${MARKER_KEY}" \
+            --body "${RUNNER_TEMP}/deployed-sha" \
+            --content-type "text/plain" >/dev/null
+          echo "Recorded ${REQUIRE_HEAD_SHA} as the deployed release."
 
       - name: Publish Apply Outputs
         if: inputs.operation == 'apply'
