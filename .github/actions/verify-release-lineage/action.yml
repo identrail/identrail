@@ -1,0 +1,79 @@
+name: Verify release lineage
+description: >-
+  Assert that a release commit is still part of the target branch's history
+  immediately before a privileged operation. Single implementation shared by
+  the migration and deploy workflows.
+
+inputs:
+  release_sha:
+    description: "Full 40-character commit SHA being released."
+    required: true
+  branch:
+    description: "Branch whose history must still contain release_sha."
+    required: false
+    default: dev
+  github_token:
+    description: "Token used to read the compare API."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Assert release commit is still in branch history
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        RELEASE_SHA: ${{ inputs.release_sha }}
+        BRANCH: ${{ inputs.branch }}
+      run: |
+        set -euo pipefail
+
+        # Why lineage and not equality with the branch head:
+        #
+        # No check made through the GitHub API can be atomic with the
+        # operation that follows it — a push can always land in the gap. An
+        # equality check therefore cannot deliver the guarantee it appears to
+        # make, and it fails the release for the common, harmless case where
+        # dev simply moved forward while the deploy was running.
+        #
+        # What is actually required is that the commit being shipped is still
+        # a real, reachable part of the branch's history: not force-pushed
+        # away, not from a diverged line of development. That property is
+        # stable once true (history is append-only in normal operation), so it
+        # cannot be invalidated by a concurrent push the way equality can.
+        #
+        # Not deploying *backwards* is enforced separately, by the caller,
+        # against durable deployed state rather than against a moving branch.
+        if ! [[ "${RELEASE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "release_sha must be a full 40-character Git commit SHA; got '${RELEASE_SHA}'."
+          exit 1
+        fi
+
+        comparison="$(
+          curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/compare/${RELEASE_SHA}...${BRANCH}"
+        )"
+        status="$(jq -r '.status' <<< "${comparison}")"
+        behind_by="$(jq -r '.behind_by' <<< "${comparison}")"
+
+        case "${status}" in
+          identical)
+            echo "Release ${RELEASE_SHA} is the current head of ${BRANCH}."
+            ;;
+          ahead)
+            # ${BRANCH} has moved forward; the release is still an ancestor.
+            echo "Release ${RELEASE_SHA} is an ancestor of ${BRANCH} (${BRANCH} moved ahead by $(jq -r '.ahead_by' <<< "${comparison}") commit(s))."
+            ;;
+          behind | diverged)
+            echo "Release ${RELEASE_SHA} is no longer part of ${BRANCH} history (status=${status}, behind_by=${behind_by})."
+            echo "Refusing to continue: the branch was force-pushed or this commit came from a diverged line."
+            exit 1
+            ;;
+          *)
+            echo "Unexpected compare status '${status}' for ${RELEASE_SHA}...${BRANCH}; refusing to continue."
+            exit 1
+            ;;
+        esac

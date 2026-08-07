@@ -6252,7 +6252,7 @@ function AWSAccountsInventoryContent({
           label="Organizations accounts"
           scanned={topology?.summary.scan_eligible_accounts ?? coveredAccounts}
           total={topology?.summary.account_count ?? plan?.summary.account_count ?? 1}
-          detail={topology ? `${topology.summary.organizational_unit_count} OUs` : 'Topology pending'}
+          detail={topology ? `${topology.fixture_state === 'live' ? 'Live AWS · ' : ''}${topology.summary.organizational_unit_count} OUs` : 'Topology pending'}
         />
         <DomainCoverageCard label="Permission evidence" scanned={passedChecks} total={Math.max(totalChecks, 1)} detail="Read-only validation" />
       </section>
@@ -21810,17 +21810,16 @@ function AWSOrganizationRolloutPanel({
   const [pollEpoch, setPollEpoch] = useState(0);
   const pollGeneration = useRef(0);
   // Derive the rollout target scope from the setup mode, mirroring
-  // buildStackSetContractSnapshot / handleAWSStackSetStart. Whole-org and
-  // OU rollouts include the org root or the operator's OUs; only
-  // selected_accounts rollouts include an explicit account list. Slice 1's
-  // rollout API rejects OU-only requests until the membership resolver
-  // ships, so the launch button is only enabled when the derived scope
-  // actually names accounts (which today is only selected_accounts).
+  // buildStackSetContractSnapshot / handleAWSStackSetStart. The API expands
+  // roots and OUs from live AWS Organizations inventory before it persists
+  // the expected account set — so selected_accounts must send an empty OU
+  // list, otherwise the server would union the explicit accounts with every
+  // account under the organization root and silently broaden the rollout.
   const derivedTargetOUIDs = (() => {
     if (setupMode === 'selected_ous') {
       return selectedOUIDs;
     }
-    if (setupMode === 'organization' || setupMode === 'selected_accounts') {
+    if (setupMode === 'organization') {
       return organizationRootID ? [organizationRootID] : [];
     }
     return [];
@@ -21829,14 +21828,17 @@ function AWSOrganizationRolloutPanel({
   const derivedExcludedAccountIDs = setupMode !== 'selected_accounts' ? excludedAccountIDs : [];
   const derivedAutoDeployNewAccounts =
     setupMode === 'organization' || setupMode === 'selected_ous' ? autoDeployNewAccounts : false;
-  const hasExplicitAccounts = derivedTargetAccountIDs.length > 0;
+  const hasTargetScope =
+    setupMode === 'selected_accounts'
+      ? derivedTargetAccountIDs.length > 0
+      : derivedTargetOUIDs.length > 0 || derivedTargetAccountIDs.length > 0;
   const readyToLaunch =
     Boolean(controllingConnectorID) &&
     Boolean(controllingAccountID) &&
     Boolean(organizationID) &&
     controllingConnected &&
     targetRegions.length > 0 &&
-    hasExplicitAccounts;
+    hasTargetScope;
 
   // Bounded polling budget. 30 successful ticks at 12s ≈ 6 minutes of active
   // watching, with three additional 20s tries after a transient network
@@ -22050,7 +22052,7 @@ function AWSOrganizationRolloutPanel({
               onClick={() => {
                 void handleReconcile();
               }}
-              disabled={reconcileBusy || rollout.status === 'completed' || rollout.status === 'canceled' || rollout.status === 'expired'}
+              disabled={reconcileBusy || rollout.status === 'canceled' || rollout.status === 'expired'}
             >
               {reconcileBusy ? 'Reconciling…' : 'Reconcile now'}
             </button>
@@ -22093,11 +22095,9 @@ function AWSOrganizationRolloutPanel({
           organization-scale rollout.
         </p>
       ) : null}
-      {controllingConnected && !rollout && !hasExplicitAccounts ? (
+      {controllingConnected && !rollout && !hasTargetScope ? (
         <p className="idt-aws-stackset-coverage-line" role="status">
-          This release requires selected member accounts. Switch scope to <em>Selected accounts</em> and list every target
-          account so Identrail can honestly seed and report each per-account outcome. OU-only rollouts land with the
-          reconciliation slice.
+          Choose at least one organization root, OU, or member account before starting the rollout.
         </p>
       ) : null}
       {errorMessage ? (
@@ -22962,6 +22962,24 @@ export function ProductAWSConnectPage() {
     return cloudFormationAWSStart?.connector_id ?? singleAccountConnectionID ?? '';
   })();
   activeConnectorIDRef.current = activeConnectorID;
+  // The organization rollout is always driven by the connected
+  // organization-scoped connector in the management account. That connector is
+  // independent of which target scope the operator picks for the rollout
+  // itself, so it must not come from activeConnectorID: that value is
+  // deliberately blanked whenever the setup-mode dropdown stops matching the
+  // persisted connector's scope, which left "Start rollout" permanently
+  // disabled as soon as the operator chose Selected OUs or Selected accounts.
+  //
+  // While a replacement StackSet setup request is in flight the persisted
+  // connection still describes the previous connector, so preferring it here
+  // would let Start rollout create a rollout that pairs the old connector with
+  // the new scope values the operator just submitted. Withhold the persisted
+  // connector until that response lands.
+  const rolloutControllingConnectorID = submitting
+    ? ''
+    : connection?.scope_type === 'organization'
+      ? connection.connector_id ?? ''
+      : activeConnectorID;
   const canValidateRole = Boolean(normalizeValue(awsForm.roleARN)) && (!isManualSetup || Boolean(activeConnectorID));
   const selectedAWSRegion = normalizeValue(awsForm.region) || 'us-east-1';
   const manualExternalID = normalizeValue(awsForm.externalID);
@@ -24326,7 +24344,7 @@ export function ProductAWSConnectPage() {
               <AWSOrganizationRolloutPanel
                 workspaceID={scope.workspaceID}
                 projectID={scope.projectID ?? ''}
-                controllingConnectorID={activeConnectorID}
+                controllingConnectorID={rolloutControllingConnectorID}
                 controllingAccountID={connection?.account_id ?? ''}
                 controllingConnected={Boolean(connection?.connected)}
                 organizationID={connection?.organization_id ?? ''}

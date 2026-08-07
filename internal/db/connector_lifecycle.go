@@ -383,7 +383,7 @@ func cancelAWSOrganizationRolloutsLocked(m *MemoryStore, tenantID string, worksp
 		if rollout.TenantID != tenantID || rollout.WorkspaceID != workspaceID || rollout.ProjectID != projectID || rollout.ControllingConnectorID != connectorID {
 			continue
 		}
-		if !awsOrganizationRolloutTargetMutationAllowed(rollout.Status) {
+		if !awsOrganizationRolloutCancelableOnLifecycleChange(rollout.Status) {
 			continue
 		}
 		rollout.Status = AWSOrganizationRolloutStatusCanceled

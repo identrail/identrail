@@ -169,18 +169,27 @@ func (p *PostgresStore) ListAWSOrganizationRollouts(ctx context.Context, workspa
 	return out, rows.Err()
 }
 
-// ListActiveAWSOrganizationRollouts is reserved for the internal worker. It
-// deliberately uses the AnyScope query helpers because a worker has no HTTP
-// tenant context; the reconciliation service re-establishes the envelope's
-// tenant/workspace scope before every target read and write.
-func (p *PostgresStore) ListActiveAWSOrganizationRollouts(ctx context.Context, limit int) ([]AWSOrganizationRollout, error) {
+// ListMonitoredAWSOrganizationRollouts is reserved for the internal worker. It
+// selects only the newest rollout for each connector, including a completed
+// rollout, so live drift remains visible without replaying rollout history.
+func (p *PostgresStore) ListMonitoredAWSOrganizationRollouts(ctx context.Context, limit int) ([]AWSOrganizationRollout, error) {
 	effectiveLimit := limit
 	if effectiveLimit <= 0 || effectiveLimit > 200 {
 		effectiveLimit = 50
 	}
+	// Apply the monitored-status filter inside the subquery so DISTINCT ON
+	// selects the newest monitored rollout per connector. Filtering after
+	// DISTINCT ON would drop a connector entirely whenever its latest row is
+	// retired (canceled/expired), even though an earlier monitored rollout
+	// still needs drift reconciliation.
 	rows, err := p.queryContextAnyScope(ctx, `SELECT `+awsOrganizationRolloutColumns+`
-        FROM aws_organization_rollouts
-        WHERE status IN ('created', 'launching', 'in_progress', 'reconciling')
+        FROM aws_organization_rollouts AS rollout
+        WHERE rollout.rollout_id IN (
+            SELECT DISTINCT ON (tenant_id, workspace_id, project_id, controlling_connector_id) rollout_id
+            FROM aws_organization_rollouts
+            WHERE status IN ('created', 'launching', 'in_progress', 'reconciling', 'completed', 'partial', 'failed')
+            ORDER BY tenant_id, workspace_id, project_id, controlling_connector_id, created_at DESC, rollout_id DESC
+        )
         ORDER BY updated_at ASC
         LIMIT $1`, effectiveLimit)
 	if err != nil {
@@ -234,7 +243,7 @@ func (p *PostgresStore) UpdateAWSOrganizationRollout(ctx context.Context, rollou
         WHERE rollout.rollout_id = $1 AND rollout.tenant_id = $2 AND rollout.workspace_id = $3
           AND rollout.project_id = $4 AND rollout.controlling_connector_id = $5 AND rollout.version = $27
           AND (
-              $22 NOT IN ('created', 'launching', 'in_progress', 'reconciling', 'partial', 'failed')
+              $22 NOT IN ('created', 'launching', 'in_progress', 'reconciling', 'completed', 'partial', 'failed')
               OR EXISTS (
                   SELECT 1
                   FROM tenancy_connectors AS controlling_connector
@@ -322,7 +331,7 @@ func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, 
               AND rollout.tenant_id = $4
               AND rollout.workspace_id = $5
               AND rollout.project_id = $6
-              AND rollout.status IN ('created', 'launching', 'in_progress', 'reconciling', 'partial', 'failed')
+              AND rollout.status IN ('created', 'launching', 'in_progress', 'reconciling', 'completed', 'partial', 'failed')
               AND controlling_connector.type = 'aws'
               AND controlling_connector.status = 'active'
               AND controlling_connector.disabled = FALSE
@@ -349,10 +358,14 @@ func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, 
             -- partial, suspended, removed, excluded) is only replaced by
             -- another terminal state; a late in-flight callback or SQS
             -- redelivery cannot demote a reconciled target back to
-            -- validating/registering/deploying/pending.
+            -- validating/registering/pending. Deploying is the sole
+            -- non-terminal exception: inventory reconciliation may reopen
+            -- a terminal target as deploying when CloudFormation reports
+            -- an active StackSet operation, so the aggregate does not
+            -- report completed while a live deployment is still in flight.
             state = CASE
                 WHEN aws_organization_rollout_targets.state IN ('connected','failed','partial','suspended','removed','excluded')
-                     AND EXCLUDED.state NOT IN ('connected','failed','partial','suspended','removed','excluded')
+                     AND EXCLUDED.state NOT IN ('connected','failed','partial','suspended','removed','excluded','deploying')
                 THEN aws_organization_rollout_targets.state
                 ELSE EXCLUDED.state
             END,
@@ -366,7 +379,7 @@ func (p *PostgresStore) UpsertAWSOrganizationRolloutTarget(ctx context.Context, 
             register_request_id = COALESCE(EXCLUDED.register_request_id, aws_organization_rollout_targets.register_request_id),
             last_transition_at = CASE
                 WHEN aws_organization_rollout_targets.state IN ('connected','failed','partial','suspended','removed','excluded')
-                     AND EXCLUDED.state NOT IN ('connected','failed','partial','suspended','removed','excluded')
+                     AND EXCLUDED.state NOT IN ('connected','failed','partial','suspended','removed','excluded','deploying')
                 THEN aws_organization_rollout_targets.last_transition_at
                 WHEN aws_organization_rollout_targets.state <> EXCLUDED.state
                 THEN EXCLUDED.last_transition_at

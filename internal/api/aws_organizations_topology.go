@@ -141,7 +141,150 @@ func (s *Service) GetAWSOrganizationsTopology(ctx context.Context, workspaceID s
 	if err != nil {
 		return AWSOrganizationsTopologyResult{}, err
 	}
+	// Reject malformed filters before entering the live branch. Otherwise a
+	// bad request still calls AWS Organizations, and its failure is masked as
+	// a live discovery error instead of surfacing as a 400 to the caller.
+	if !validAWSOrganizationsTopologyFilters(request) {
+		return AWSOrganizationsTopologyResult{}, ErrInvalidAWSConnectionRequest
+	}
+	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected && s.AWSOrganizationInventoryFactory != nil {
+		inventory, err := s.AWSOrganizationInventoryFactory(ctx, connection)
+		if err != nil {
+			return buildAWSOrganizationsTopologyLiveFailure(scope, project, connection, request, s.Now().UTC(), "inventory_unavailable"), nil
+		}
+		snapshot, err := inventory.Discover(ctx, AWSOrganizationInventoryRequest{})
+		if err != nil {
+			return buildAWSOrganizationsTopologyLiveFailure(scope, project, connection, request, s.Now().UTC(), "organizations_discovery_failed"), nil
+		}
+		return buildAWSOrganizationsTopologyFromInventory(scope, project, connection, request, snapshot, s.Now().UTC())
+	}
 	return buildAWSOrganizationsTopology(scope, project, connection, hasConnection, request, s.Now().UTC())
+}
+
+func buildAWSOrganizationsTopologyFromInventory(scope db.Scope, project db.TenancyProject, connection AWSConnectionStatus, request AWSOrganizationsTopologyRequest, snapshot AWSOrganizationInventorySnapshot, checkedAt time.Time) (AWSOrganizationsTopologyResult, error) {
+	if !validAWSOrganizationsTopologyFilters(request) {
+		return AWSOrganizationsTopologyResult{}, ErrInvalidAWSConnectionRequest
+	}
+	units := make([]awscontract.OrganizationUnit, 0, len(snapshot.Roots)+len(snapshot.OrganizationalUnits))
+	for _, unit := range append(append([]AWSOrganizationInventoryOU(nil), snapshot.Roots...), snapshot.OrganizationalUnits...) {
+		units = append(units, awscontract.OrganizationUnit{ID: unit.ID, Name: unit.Name, ParentID: unit.ParentID, Path: unit.Path, Enabled: true})
+	}
+	// ConnectorScoped must reflect the connector's own scope, not the raw
+	// Organizations inventory. Otherwise a selected-OU or selected-accounts
+	// connector reports every account in the tree as scan-eligible for that
+	// connector, and downstream rollout planning can pick up accounts the
+	// operator never approved.
+	scoped := awsOrganizationsTopologyConnectorScopePredicate(connection, snapshot)
+	accounts := make([]awscontract.OrganizationAccount, 0, len(snapshot.Accounts))
+	checkpoints := make([]awscontract.OrganizationsCheckpoint, 0, len(snapshot.Accounts))
+	for _, account := range snapshot.Accounts {
+		status := awscontract.OrganizationAccountStatus(strings.ToLower(strings.TrimSpace(account.Status)))
+		accounts = append(accounts, awscontract.OrganizationAccount{
+			AccountID:              account.AccountID,
+			Name:                   account.Name,
+			Status:                 status,
+			ParentID:               account.ParentID,
+			OUPath:                 account.OUPath,
+			Partition:              snapshot.Partition,
+			Management:             account.Management,
+			DelegatedAdminServices: account.DelegatedAdminServices,
+			ConnectorScoped:        scoped(account),
+		})
+		state := awscontract.CoverageStateCovered
+		if status != awscontract.OrganizationAccountActive {
+			state = awscontract.CoverageStateDisabled
+		}
+		checkpoints = append(checkpoints, awscontract.OrganizationsCheckpoint{AccountID: account.AccountID, State: state, ObservedAt: snapshot.ObservedAt})
+	}
+	topology, err := awscontract.PlanOrganizationsTopology(awscontract.OrganizationsTopologyConfig{
+		ConnectorID:         connection.ConnectorID,
+		OrganizationID:      snapshot.OrganizationID,
+		ManagementAccountID: snapshot.ManagementAccountID,
+		Partition:           snapshot.Partition,
+		OrganizationalUnits: units,
+		Accounts:            accounts,
+		Checkpoints:         checkpoints,
+	}, checkedAt)
+	if err != nil {
+		return AWSOrganizationsTopologyResult{}, err
+	}
+	filteredAccounts := filterAWSOrganizationsTopologyAccounts(mapAWSOrganizationsTopologyAccounts(topology.Accounts), request)
+	return AWSOrganizationsTopologyResult{
+		TenantID:            scope.TenantID,
+		WorkspaceID:         project.WorkspaceID,
+		ProjectID:           project.ProjectID,
+		ConnectorID:         connection.ConnectorID,
+		AccountID:           connection.AccountID,
+		Region:              connection.Region,
+		ParentIssueNumber:   awsPlatformDependencyParentIssue,
+		ParentIssueRef:      awsIssueRef(awsPlatformDependencyParentIssue),
+		CurrentIssueNumber:  awsOrganizationsTopologyCurrentIssue,
+		CurrentIssueRef:     awsIssueRef(awsOrganizationsTopologyCurrentIssue),
+		OrganizationID:      topology.OrganizationID,
+		ManagementAccountID: topology.ManagementAccountID,
+		Partition:           topology.Partition,
+		Version:             topology.Version,
+		Status:              awsPlatformDependencyStatusReady,
+		FixtureState:        "live",
+		Confidence:          1,
+		FilteredAccounts:    len(filteredAccounts),
+		Summary:             mapAWSOrganizationsTopologySummary(topology.Summary),
+		OrganizationalUnits: mapAWSOrganizationsTopologyOUs(topology.OrganizationalUnits),
+		Accounts:            filteredAccounts,
+		Relationships:       mapAWSOrganizationsTopologyRelationships(topology.Relationships),
+		RemediationHints:    []string{"AWS Organizations inventory is current and ready for scoped rollout reconciliation."},
+		EvidenceLinks: dedupeStrings([]string{
+			"/docs/aws-organizations-topology",
+			"/docs/aws-account-region-coverage-planner",
+			awsBaselineProjectEvidenceURL(scope, project),
+		}),
+		CoverageGaps: []AWSOrganizationsTopologyCoverageGap{{
+			Capability:  "live_region_enablement",
+			Status:      "separate_control",
+			Reason:      "AWS Organizations does not report per-account Region opt-in status.",
+			Remediation: "Use the account and Region coverage plan before scheduling regional collection.",
+		}},
+		GeneratedAt: checkedAt,
+		UpdatedAt:   checkedAt,
+	}, nil
+}
+
+func buildAWSOrganizationsTopologyLiveFailure(scope db.Scope, project db.TenancyProject, connection AWSConnectionStatus, request AWSOrganizationsTopologyRequest, checkedAt time.Time, code string) AWSOrganizationsTopologyResult {
+	message := "Identrail could not read AWS Organizations with the connected role."
+	return AWSOrganizationsTopologyResult{
+		TenantID:           scope.TenantID,
+		WorkspaceID:        project.WorkspaceID,
+		ProjectID:          project.ProjectID,
+		ConnectorID:        connection.ConnectorID,
+		AccountID:          connection.AccountID,
+		Region:             connection.Region,
+		ParentIssueNumber:  awsPlatformDependencyParentIssue,
+		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
+		CurrentIssueNumber: awsOrganizationsTopologyCurrentIssue,
+		CurrentIssueRef:    awsIssueRef(awsOrganizationsTopologyCurrentIssue),
+		// Derive the partition from the connector's own region rather than
+		// hardcoding "aws". A connector in aws-cn or aws-us-gov would
+		// otherwise get a blocked summary that names the wrong partition,
+		// while the success and deterministic paths report the real one.
+		Partition:        awsStackSetPartition(connection.Region),
+		Version:          awscontract.OrganizationsTopologyVersion,
+		Status:           awsPlatformDependencyStatusBlocked,
+		FixtureState:     "live",
+		Confidence:       0,
+		Summary:          AWSOrganizationsTopologySummary{StateCounts: map[string]int{}, StatusCounts: map[string]int{}},
+		FailureReasons:   []string{message},
+		RemediationHints: []string{"Allow the connected role to describe the organization and list roots, OUs, accounts, parents, and delegated administrators, then refresh."},
+		Diagnostics: []AWSOrganizationsTopologyDiagnostic{{
+			Source:      "organizations_topology",
+			Scope:       strings.TrimSpace(request.ConnectorID),
+			Code:        code,
+			Message:     message,
+			Remediation: "Update the connector role from the current Identrail template and validate it again.",
+			Retryable:   true,
+		}},
+		GeneratedAt: checkedAt,
+		UpdatedAt:   checkedAt,
+	}
 }
 
 func buildAWSOrganizationsTopology(scope db.Scope, project db.TenancyProject, connection AWSConnectionStatus, hasConnection bool, request AWSOrganizationsTopologyRequest, checkedAt time.Time) (AWSOrganizationsTopologyResult, error) {
@@ -200,6 +343,61 @@ func buildAWSOrganizationsTopology(scope db.Scope, project db.TenancyProject, co
 		GeneratedAt:  checkedAt,
 		UpdatedAt:    checkedAt,
 	}, nil
+}
+
+// awsOrganizationsTopologyConnectorScopePredicate returns a function that
+// answers, for each Organizations account, whether the connector's own scope
+// covers it. It mirrors the resolution the rollout planner and StackSet
+// deployment path use: excluded accounts are always out; single_account /
+// manual_role only cover the connection's own account; organization covers
+// everything except explicit exclusions; selected_ous covers accounts whose
+// ancestors intersect the connector's OU list; selected_accounts covers only
+// the explicit account list. An unrecognized scope type is treated as
+// unscoped so we fail closed rather than leaking accounts through defaults.
+func awsOrganizationsTopologyConnectorScopePredicate(connection AWSConnectionStatus, snapshot AWSOrganizationInventorySnapshot) func(AWSOrganizationInventoryAccount) bool {
+	excluded := make(map[string]struct{}, len(connection.ExcludedAccountIDs))
+	for _, accountID := range connection.ExcludedAccountIDs {
+		if id := strings.TrimSpace(accountID); id != "" {
+			excluded[id] = struct{}{}
+		}
+	}
+	targets := make(map[string]struct{}, len(connection.TargetAccountIDs))
+	for _, accountID := range connection.TargetAccountIDs {
+		if id := strings.TrimSpace(accountID); id != "" {
+			targets[id] = struct{}{}
+		}
+	}
+	ous := make(map[string]struct{}, len(connection.TargetOUIDs))
+	for _, ouID := range connection.TargetOUIDs {
+		if id := strings.TrimSpace(ouID); id != "" {
+			ous[id] = struct{}{}
+		}
+	}
+	connectionAccountID := strings.TrimSpace(connection.AccountID)
+	scopeType := connection.ScopeType
+	return func(account AWSOrganizationInventoryAccount) bool {
+		if _, blocked := excluded[account.AccountID]; blocked {
+			return false
+		}
+		switch scopeType {
+		case AWSConnectorScopeOrganization:
+			return true
+		case AWSConnectorScopeSelectedOUs:
+			for _, ancestorID := range account.AncestorIDs {
+				if _, ok := ous[strings.TrimSpace(ancestorID)]; ok {
+					return true
+				}
+			}
+			return false
+		case AWSConnectorScopeSelectedAccounts:
+			_, ok := targets[account.AccountID]
+			return ok
+		case AWSConnectorScopeSingleAccount, AWSConnectorScopeManualRole:
+			return connectionAccountID != "" && account.AccountID == connectionAccountID
+		default:
+			return false
+		}
+	}
 }
 
 func normalizeAWSOrganizationsFixtureState(requested string, connection AWSConnectionStatus, hasConnection bool) string {

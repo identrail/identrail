@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -837,6 +838,116 @@ func TestStartAWSOrganizationRolloutSweepsExpiredEnvelope(t *testing.T) {
 	svc.Now = func() time.Time { return time.Date(2026, 7, 31, 11, 0, 0, 0, time.UTC) }
 	if _, err := svc.StartAWSOrganizationRollout(ctx, request); err != nil {
 		t.Fatalf("expected second rollout after expiry sweep, got %v", err)
+	}
+}
+
+type staticAWSOrganizationInventory struct {
+	snapshot AWSOrganizationInventorySnapshot
+	err      error
+}
+
+func (i *staticAWSOrganizationInventory) Discover(_ context.Context, _ AWSOrganizationInventoryRequest) (AWSOrganizationInventorySnapshot, error) {
+	return i.snapshot, i.err
+}
+
+func liveAWSOrganizationSnapshot() AWSOrganizationInventorySnapshot {
+	return AWSOrganizationInventorySnapshot{
+		OrganizationID:      "o-fixture001",
+		ManagementAccountID: "111111111111",
+		Partition:           "aws",
+		Roots:               []AWSOrganizationInventoryOU{{ID: "r-root", Name: "Root", Path: "/", AncestorIDs: []string{"r-root"}}},
+		OrganizationalUnits: []AWSOrganizationInventoryOU{{ID: "ou-prod-12345678", Name: "Production", ParentID: "r-root", Path: "/Production", AncestorIDs: []string{"r-root", "ou-prod-12345678"}}},
+		Accounts: []AWSOrganizationInventoryAccount{
+			{AccountID: "111111111111", Name: "management", Status: "active", ParentID: "r-root", OUPath: "/", AncestorIDs: []string{"r-root"}, Management: true},
+			{AccountID: "222222222222", Name: "production", Status: "active", ParentID: "ou-prod-12345678", OUPath: "/Production", AncestorIDs: []string{"r-root", "ou-prod-12345678"}},
+			{AccountID: "333333333333", Name: "suspended", Status: "suspended", ParentID: "ou-prod-12345678", OUPath: "/Production", AncestorIDs: []string{"r-root", "ou-prod-12345678"}},
+		},
+		ObservedAt: time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC),
+	}
+}
+
+func TestStartAWSOrganizationRolloutExpandsLiveOUMembership(t *testing.T) {
+	svc, ctx := newAWSOrganizationRolloutTestService(t)
+	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
+	inventory := &staticAWSOrganizationInventory{snapshot: liveAWSOrganizationSnapshot()}
+	svc.AWSOrganizationInventoryFactory = func(context.Context, AWSConnectionStatus) (AWSOrganizationInventory, error) { return inventory, nil }
+
+	status, err := svc.StartAWSOrganizationRollout(ctx, AWSOrganizationRolloutStartRequest{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ControllingConnectorID: "aws-mgmt",
+		OrganizationID: "o-fixture001", ManagementAccountID: "111111111111",
+		SelectedOUIDs: []string{"ou-prod-12345678"}, TargetRegions: []string{"us-east-1"}, AutoDeployNewAccounts: true,
+	})
+	if err != nil {
+		t.Fatalf("start OU rollout: %v", err)
+	}
+	if status.Summary.ExpectedTargets != 3 || status.Summary.SuspendedTargets != 1 {
+		t.Fatalf("expected management, active, and suspended targets, got %+v", status.Summary)
+	}
+	for _, target := range status.Targets {
+		if target.AccountID == "222222222222" && (target.AccountName != "production" || target.OUPath != "/Production") {
+			t.Fatalf("expected live account metadata, got %+v", target)
+		}
+	}
+}
+
+func TestReconcileAWSOrganizationRolloutMarksStackSetDrift(t *testing.T) {
+	svc, ctx := newAWSOrganizationRolloutTestService(t)
+	seedAWSRolloutControllingConnector(t, svc.Store, ctx, "aws-mgmt", "111111111111", "healthy", domain.ConnectorStatusActive, time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC))
+	inventory := &staticAWSOrganizationInventory{snapshot: liveAWSOrganizationSnapshot()}
+	svc.AWSOrganizationInventoryFactory = func(context.Context, AWSConnectionStatus) (AWSOrganizationInventory, error) { return inventory, nil }
+	started, err := svc.StartAWSOrganizationRollout(ctx, AWSOrganizationRolloutStartRequest{
+		WorkspaceID: "workspace-a", ProjectID: "project-1", ControllingConnectorID: "aws-mgmt",
+		OrganizationID: "o-fixture001", ManagementAccountID: "111111111111",
+		SelectedAccountIDs: []string{"222222222222"}, TargetRegions: []string{"us-east-1"},
+	})
+	if err != nil {
+		t.Fatalf("start rollout: %v", err)
+	}
+	rolloutStore := svc.Store.(db.AWSOrganizationRolloutStore)
+	target, err := rolloutStore.GetAWSOrganizationRolloutTarget(ctx, started.RolloutID, "222222222222", "us-east-1")
+	if err != nil {
+		t.Fatalf("load target: %v", err)
+	}
+	target.State = db.AWSOrganizationRolloutTargetConnected
+	target.RoleARN = "arn:aws:iam::222222222222:role/IdentrailReadOnly"
+	validatedAt := svc.Now().UTC()
+	target.LastValidationAt = &validatedAt
+	if _, err := rolloutStore.UpsertAWSOrganizationRolloutTarget(ctx, target); err != nil {
+		t.Fatalf("seed connected target: %v", err)
+	}
+	inventory.snapshot.StackInstances = []AWSOrganizationStackInstance{{
+		AccountID: "222222222222", Region: "us-east-1", StackSetID: "stackset-1", StackID: "stack-1", Status: "current", DriftStatus: "drifted",
+	}}
+
+	_, status, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", started.RolloutID)
+	if err != nil {
+		t.Fatalf("reconcile rollout: %v", err)
+	}
+	for _, reconciled := range status.Targets {
+		if reconciled.AccountID == "222222222222" {
+			if reconciled.State != db.AWSOrganizationRolloutTargetFailed || reconciled.FailureCode != "stack_instance_drifted" {
+				t.Fatalf("expected drift failure, got %+v", reconciled)
+			}
+			return
+		}
+	}
+	t.Fatal("expected member target")
+}
+
+func TestAWSOrganizationInventoryExpandsTenThousandAccountOU(t *testing.T) {
+	snapshot := AWSOrganizationInventorySnapshot{Accounts: make([]AWSOrganizationInventoryAccount, 0, 10000)}
+	for index := 0; index < 10000; index++ {
+		snapshot.Accounts = append(snapshot.Accounts, AWSOrganizationInventoryAccount{
+			AccountID: fmt.Sprintf("%012d", index+1),
+			Status:    "active", AncestorIDs: []string{"r-root", "ou-scale-12345678"},
+		})
+	}
+	selected := awsOrganizationInventorySelectedAccounts(snapshot, []string{"ou-scale-12345678"}, nil)
+	if len(selected) != 10000 {
+		t.Fatalf("expected 10,000 selected accounts, got %d", len(selected))
+	}
+	if selected[0] != "000000000001" || selected[len(selected)-1] != "000000010000" {
+		t.Fatalf("expected deterministic sorted accounts, got first=%s last=%s", selected[0], selected[len(selected)-1])
 	}
 }
 

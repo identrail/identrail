@@ -171,6 +171,75 @@ func TestGetAWSOrganizationsTopologyNeverLeaksPayloads(t *testing.T) {
 	}
 }
 
+// TestAWSOrganizationsTopologyConnectorScopePredicate locks in the rule that
+// ConnectorScoped reflects the connector's own scope. Before the fix, live
+// inventory reported every Organizations account as scan-eligible for the
+// connector, which let downstream rollout planning pick up accounts outside
+// the operator's approved list.
+func TestAWSOrganizationsTopologyConnectorScopePredicate(t *testing.T) {
+	snapshot := AWSOrganizationInventorySnapshot{
+		Accounts: []AWSOrganizationInventoryAccount{
+			{AccountID: "111111111111", AncestorIDs: []string{"ou-a", "r-root"}},
+			{AccountID: "222222222222", AncestorIDs: []string{"ou-b", "r-root"}},
+			{AccountID: "333333333333", AncestorIDs: []string{"ou-c", "r-root"}},
+		},
+	}
+	cases := []struct {
+		name       string
+		connection AWSConnectionStatus
+		want       map[string]bool
+	}{
+		{
+			name: "organization covers everything except excluded",
+			connection: AWSConnectionStatus{
+				ScopeType:          AWSConnectorScopeOrganization,
+				ExcludedAccountIDs: []string{"333333333333"},
+			},
+			want: map[string]bool{"111111111111": true, "222222222222": true, "333333333333": false},
+		},
+		{
+			name: "selected_ous covers only accounts under target OUs",
+			connection: AWSConnectionStatus{
+				ScopeType:   AWSConnectorScopeSelectedOUs,
+				TargetOUIDs: []string{"ou-a"},
+			},
+			want: map[string]bool{"111111111111": true, "222222222222": false, "333333333333": false},
+		},
+		{
+			name: "selected_accounts covers only explicit account list",
+			connection: AWSConnectionStatus{
+				ScopeType:        AWSConnectorScopeSelectedAccounts,
+				TargetAccountIDs: []string{"222222222222"},
+			},
+			want: map[string]bool{"111111111111": false, "222222222222": true, "333333333333": false},
+		},
+		{
+			name: "single_account restricts to the connection's own account",
+			connection: AWSConnectionStatus{
+				ScopeType: AWSConnectorScopeSingleAccount,
+				AccountID: "111111111111",
+			},
+			want: map[string]bool{"111111111111": true, "222222222222": false, "333333333333": false},
+		},
+		{
+			name:       "unknown scope fails closed",
+			connection: AWSConnectionStatus{},
+			want:       map[string]bool{"111111111111": false, "222222222222": false, "333333333333": false},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scoped := awsOrganizationsTopologyConnectorScopePredicate(tc.connection, snapshot)
+			for _, account := range snapshot.Accounts {
+				got := scoped(account)
+				if got != tc.want[account.AccountID] {
+					t.Fatalf("account %s: want %v, got %v", account.AccountID, tc.want[account.AccountID], got)
+				}
+			}
+		})
+	}
+}
+
 func TestRouterAWSOrganizationsTopologyPartialFailureAndInvalid(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()

@@ -18,6 +18,11 @@ on:
         default: migrations
   workflow_call:
     inputs:
+      source_ref:
+        description: "Exact dev commit to migrate from."
+        required: false
+        type: string
+        default: ""
       confirm_migrations:
         description: "Confirmation string for migration execution."
         required: false
@@ -33,6 +38,11 @@ on:
         required: false
         type: string
         default: migrations
+      require_head_sha:
+        description: "Optional: refuse to migrate unless refs/heads/dev still points at this SHA. Checked immediately before migrations run."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -57,6 +67,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
@@ -206,6 +218,41 @@ jobs:
             printf '%s\n' "${database_url}"
             echo "EOF"
           } >> "${GITHUB_ENV}"
+
+      # Bind the checked-out tree to the release commit. Migrations are read
+      # from this checkout, so this is what actually determines which
+      # migrations run.
+      - name: Bind checkout to release commit
+        if: inputs.require_head_sha != ''
+        env:
+          REQUIRE_HEAD_SHA: ${{ inputs.require_head_sha }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "${REQUIRE_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "require_head_sha must be a full 40-character Git commit SHA."
+            exit 1
+          fi
+          if [ -n "${SOURCE_REF}" ] && [ "${SOURCE_REF}" != "${REQUIRE_HEAD_SHA}" ]; then
+            echo "source_ref (${SOURCE_REF}) must equal require_head_sha (${REQUIRE_HEAD_SHA})."
+            exit 1
+          fi
+          checked_out="$(git rev-parse HEAD)"
+          if [ "${checked_out}" != "${REQUIRE_HEAD_SHA}" ]; then
+            echo "Checked-out commit ${checked_out} does not match require_head_sha ${REQUIRE_HEAD_SHA}."
+            exit 1
+          fi
+
+      # Last gate before the destructive operation, in the same job and the
+      # same execution path as the migration itself.
+      - name: Verify release lineage immediately before migrating
+        if: inputs.require_head_sha != ''
+        uses: ./.github/actions/verify-release-lineage
+        with:
+          release_sha: ${{ inputs.require_head_sha }}
+          branch: dev
+          github_token: ${{ github.token }}
 
       - name: Apply database migrations
         shell: bash

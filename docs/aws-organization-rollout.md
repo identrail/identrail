@@ -11,17 +11,16 @@ This document covers the AWS Organization / StackSet rollout slices (identrail/i
 - Progress read model. `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/rollouts/{rollout_id}` returns aggregate counts and the exact per-target list, sortable in the UI.
 - Minimal UI panel in the AWS Connect page. It renders below the existing StackSet progress panel, seeds the operator flow from the same scope form, and polls for status.
 - Reconciliation slice. A bounded worker validates registered member roles with STS and IAM read checks, recovers stale registrations, derives aggregate rollout state from target rows, and preserves per-target diagnostics and evidence.
+- Live AWS reconciliation. The controlling role reads Organizations and CloudFormation StackSet metadata on every reconciliation pass. OU-only scopes are expanded into exact account IDs, new accounts are added when auto-deploy is enabled, OU moves and removed accounts leave coverage, inactive accounts are suspended, and missing, unhealthy, or drifted StackSet instances become explicit failed targets.
 - Repair controls. `Reconcile now` refreshes a rollout immediately; `Retry failed targets` resets only retryable failed targets inside the original approved account/region envelope. Targets with an existing role return directly to validation; targets without a role return to pending registration.
 
-## What this slice does not ship
+## Deliberate boundaries
 
-The following remain deliberately deferred to follow-up work against #1788:
-
-- Live periodic diff of AWS Organizations membership and CloudFormation StackSet operation/instance APIs. The current worker reconciles persisted rollout targets and missed registration windows; it does not yet discover OU moves, closed accounts, or StackSet instance changes from live AWS APIs.
-- 1k / 10k target scale integration tests.
-- New-account auto-deploy handling and OU membership expansion beyond the operator-provided lists.
-
-Every deferred item has honest state today: an unvalidated target is not reported "connected", and the whole rollout is never inferred healthy from a StackSet launch API result alone.
+The connector remains read-only. Identrail observes Organizations and StackSet
+state, validates roles, and gives operators scoped recovery actions; it does not
+silently delete or update customer CloudFormation resources. Large-account
+load qualification uses deterministic provider fakes in CI, while a controlled
+AWS organization remains the release gate for service quotas and throttling.
 
 ## Controlling-account setup
 
@@ -30,7 +29,7 @@ Every deferred item has honest state today: an unvalidated target is not reporte
 3. Click **Start rollout**. The app calls `POST /v1/workspaces/{workspace_id}/projects/{project_id}/aws/rollouts` with the exact scope from the form.
 4. Open the returned AWS StackSet console launch URL to authorize the rollout. AWS will provision `AWS::CloudFormation::StackInstance` in each eligible member account.
 5. As each member instance completes, its `Custom::IdentrailAWSConnectorRegistration` resource publishes to the regional Identrail registration topic. Identrail verifies the rollout binding, upserts the target row, and progresses the rollout to `in_progress`.
-6. The worker periodically validates registered roles. If delivery is delayed beyond the registration timeout, the target receives the retryable `registration_missing` diagnostic. Use **Reconcile now** for an immediate pass or **Retry failed targets** after repairing a retryable AWS-side failure.
+6. The worker periodically refreshes Organizations and StackSet state, then validates registered roles. If delivery is delayed beyond the registration timeout, the target receives the retryable `registration_missing` diagnostic. Use **Reconcile now** for an immediate pass or **Retry failed targets** after repairing a retryable AWS-side failure.
 
 ## Security properties
 
@@ -78,8 +77,13 @@ Both routes are covered by the OpenAPI v1 spec and the route-policy registry.
 | `suspended` | Reconciliation detected the account is suspended in AWS Organizations. |
 | `removed` | Reconciliation detected the account was removed from the organization. |
 
-## Follow-ups
+## Operations
 
-- Live Organizations/StackSet discovery and diffing for OU moves, new accounts, deleted instances, and account lifecycle changes.
-- Full 10k-target scale test with fanout and idempotency assertions.
-- Extended operator troubleshooting matrix keyed by diagnostic code.
+- `identrail aws-rollout-reconcile` runs the same bounded refresh as the app's
+  **Reconcile now** control.
+- `identrail aws-disable`, `identrail aws-enable`, and
+  `identrail aws-disconnect` mirror the app lifecycle controls. Disconnect
+  requires `--confirm` to exactly match the connector ID.
+- Update organization connector stacks to template `2.1.0` before expecting
+  live Organizations and StackSet inventory. The template adds read-only
+  Organizations and `cloudformation:ListStackInstances` permissions.

@@ -207,6 +207,9 @@ jobs:
           terraform init -backend=false
           terraform validate
 
+      - name: Validate production AWS connector inputs
+        run: ./scripts/prepare_aws_api_deploy_test.sh
+
   deploy-portability:
     name: Deploy Portability
     runs-on: ubuntu-latest

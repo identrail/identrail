@@ -578,6 +578,47 @@ func TestExecuteAWSStatusRejectsPositionalArgs(t *testing.T) {
 	}
 }
 
+func TestExecuteAWSDisableUsesScopedLifecycleRoute(t *testing.T) {
+	cfg := config.Config{DefaultTenantID: "tenant-a", DefaultWorkspaceID: "workspace-a"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/connectors/aws/aws-prod/disable" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("X-Identrail-Tenant-ID") != "tenant-a" || r.Header.Get("X-Identrail-Workspace-ID") != "workspace-a" {
+			t.Fatalf("missing scope headers: %+v", r.Header)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body["workspace_id"] != "workspace-a" || body["project_id"] != "production" {
+			t.Fatalf("unexpected body: %+v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(struct {
+			Connection api.AWSConnectionStatus `json:"connection"`
+		}{Connection: api.AWSConnectionStatus{Provider: "aws", ConnectorID: "aws-prod", Status: domain.ConnectorStatusActive, Disabled: true, HealthStatus: "paused"}})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	if err := Execute(cfg, []string{"aws-disable", "--api-url", server.URL, "--project-id", "production", "--connector-id", "aws-prod"}, &out); err != nil {
+		t.Fatalf("disable connector: %v", err)
+	}
+	if !strings.Contains(out.String(), "aws-prod") {
+		t.Fatalf("expected connector status output, got %q", out.String())
+	}
+}
+
+func TestExecuteAWSDisconnectRequiresExactConfirmation(t *testing.T) {
+	cfg := config.Config{DefaultTenantID: "tenant-a", DefaultWorkspaceID: "workspace-a"}
+	var out bytes.Buffer
+	err := Execute(cfg, []string{"aws-disconnect", "--project-id", "production", "--connector-id", "aws-prod", "--confirm", "wrong-connector"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "exactly match") {
+		t.Fatalf("expected exact confirmation error, got %v", err)
+	}
+}
+
 func TestExecuteScanReplayJSON(t *testing.T) {
 	cfg := config.Config{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

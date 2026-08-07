@@ -96,12 +96,13 @@ Portable deployment profiles:
 ## 2) Deploy Sequence
 
 1. Ensure CI is green on `dev` (`Go Quality`, `Go Tests`, `Go Integration (Postgres)`, `Web Build`).
-2. For hosted AWS API releases, use the `Deploy to prod` workflow after the
-   immutable image for the current `dev` commit is published. Operators only
-   select the `dev` branch and click **Run workflow**. The workflow resolves the
-   matching `sha-<current-dev-commit>` API and worker images, verifies CI and
-   image publishing passed for that exact commit, runs migrations, deploys the
-   API and worker, and performs hosted API smoke checks in one ordered release.
+2. Hosted AWS API releases start automatically after `Publish Container Images`
+   succeeds for `dev`, then wait at the protected `production` environment for
+   approval. The workflow rejects a stale commit, publishes the connector
+   template to an immutable digest URL, runs migrations from the same commit,
+   deploys matching API and worker images, enables the registration provider,
+   and verifies the AWS rollout and lifecycle routes. Manual dispatch remains
+   available for recovery and uses the same gates.
 3. For non-AWS or lower-level deployments, run migrations once using the
    dedicated migration job:
    - Kubernetes manifests: apply `deploy/kubernetes/migration-job.yaml` and wait for job completion.
@@ -164,6 +165,23 @@ Use the `AWS API Manual Deploy` GitHub Actions workflow for controlled API
 cutover preparation. Run `plan` first. Use `apply` only after reviewing the plan; the
 workflow requires the explicit confirmation string `apply-api.identrail.com` and
 persists Terraform state in the configured S3 state bucket.
+
+#### Deploy role prerequisite: backwards-deploy marker
+
+When `apply` is called with `require_head_sha` (the hosted `Deploy to prod`
+workflow always does), the deploy refuses to ship a commit that is not ahead of
+the last successfully deployed one. It tracks that in a small object beside the
+Terraform state:
+
+```
+s3://<state-bucket>/deploy-markers/<terraform-state-key>.last-deployed-sha
+```
+
+The GitHub deploy role (`AWS_ROLE_ARN`) therefore needs `s3:GetObject` and
+`s3:PutObject` on the `deploy-markers/*` prefix of the state bucket, in addition
+to its existing Terraform state permissions. If the role cannot read the marker,
+the deploy fails closed with an explicit message rather than skipping the guard.
+The first apply finds no marker, records one, and proceeds normally.
 
 For the first cost-controlled Identrail Cloud cutover, prefer the documented
 public-task bootstrap mode instead of creating NAT Gateways. Set

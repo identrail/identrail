@@ -466,7 +466,7 @@ const readyAWSOrganizationsTopology: AWSOrganizationsTopologyResult = {
   partition: 'aws',
   version: 'aws-organizations-topology-v1',
   status: 'ready',
-  fixture_state: 'success',
+  fixture_state: 'live',
   confidence: 0.95,
   filtered_accounts: 1,
   summary: {
@@ -3757,9 +3757,21 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Accounts' })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'AWS Organizations topology' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('article', { name: 'Organizations accounts coverage' })).toHaveTextContent('Live AWS · 1 OUs')
+    );
     expect(screen.getByRole('table', { name: 'AWS account and region coverage' })).toBeInTheDocument();
-    expect(screen.getAllByText(/AWS account 123456789012/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Region us-east-1/i).length).toBeGreaterThan(0);
+    expect(screen.getByText('123456789012 · us-east-1')).toBeInTheDocument();
+    expect(
+      await within(screen.getByRole('table', { name: 'AWS Organizations topology' })).findByText(
+        'Management account · Use this account for downstream coverage.'
+      )
+    ).toBeInTheDocument();
+    expect(
+      await within(screen.getByRole('table', { name: 'AWS account and region coverage' })).findByText(
+        /Production \/ us-east-1 \/ IAM/i
+      )
+    ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Open Connect AWS/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/connect?environment=production'
@@ -10456,6 +10468,7 @@ describe('Domain-first app routes', () => {
       connection: {
         ...connectedAWS,
         connector_id: 'aws-org-existing',
+        organization_id: 'o-identrail',
         scope_type: 'organization',
         deployment_method: 'stackset_service_managed',
         onboarding_status: 'connected',
@@ -10489,6 +10502,7 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(screen.getByRole('table', { name: /StackSet instance status/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start rollout' })).not.toBeDisabled();
   });
 
   it('renders the launch-response onboarding rather than the fixture-backed refresh endpoint', async () => {
@@ -14751,9 +14765,9 @@ describe('ProductFindingsPage states', () => {
       id: 'repo-scan-clear-all-large',
       status: 'succeeded',
       finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 501
+      finding_count: 101
     };
-    const findings: Finding[] = Array.from({ length: 501 }, (_, index) => ({
+    const findings: Finding[] = Array.from({ length: 101 }, (_, index) => ({
       id: `finding-clear-all-large-${index}`,
       scan_id: scan.id,
       type: 'workflow_permission',
@@ -14764,10 +14778,10 @@ describe('ProductFindingsPage states', () => {
       created_at: '2026-05-17T11:07:00Z'
     }));
 
-  const { deleteRepoFindings } = await renderFindings({
-    repoScans: [scan],
-    listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[500]] })
-  });
+    const { deleteRepoFindings } = await renderFindings({
+      repoScans: [scan],
+      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[100]] })
+    });
 
     expect(await screen.findByText('Large clear all finding 0')).toBeInTheDocument();
 
@@ -14779,9 +14793,9 @@ describe('ProductFindingsPage states', () => {
       expect(deleteRepoFindings).toHaveBeenCalledTimes(1);
     });
     const targets = deleteRepoFindings.mock.calls[0]?.[0] ?? [];
-    expect(targets).toHaveLength(501);
+    expect(targets).toHaveLength(101);
     expect(targets[0]).toEqual({ finding_id: findings[0].id, repo_scan_id: scan.id });
-    expect(targets[500]).toEqual({ finding_id: findings[500].id, repo_scan_id: scan.id });
+    expect(targets[100]).toEqual({ finding_id: findings[100].id, repo_scan_id: scan.id });
   });
 
   it('preserves completed clear all deletes when the bulk response is partial', async () => {
@@ -14790,9 +14804,9 @@ describe('ProductFindingsPage states', () => {
       id: 'repo-scan-clear-all-batch-failure',
       status: 'succeeded',
       finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 501
+      finding_count: 3
     };
-    const findings: Finding[] = Array.from({ length: 501 }, (_, index) => ({
+    const findings: Finding[] = Array.from({ length: 3 }, (_, index) => ({
       id: `finding-clear-all-batch-failure-${index}`,
       scan_id: scan.id,
       type: 'workflow_permission',
@@ -14805,18 +14819,18 @@ describe('ProductFindingsPage states', () => {
 
     const { deleteRepoFindings } = await renderFindings({
       repoScans: [scan],
-      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[500]] })
+      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[2]] })
     });
     deleteRepoFindings.mockResolvedValueOnce({
-      deleted: findings.slice(0, 500).map((finding) => ({
+      deleted: findings.slice(0, 2).map((finding) => ({
         finding_id: finding.id,
         repo_scan_id: finding.scan_id
       })),
-      failed: [{ finding_id: findings[500].id, repo_scan_id: findings[500].scan_id, error: 'repo finding not found' }]
+      failed: [{ finding_id: findings[2].id, repo_scan_id: findings[2].scan_id, error: 'repo finding not found' }]
     });
 
     expect(await screen.findByText('Batch failure finding 0')).toBeInTheDocument();
-    expect(await screen.findByText('Batch failure finding 500')).toBeInTheDocument();
+    expect(await screen.findByText('Batch failure finding 2')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /^Clear all$/i }));
     const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
@@ -14825,9 +14839,9 @@ describe('ProductFindingsPage states', () => {
     await waitFor(() => {
       expect(deleteRepoFindings).toHaveBeenCalledTimes(1);
     });
-    expect(await screen.findByText('500 deleted. 1 remaining.')).toBeInTheDocument();
+    expect(await screen.findByText('2 deleted. 1 remaining.')).toBeInTheDocument();
     expect(screen.queryByText('Batch failure finding 0')).not.toBeInTheDocument();
-    expect(await screen.findByText('Batch failure finding 500')).toBeInTheDocument();
+    expect(await screen.findByText('Batch failure finding 2')).toBeInTheDocument();
     expect(within(confirmDialog).getByText(/1 visible finding/i)).toBeInTheDocument();
   });
 

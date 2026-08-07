@@ -2,6 +2,11 @@ name: Deploy to prod
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Publish Container Images
+    types:
+      - completed
 
 permissions:
   contents: read
@@ -15,10 +20,25 @@ concurrency:
 jobs:
   resolve:
     name: Resolve production release
-    if: github.repository == 'identrail/identrail'
+    # Gate the auto-triggered path to `push`-originated Publish Container
+    # Images runs. Without the event filter, an ad-hoc `workflow_dispatch` of
+    # the image workflow (which may have been fired against any ref that the
+    # image workflow itself accepts) would satisfy the success+dev-branch
+    # check here and auto-launch a production deploy we did not intend.
+    if: >-
+      github.repository == 'identrail/identrail' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'dev'))
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Must exceed the release-gate polling budget below (40 x 30s = 20 minutes)
+    # plus image verification, otherwise an auto-triggered release is killed
+    # mid-wait while the sibling gate is still running and has to be recovered
+    # by hand.
+    timeout-minutes: 30
     outputs:
+      release_sha: ${{ steps.release.outputs.release_sha }}
       api_container_image: ${{ steps.release.outputs.api_container_image }}
       worker_container_image: ${{ steps.release.outputs.worker_container_image }}
       api_base_url: ${{ steps.release.outputs.api_base_url }}
@@ -30,12 +50,29 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Every path through this workflow must actually run on refs/heads/dev
+          # because the AWS OIDC role trust is scoped to that ref. On
+          # workflow_dispatch the caller picks the branch; on workflow_run
+          # GitHub Actions uses the repository's default branch (not the
+          # triggering run's branch). This guard fails fast if the effective
+          # ref is not dev, so an auto-triggered run against any other default
+          # branch surfaces here instead of failing opaquely at
+          # publish-template / migrate / deploy when AWS rejects the OIDC sub.
           if [ "${GITHUB_REF_NAME}" != "dev" ]; then
-            echo "Run this workflow from the dev branch. The AWS OIDC role trust is intentionally scoped to refs/heads/dev."
+            echo "This workflow must run on refs/heads/dev; got ${GITHUB_REF_NAME}."
+            echo "For workflow_dispatch select the dev branch. For workflow_run confirm the repository default branch is still dev."
             exit 1
           fi
 
-          short_sha="${GITHUB_SHA::12}"
+          release_sha="${GITHUB_SHA}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            release_sha="${{ github.event.workflow_run.head_sha }}"
+          fi
+          if ! [[ "${release_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_sha must be a full Git commit SHA."
+            exit 1
+          fi
+          short_sha="${release_sha::12}"
           api_container_image="ghcr.io/identrail/identrail-api:sha-${short_sha}"
           worker_container_image="ghcr.io/identrail/identrail-worker:sha-${short_sha}"
           api_base_url="https://api.identrail.com"
@@ -47,6 +84,7 @@ jobs:
           fi
 
           {
+            echo "release_sha=${release_sha}"
             echo "api_container_image=${api_container_image}"
             echo "worker_container_image=${worker_container_image}"
             echo "api_base_url=${api_base_url}"
@@ -56,26 +94,65 @@ jobs:
       - name: Verify release gates passed
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
         shell: bash
         run: |
           set -euo pipefail
 
-          runs_json="$(
-            curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs?branch=dev&head_sha=${GITHUB_SHA}&status=success&per_page=100"
-          )"
-
+          # CI and Publish Container Images are triggered independently by the
+          # same dev push, so whichever finishes first fires the workflow_run
+          # that starts this release. Failing immediately when the other gate
+          # is still running would permanently strand the release: no later
+          # event re-runs it. Poll instead, and only fail once a gate has
+          # actually concluded unsuccessfully or the budget is exhausted.
           required_workflows=("CI" "Publish Container Images")
-          for workflow in "${required_workflows[@]}"; do
-            if ! jq -e --arg workflow "${workflow}" '.workflow_runs[] | select(.name == $workflow and .conclusion == "success")' >/dev/null <<< "${runs_json}"; then
-              echo "Required workflow ${workflow} has not completed successfully for ${GITHUB_SHA}."
-              echo "Wait for dev checks and image publishing to finish, then run Deploy to prod again."
+          # 40 attempts x 30s = 20 minutes, comfortably longer than either gate.
+          max_attempts=40
+          pending=""
+
+          for attempt in $(seq 1 "${max_attempts}"); do
+            runs_json="$(
+              curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs?branch=dev&head_sha=${RELEASE_SHA}&per_page=100"
+            )"
+
+            pending=""
+            failed=""
+            for workflow in "${required_workflows[@]}"; do
+              if jq -e --arg workflow "${workflow}" \
+                  '.workflow_runs[] | select(.name == $workflow and .conclusion == "success")' \
+                  >/dev/null <<< "${runs_json}"; then
+                continue
+              fi
+              # A concluded run that is not success is terminal: stop waiting.
+              if jq -e --arg workflow "${workflow}" \
+                  '.workflow_runs[] | select(.name == $workflow and .status == "completed" and .conclusion != "success")' \
+                  >/dev/null <<< "${runs_json}"; then
+                failed="${failed} ${workflow}"
+                continue
+              fi
+              pending="${pending} ${workflow}"
+            done
+
+            if [ -n "${failed}" ]; then
+              echo "Required workflow(s)${failed} concluded unsuccessfully for ${RELEASE_SHA}."
               exit 1
             fi
+            if [ -z "${pending}" ]; then
+              echo "All required workflows succeeded for ${RELEASE_SHA}."
+              exit 0
+            fi
+
+            echo "Attempt ${attempt}/${max_attempts}: waiting on${pending} for ${RELEASE_SHA}."
+            sleep 30
           done
+
+          echo "Required workflow(s)${pending} did not complete for ${RELEASE_SHA} within the wait budget."
+          echo "Wait for dev checks and image publishing to finish, then run Deploy to prod again."
+          exit 1
 
       - name: Login to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
@@ -101,6 +178,7 @@ jobs:
           WORKER_CONTAINER_IMAGE: ${{ steps.release.outputs.worker_container_image }}
           API_BASE_URL: ${{ steps.release.outputs.api_base_url }}
           MIGRATIONS_DIR: ${{ steps.release.outputs.migrations_dir }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -110,7 +188,7 @@ jobs:
             echo
             echo "- API image: \`${API_CONTAINER_IMAGE}\`"
             echo "- Worker image: \`${WORKER_CONTAINER_IMAGE}\`"
-            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- Source commit: \`${RELEASE_SHA}\`"
             echo "- API base URL: \`${API_BASE_URL}\`"
             echo "- Migrations directory: \`${MIGRATIONS_DIR}\`"
             echo "- Verified gates: \`CI\`, \`Publish Container Images\`"
@@ -124,21 +202,181 @@ jobs:
     environment: production
     steps:
       - name: Record production approval
-        run: echo "Production deployment approved for ${{ github.sha }}."
+        run: echo "Production deployment approved for ${{ needs.resolve.outputs.release_sha }}."
+
+  # Post-approval policy gate: refuse to start shipping a commit that dev has
+  # already moved past. Equality is the right test here because this is a
+  # deliberate "don't ship a superseded release" decision at the approval
+  # boundary, not a correctness guarantee about the apply itself.
+  #
+  # The guarantees that protect the apply live inside the reusable migration
+  # and deploy workflows, in the same job as the operation: the checkout is
+  # bound to require_head_sha, lineage is re-verified against dev, and the
+  # deploy refuses to move backwards relative to the recorded deployed SHA.
+  # Those hold regardless of what dev does while this workflow runs.
+  verify-latest:
+    name: Verify release is still current
+    needs:
+      - resolve
+      - approve
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject stale production release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.resolve.outputs.release_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dev_sha="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" |
+              jq -r '.object.sha'
+          )"
+          if [ "${RELEASE_SHA}" != "${dev_sha}" ]; then
+            echo "Refusing to deploy stale commit ${RELEASE_SHA}; current dev is ${dev_sha}."
+            exit 1
+          fi
+
+  publish-template:
+    name: Publish immutable AWS connector template
+    needs:
+      - resolve
+      - verify-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      template_url: ${{ steps.publish.outputs.template_url }}
+      template_sha256: ${{ steps.publish.outputs.template_sha256 }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      TEMPLATE_BUCKET: ${{ vars.AWS_CFN_TEMPLATE_BUCKET || 'identrail-cloudformation-templates' }}
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.resolve.outputs.release_sha }}
+
+      - name: Configure AWS credentials from GitHub OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${AWS_ROLE_ARN}" ] || [ -z "${TEMPLATE_BUCKET}" ]; then
+            echo "AWS_ROLE_ARN and AWS_CFN_TEMPLATE_BUCKET are required."
+            exit 1
+          fi
+          echo "::add-mask::${AWS_ROLE_ARN}"
+          token_response="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com"
+          )"
+          oidc_token="$(jq -r '.value // empty' <<< "${token_response}")"
+          credentials="$(
+            aws sts assume-role-with-web-identity \
+              --role-arn "${AWS_ROLE_ARN}" \
+              --role-session-name "identrail-template-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --web-identity-token "${oidc_token}" \
+              --duration-seconds 900 \
+              --query Credentials \
+              --output json
+          )"
+          for name in AccessKeyId SecretAccessKey SessionToken; do
+            value="$(jq -r ".${name} // empty" <<< "${credentials}")"
+            if [ -z "${value}" ]; then
+              echo "AWS did not return ${name}."
+              exit 1
+            fi
+            echo "::add-mask::${value}"
+            case "${name}" in
+              AccessKeyId) echo "AWS_ACCESS_KEY_ID=${value}" >> "${GITHUB_ENV}" ;;
+              SecretAccessKey) echo "AWS_SECRET_ACCESS_KEY=${value}" >> "${GITHUB_ENV}" ;;
+              SessionToken) echo "AWS_SESSION_TOKEN=${value}" >> "${GITHUB_ENV}" ;;
+            esac
+          done
+
+      - name: Publish and verify template
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          template="deploy/connectors/aws/identrail-readonly.yaml"
+          digest="$(sha256sum "${template}" | awk '{print $1}')"
+          key="connectors/aws/sha256/${digest}/identrail-readonly.yaml"
+          template_url="https://${TEMPLATE_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}"
+
+          aws s3api head-bucket --bucket "${TEMPLATE_BUCKET}"
+
+          # Write-once publish. --if-none-match '*' makes the PUT conditional
+          # on the key not already existing, so a SHA-addressed object can
+          # never be silently overwritten with different bytes after it has
+          # been verified and handed to customers. A PreconditionFailed means
+          # this exact digest was already published (a re-run, or a release
+          # that did not change the template); that is the expected, benign
+          # case and we fall through to verifying the stored bytes.
+          if aws s3api put-object \
+            --bucket "${TEMPLATE_BUCKET}" \
+            --key "${key}" \
+            --body "${template}" \
+            --content-type "application/x-yaml" \
+            --if-none-match '*' \
+            --cache-control "public,max-age=31536000,immutable" >/dev/null 2>"${RUNNER_TEMP}/put-object.err"; then
+            echo "Published ${key}."
+          elif grep -qi "PreconditionFailed\|At least one of the pre-conditions" "${RUNNER_TEMP}/put-object.err"; then
+            echo "Object ${key} already exists; verifying stored bytes instead of overwriting."
+          else
+            cat "${RUNNER_TEMP}/put-object.err" >&2
+            exit 1
+          fi
+
+          # Verify the bytes actually served at the SHA-addressed URL match the
+          # digest in the path, whether we just wrote them or found them already
+          # present. This is what makes the URL safe to hand to customers.
+          downloaded="${RUNNER_TEMP}/identrail-readonly.yaml"
+          curl -fsSL --retry 5 --retry-all-errors "${template_url}" -o "${downloaded}"
+          published_digest="$(sha256sum "${downloaded}" | awk '{print $1}')"
+          if [ "${published_digest}" != "${digest}" ]; then
+            echo "Published template digest ${published_digest} does not match ${digest}."
+            echo "The SHA-addressed key holds different bytes than this release's template; refusing to continue."
+            exit 1
+          fi
+
+          {
+            echo "template_url=${template_url}"
+            echo "template_sha256=sha256:${digest}"
+          } >> "${GITHUB_OUTPUT}"
+          {
+            echo "## Immutable AWS connector template"
+            echo
+            echo "- URL: \`${template_url}\`"
+            echo "- SHA-256: \`${digest}\`"
+            echo "- Write mode: conditional (\`If-None-Match: *\`), digest verified after publish"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
   migrate:
     name: Run database migrations
     needs:
       - resolve
-      - approve
+      - publish-template
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/aws-api-database-migrations.yml
     with:
+      source_ref: ${{ needs.resolve.outputs.release_sha }}
       confirm_migrations: run-api-migrations
       database_url_secret_arn: ''
       migrations_dir: ${{ needs.resolve.outputs.migrations_dir }}
+      # Re-checked inside the migration job immediately before the migration
+      # runs, so a push to dev during this workflow cannot migrate a stale SHA.
+      require_head_sha: ${{ needs.resolve.outputs.release_sha }}
     secrets: inherit
 
   deploy:
@@ -146,11 +384,13 @@ jobs:
     needs:
       - resolve
       - migrate
+      - publish-template
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/aws-api-manual-deploy.yml
     with:
+      source_ref: ${{ needs.resolve.outputs.release_sha }}
       operation: apply
       confirm_apply: apply-api.identrail.com
       api_container_image: ${{ needs.resolve.outputs.api_container_image }}
@@ -162,6 +402,12 @@ jobs:
       database_url_secret_arn: ''
       terraform_state_bucket: ''
       terraform_state_key: ${{ vars.AWS_TERRAFORM_STATE_KEY || '' }}
+      aws_cfn_template_url: ${{ needs.publish-template.outputs.template_url }}
+      aws_cfn_template_sha256: ${{ needs.publish-template.outputs.template_sha256 }}
+      enable_aws_connector_registration: true
+      # Re-checked inside the deploy job immediately before terraform apply,
+      # so a push to dev during this workflow cannot apply a stale SHA.
+      require_head_sha: ${{ needs.resolve.outputs.release_sha }}
     secrets: inherit
 
   smoke:
@@ -183,19 +429,34 @@ jobs:
           last_error=""
           curl_args=(-fsS --connect-timeout 3 --max-time 8)
 
+          route_exists() {
+            local method="$1"
+            local path="$2"
+            local code
+            code="$(curl -sS --connect-timeout 3 --max-time 8 -o /dev/null -w '%{http_code}' -X "${method}" "${base}${path}")"
+            [ "${code}" = "401" ] || [ "${code}" = "403" ]
+          }
+
           for attempt in $(seq 1 30); do
             if health="$(curl "${curl_args[@]}" "${base}/healthz" 2>&1)" &&
                ready="$(curl "${curl_args[@]}" "${base}/readyz" 2>&1)" &&
                auth_config="$(curl "${curl_args[@]}" "${base}/v1/auth/config" 2>&1)" &&
                jq -e '.status == "ok"' >/dev/null <<< "${health}" &&
                jq -e '.status == "ready"' >/dev/null <<< "${ready}" &&
-               jq -e 'has("auth") and has("features")' >/dev/null <<< "${auth_config}"; then
+               jq -e '.features.connectors.aws == true' >/dev/null <<< "${auth_config}" &&
+               route_exists POST "/v1/workspaces/release-probe/projects/release-probe/aws/rollouts/release-probe/reconcile" &&
+               route_exists POST "/v1/workspaces/release-probe/projects/release-probe/aws/rollouts/release-probe/retry" &&
+               route_exists POST "/v1/connectors/aws/release-probe/disable" &&
+               route_exists POST "/v1/connectors/aws/release-probe/enable" &&
+               route_exists POST "/v1/connectors/aws/release-probe/disconnect"; then
               {
                 echo "## AWS production release smoke checks"
                 echo
                 echo "- \`${base}/healthz\`: ok"
                 echo "- \`${base}/readyz\`: ready"
                 echo "- \`${base}/v1/auth/config\`: returned auth and feature config"
+                echo "- AWS rollout reconcile/retry routes: present and authorization-gated"
+                echo "- AWS connector lifecycle routes: present and authorization-gated"
               } >> "${GITHUB_STEP_SUMMARY}"
               exit 0
             fi

@@ -107,16 +107,19 @@ default, stores Terraform state in S3, and only applies when an operator selects
 Run it from the `dev` branch because the AWS OIDC deployment role trust is
 intentionally scoped to that branch.
 
-For routine hosted API releases after an immutable image for the current `dev`
-commit has been published, use the `Deploy to prod` workflow. Operators only
-select the `dev` branch and click **Run workflow**. The workflow resolves the
+For routine hosted API releases, `Publish Container Images` starts the
+`Deploy to prod` workflow after the current `dev` image is available. An
+operator approves the protected `production` environment; a manual dispatch is
+available for recovery. The workflow resolves the
 matching `ghcr.io/identrail/identrail-api:sha-<current-dev-commit>` and
 `ghcr.io/identrail/identrail-worker:sha-<current-dev-commit>` images, verifies
 that `CI` and `Publish Container Images` passed for that exact commit, confirms
 both immutable image tags exist in GHCR, waits for the `production` GitHub
 Environment approval when environment protection is configured, runs the
-database migration workflow, deploys the API and worker, and then checks
-`/healthz`, `/readyz`, and `/v1/auth/config`. This keeps hosted API code,
+database migration workflow, publishes the CloudFormation connector template
+under its SHA-256 digest, deploys the API and worker with that exact URL and
+checksum, and then checks `/healthz`, `/readyz`, `/v1/auth/config`, AWS rollout
+reconciliation, and connector lifecycle routes. This keeps hosted API code,
 worker code, and the database schema in the same release boundary instead of
 requiring operators to remember image tags or the migration and deploy order by
 hand.
@@ -126,6 +129,9 @@ Repository configuration required before the workflow can plan:
 - secret `AWS_ROLE_ARN`: GitHub OIDC deployment role ARN
 - variable `AWS_REGION`: AWS region, such as `us-east-1`
 - variable `AWS_TERRAFORM_STATE_BUCKET`: existing S3 bucket for Terraform state
+- variable `AWS_CFN_TEMPLATE_BUCKET`: private-write/public-read bucket used to
+  publish immutable connector templates; defaults to
+  `identrail-cloudformation-templates`
 - optional variable `AWS_TERRAFORM_STATE_KEY`: defaults to
   `identrail/dev/aws-api.tfstate`
 - variable `API_VPC_ID`: VPC for the API load balancer and ECS service
@@ -138,6 +144,12 @@ Repository configuration required before the workflow can plan:
   `IDENTRAIL_DATABASE_URL`
 - secret `API_SESSION_KEY_SECRET_ARN`: Secrets Manager ARN containing
   `IDENTRAIL_SESSION_KEY`
+
+The `AWS_ROLE_ARN` deployment role must be allowed to write
+`connectors/aws/sha256/*/identrail-readonly.yaml` in the template bucket. The
+bucket remains blocked for public writes; only object reads for the published
+template path are public so AWS CloudFormation can fetch the template without
+customer credentials.
 
 Hosted WorkOS login is optional. Configure these values only when deploying the
 hosted sign-in/sign-up flow:

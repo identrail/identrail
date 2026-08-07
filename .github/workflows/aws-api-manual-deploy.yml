@@ -55,6 +55,11 @@ on:
         default: identrail/dev/aws-api.tfstate
   workflow_call:
     inputs:
+      source_ref:
+        description: "Exact dev commit whose Terraform and application images are being deployed."
+        required: false
+        type: string
+        default: ""
       operation:
         description: "Run a Terraform plan or apply for the AWS API hosting stack."
         required: false
@@ -106,6 +111,26 @@ on:
         default: ""
       terraform_state_key:
         description: "S3 key for Terraform state."
+        required: false
+        type: string
+        default: ""
+      aws_cfn_template_url:
+        description: "Immutable public S3 URL for the connector CloudFormation template."
+        required: false
+        type: string
+        default: ""
+      aws_cfn_template_sha256:
+        description: "SHA-256 digest for the connector CloudFormation template."
+        required: false
+        type: string
+        default: ""
+      enable_aws_connector_registration:
+        description: "Create and wire the regional SNS/SQS registration provider."
+        required: false
+        type: boolean
+        default: false
+      require_head_sha:
+        description: "Optional: refuse to apply unless refs/heads/dev still points at this SHA. Checked immediately before terraform apply."
         required: false
         type: string
         default: ""
@@ -174,6 +199,9 @@ jobs:
       API_CORS_ALLOWED_ORIGINS_JSON: ${{ vars.API_CORS_ALLOWED_ORIGINS_JSON || '["https://app.identrail.com","https://identrail.com","https://www.identrail.com"]' }}
       API_TRUSTED_PROXY_CIDR_BLOCKS_JSON: ${{ vars.API_TRUSTED_PROXY_CIDR_BLOCKS_JSON || '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' }}
       API_EXTRA_ENVIRONMENT_JSON: ${{ vars.API_EXTRA_ENVIRONMENT_JSON || '{}' }}
+      API_AWS_CFN_TEMPLATE_URL: ${{ inputs.aws_cfn_template_url || '' }}
+      API_AWS_CFN_TEMPLATE_SHA256: ${{ inputs.aws_cfn_template_sha256 || '' }}
+      API_AWS_CONNECTOR_REGISTRATION_ENABLED: ${{ inputs.enable_aws_connector_registration }}
       API_EXTRA_SECRETS_JSON: ${{ secrets.API_EXTRA_SECRETS_JSON || '{}' }}
       API_SECRET_KMS_KEY_ARNS_JSON: ${{ vars.API_SECRET_KMS_KEY_ARNS_JSON || '[]' }}
       API_CONNECTOR_ROLE_ARNS_JSON: ${{ vars.API_CONNECTOR_ROLE_ARNS_JSON || '[]' }}
@@ -181,17 +209,43 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e
 
       - name: Validate workflow ref
+        env:
+          REQUIRE_HEAD_SHA: ${{ inputs.require_head_sha }}
+          SOURCE_REF: ${{ inputs.source_ref }}
         shell: bash
         run: |
           set -euo pipefail
           if [ "${GITHUB_REF_NAME}" != "dev" ]; then
             echo "Run this workflow from the dev branch. The AWS OIDC role trust is intentionally scoped to refs/heads/dev."
             exit 1
+          fi
+
+          # Bind the checkout to the release SHA. The freshness gate later on
+          # only proves what dev points at; without this the workflow could
+          # still build and apply Terraform and application code from a
+          # different ref (a branch name, a tag, an older SHA) while that gate
+          # happily passed.
+          if [ -n "${REQUIRE_HEAD_SHA}" ]; then
+            if ! [[ "${REQUIRE_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "require_head_sha must be a full 40-character Git commit SHA."
+              exit 1
+            fi
+            if [ -n "${SOURCE_REF}" ] && [ "${SOURCE_REF}" != "${REQUIRE_HEAD_SHA}" ]; then
+              echo "source_ref (${SOURCE_REF}) must equal require_head_sha (${REQUIRE_HEAD_SHA})."
+              exit 1
+            fi
+            checked_out="$(git rev-parse HEAD)"
+            if [ "${checked_out}" != "${REQUIRE_HEAD_SHA}" ]; then
+              echo "Checked-out commit ${checked_out} does not match require_head_sha ${REQUIRE_HEAD_SHA}."
+              exit 1
+            fi
           fi
 
       - name: Validate AWS deployment secrets
@@ -307,10 +361,101 @@ jobs:
             -out="${RUNNER_TEMP}/identrail-api.tfplan" \
             -var-file="${{ steps.prepare.outputs.tfvars_path }}"
 
+      # Last gate before the destructive operation, in the same job and the
+      # same execution path as the apply itself.
+      - name: Verify release lineage immediately before apply
+        if: inputs.operation == 'apply' && inputs.require_head_sha != ''
+        uses: ./.github/actions/verify-release-lineage
+        with:
+          release_sha: ${{ inputs.require_head_sha }}
+          branch: dev
+          github_token: ${{ github.token }}
+
+      # Monotonic guard. Lineage proves the release is still real history; it
+      # does not prevent an older queued run from applying after a newer one
+      # already shipped. This compares against the SHA recorded by the last
+      # successful apply — durable state that a concurrent push cannot move —
+      # so production can never roll backwards. The deploy concurrency group
+      # serializes applies, so exactly one run owns this marker at a time.
+      - name: Reject out-of-order deploy
+        id: lineage_marker
+        if: inputs.operation == 'apply' && inputs.require_head_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUIRE_HEAD_SHA: ${{ inputs.require_head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker_key="deploy-markers/${TF_STATE_KEY}.last-deployed-sha"
+          echo "marker_key=${marker_key}" >> "${GITHUB_OUTPUT}"
+
+          # Only a genuinely absent marker means "first deploy". Any other
+          # failure — AccessDenied because the deploy role cannot read this
+          # prefix, a wrong bucket, a network fault — must fail loudly:
+          # treating it as "no marker" would silently disable the
+          # backwards-deploy guard exactly when it is most needed.
+          if aws s3api get-object \
+              --bucket "${TF_STATE_BUCKET}" \
+              --key "${marker_key}" \
+              "${RUNNER_TEMP}/last-deployed-sha" >/dev/null 2>"${RUNNER_TEMP}/marker-read.err"; then
+            :
+          elif grep -qi "NoSuchKey\|Not Found\|404" "${RUNNER_TEMP}/marker-read.err"; then
+            echo "No previous deploy marker; recording ${REQUIRE_HEAD_SHA} after this apply."
+            exit 0
+          else
+            echo "Could not read the deploy marker s3://${TF_STATE_BUCKET}/${marker_key}:"
+            cat "${RUNNER_TEMP}/marker-read.err" >&2
+            echo "Refusing to apply without the backwards-deploy guard."
+            echo "If this is AccessDenied, grant the deploy role s3:GetObject and s3:PutObject on the deploy-markers/ prefix of the Terraform state bucket."
+            exit 1
+          fi
+
+          last_deployed="$(tr -d '[:space:]' < "${RUNNER_TEMP}/last-deployed-sha")"
+          if [ "${last_deployed}" = "${REQUIRE_HEAD_SHA}" ]; then
+            echo "Re-applying the currently deployed commit ${REQUIRE_HEAD_SHA}."
+            exit 0
+          fi
+          if ! [[ "${last_deployed}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Deploy marker holds '${last_deployed}', which is not a commit SHA; refusing to continue."
+            exit 1
+          fi
+
+          # The release must be a descendant of what is deployed today.
+          status="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/compare/${last_deployed}...${REQUIRE_HEAD_SHA}" |
+              jq -r '.status'
+          )"
+          if [ "${status}" != "ahead" ]; then
+            echo "Refusing to deploy ${REQUIRE_HEAD_SHA}: it is not ahead of the currently deployed ${last_deployed} (status=${status})."
+            echo "Production must move forward. Roll back deliberately if this is intended."
+            exit 1
+          fi
+          echo "Release ${REQUIRE_HEAD_SHA} is ahead of deployed ${last_deployed}."
+
       - name: Terraform Apply
         if: inputs.operation == 'apply'
         working-directory: deploy/aws/terraform
         run: terraform apply -input=false -auto-approve "${RUNNER_TEMP}/identrail-api.tfplan"
+
+      - name: Record deployed release
+        if: inputs.operation == 'apply' && inputs.require_head_sha != ''
+        env:
+          REQUIRE_HEAD_SHA: ${{ inputs.require_head_sha }}
+          MARKER_KEY: ${{ steps.lineage_marker.outputs.marker_key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "${REQUIRE_HEAD_SHA}" > "${RUNNER_TEMP}/deployed-sha"
+          aws s3api put-object \
+            --bucket "${TF_STATE_BUCKET}" \
+            --key "${MARKER_KEY}" \
+            --body "${RUNNER_TEMP}/deployed-sha" \
+            --content-type "text/plain" >/dev/null
+          echo "Recorded ${REQUIRE_HEAD_SHA} as the deployed release."
 
       - name: Publish Apply Outputs
         if: inputs.operation == 'apply'
