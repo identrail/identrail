@@ -168,21 +168,35 @@ configured bucket name):
 Do not grant `s3:ListBucket` or public write access. The `AWS_ROLE_ARN`
 deployment role needs `s3:PutObject` and `s3:GetObject` on
 `connectors/aws/sha256/*/identrail-readonly.yaml`; it does not need
-`s3:PutObjectAcl`. A setup role needs `s3:GetBucketPolicy`,
-`s3:PutBucketPolicy`, `s3:GetBucketPublicAccessBlock`,
-`s3:GetAccountPublicAccessBlock`, and `sts:GetCallerIdentity` to provision and
-verify the policy.
+`s3:PutObjectAcl`. It also remains separate from the setup role below.
+
+The dedicated setup role needs these least-privilege permissions:
+
+- `s3:GetBucketPolicy`, `s3:PutBucketPolicy`, and
+  `s3:GetBucketPublicAccessBlock` on the exact bucket resource
+  `arn:aws:s3:::BUCKET_NAME`;
+- `s3:GetObject` on the exact template prefix
+  `arn:aws:s3:::BUCKET_NAME/connectors/aws/sha256/*`, used only to distinguish
+  a missing digest from a public-read failure;
+- `s3:GetAccountPublicAccessBlock` and `sts:GetCallerIdentity` on `*`.
+
+Do not grant `s3:PutBucketPolicy` on `*` or on an object ARN: S3 evaluates that
+permission against the bucket ARN. Replace `BUCKET_NAME` in the role policy
+with the one configured template bucket.
 
 The preferred provisioning path is the manually dispatched
 `AWS Template Bucket Policy Setup` workflow
 (`.github/workflows/aws-cfn-template-bucket-policy.yml`) from the `dev`
 branch. Type `configure-cfn-template-bucket` when dispatching it; the
-workflow pauses at the protected `production` environment, assumes only the
-dedicated `AWS_CFN_TEMPLATE_SETUP_ROLE_ARN`, applies the idempotent helper,
-and records an anonymous-read probe in the run summary. The setup role trust
-must be limited to `repo:identrail/identrail:ref:refs/heads/dev`. Keep the
-normal `AWS_ROLE_ARN` deployment role separate and without bucket-policy
-mutation permissions.
+workflow reads the bucket and region from the repository variables (it has no
+free-form bucket or region inputs), pauses at the protected `production`
+environment, assumes only the dedicated `AWS_CFN_TEMPLATE_SETUP_ROLE_ARN`,
+applies the idempotent helper, and records an anonymous-read probe in the run
+summary. The setup role trust must be limited to
+`repo:identrail/identrail:ref:refs/heads/dev`, and its bucket-policy mutation
+permission must target only the exact configured bucket. Keep the normal
+`AWS_ROLE_ARN` deployment role separate and without bucket-policy mutation
+permissions.
 
 For a break-glass or local setup, run the same idempotent helper from the
 repository root after setting the bucket and region:

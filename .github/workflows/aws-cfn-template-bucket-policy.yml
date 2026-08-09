@@ -7,16 +7,6 @@ on:
         description: "Type configure-cfn-template-bucket to continue."
         required: true
         type: string
-      bucket:
-        description: "Bucket name. Leave blank to use AWS_CFN_TEMPLATE_BUCKET."
-        required: false
-        type: string
-        default: ""
-      region:
-        description: "AWS region. Leave blank to use AWS_REGION."
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -46,8 +36,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      AWS_REGION: ${{ inputs.region || vars.AWS_REGION || 'us-east-1' }}
-      AWS_CFN_TEMPLATE_BUCKET: ${{ inputs.bucket || vars.AWS_CFN_TEMPLATE_BUCKET || 'identrail-cloudformation-templates' }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_CFN_TEMPLATE_BUCKET: ${{ vars.AWS_CFN_TEMPLATE_BUCKET || 'identrail-cloudformation-templates' }}
       AWS_CFN_TEMPLATE_SETUP_ROLE_ARN: ${{ secrets.AWS_CFN_TEMPLATE_SETUP_ROLE_ARN }}
       CONFIRMATION: ${{ inputs.confirmation }}
     steps:
@@ -135,8 +125,26 @@ jobs:
           template="deploy/connectors/aws/identrail-readonly.yaml"
           digest="$(sha256sum "${template}" | awk '{print $1}')"
           key="connectors/aws/sha256/${digest}/identrail-readonly.yaml"
-          template_url="https://${AWS_CFN_TEMPLATE_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}"
+          s3_dns_suffix="amazonaws.com"
+          if [[ "${AWS_REGION}" == cn-* ]]; then
+            s3_dns_suffix="amazonaws.com.cn"
+          fi
+          template_url="https://${AWS_CFN_TEMPLATE_BUCKET}.s3.${AWS_REGION}.${s3_dns_suffix}/${key}"
           downloaded="${RUNNER_TEMP}/identrail-readonly.yaml"
+          head_error="${RUNNER_TEMP}/identrail-readonly-head.err"
+          if aws s3api head-object \
+            --bucket "${AWS_CFN_TEMPLATE_BUCKET}" \
+            --key "${key}" \
+            --region "${AWS_REGION}" \
+            >/dev/null 2>"${head_error}"; then
+            object_exists=true
+          elif grep -Eq '(^|[^0-9])(404|Not Found|NoSuchKey)([^0-9]|$)' "${head_error}"; then
+            object_exists=false
+          else
+            echo "Could not determine whether ${key} exists with the authenticated setup role." >&2
+            cat "${head_error}" >&2
+            exit 1
+          fi
           if ! http_status="$(curl -sS --retry 5 --retry-all-errors \
             -o "${downloaded}" -w '%{http_code}' "${template_url}")"; then
             echo "Could not probe ${template_url} after configuring the bucket policy." >&2
@@ -152,13 +160,23 @@ jobs:
               echo "Verified anonymous read and SHA-256 for ${template_url}."
               ;;
             404)
+              if [ "${object_exists}" = true ]; then
+                echo "The authenticated setup role sees ${key}, but anonymous read returned 404." >&2
+                echo "The configured bucket policy does not expose the expected object path." >&2
+                exit 1
+              fi
               echo "Anonymous policy reachability returned 404 because the current digest is not published yet."
               echo "The bucket policy is configured; the next production release will publish this digest."
               ;;
             403)
-              echo "The bucket policy was applied, but anonymous read still returned 403." >&2
-              echo "Check account or organization-level S3 Block Public Access settings." >&2
-              exit 1
+              if [ "${object_exists}" = false ]; then
+                echo "Anonymous policy reachability returned 403 because the current digest is not published yet."
+                echo "The bucket policy is configured; the next production release will publish this digest."
+              else
+                echo "The bucket policy was applied, but anonymous read still returned 403." >&2
+                echo "Check account or organization-level S3 Block Public Access settings." >&2
+                exit 1
+              fi
               ;;
             *)
               echo "Anonymous template probe returned unexpected HTTP status ${http_status}." >&2
