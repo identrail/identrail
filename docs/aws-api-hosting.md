@@ -145,11 +145,122 @@ Repository configuration required before the workflow can plan:
 - secret `API_SESSION_KEY_SECRET_ARN`: Secrets Manager ARN containing
   `IDENTRAIL_SESSION_KEY`
 
-The `AWS_ROLE_ARN` deployment role must be allowed to write
-`connectors/aws/sha256/*/identrail-readonly.yaml` in the template bucket. The
-bucket remains blocked for public writes; only object reads for the published
-template path are public so AWS CloudFormation can fetch the template without
-customer credentials.
+The template bucket name must use lowercase letters, numbers, and hyphens only;
+dotted S3 names are rejected because the release uses a virtual-hosted HTTPS
+URL whose wildcard certificate does not cover dotted bucket hostnames. The
+template bucket is an external, operator-owned prerequisite. Configure S3
+Object Ownership as `Bucket owner enforced`, keep public writes blocked, and
+merge this statement into the bucket policy (replace `BUCKET_NAME` with the
+configured bucket name):
+
+```json
+{
+  "Sid": "IdentrailCloudFormationTemplatePublicRead",
+  "Effect": "Allow",
+  "Principal": "*",
+  "Action": "s3:GetObject",
+  "Resource": "arn:aws:s3:::BUCKET_NAME/connectors/aws/sha256/*"
+}
+```
+
+Do not grant `s3:ListBucket` or public write access. The `AWS_ROLE_ARN`
+deployment role needs `s3:PutObject` and `s3:GetObject` on
+`connectors/aws/sha256/*/identrail-readonly.yaml`; it does not need
+`s3:PutObjectAcl`. A setup role needs `s3:GetBucketPolicy`,
+`s3:PutBucketPolicy`, `s3:GetBucketPublicAccessBlock`,
+`s3:GetAccountPublicAccessBlock`, and `sts:GetCallerIdentity` to provision and
+verify the policy. Run the idempotent helper from the repository root after
+setting the bucket and region:
+
+```bash
+AWS_CFN_TEMPLATE_BUCKET=identrail-cloudformation-templates \
+AWS_REGION=us-east-1 \
+./scripts/configure_cfn_template_bucket_policy.sh
+```
+
+The helper preserves unrelated bucket-policy statements and replaces only its
+own statement by `Sid`. The release workflow then verifies the public S3 URL
+and its SHA-256 digest before migrations or API deployment begin. It also
+publishes with and verifies SSE-S3 (`AES256`); do not use SSE-KMS for this
+prefix because the anonymous CloudFormation fetch cannot authorize a KMS key.
+An existing digest encrypted with KMS is rejected and never overwritten by the
+write-once path. Verify its SHA-256, then perform a controlled one-time
+same-key re-encryption with SSE-S3 before retrying the release. ACLs are
+intentionally not used.
+
+For that one-time migration, sample the current ETag first, condition the
+authenticated download on that ETag, verify the downloaded bytes, and use the
+same ETag as the compare-and-swap guard when copying the object onto itself with
+SSE-S3:
+
+```bash
+key=connectors/aws/sha256/DIGEST/identrail-readonly.yaml
+digest=DIGEST
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+etag="$(aws s3api head-object \
+  --bucket "$AWS_CFN_TEMPLATE_BUCKET" \
+  --key "$key" \
+  --query ETag \
+  --output text | tr -d '"')"
+aws s3api get-object \
+  --bucket "$AWS_CFN_TEMPLATE_BUCKET" \
+  --key "$key" \
+  --if-match "$etag" \
+  "$tmp" >/dev/null
+test "$(sha256sum "$tmp" | awk '{print $1}')" = "$digest"
+aws s3api copy-object \
+  --bucket "$AWS_CFN_TEMPLATE_BUCKET" \
+  --copy-source "$AWS_CFN_TEMPLATE_BUCKET/$key" \
+  --key "$key" \
+  --copy-source-if-match "$etag" \
+  --metadata-directive REPLACE \
+  --content-type "application/x-yaml" \
+  --cache-control "public,max-age=31536000,immutable" \
+  --server-side-encryption AES256
+```
+
+Run this migration with a dedicated, one-time migration role rather than the
+GitHub deployment or bucket-policy setup role. Its temporary permissions should
+be limited to the exact digest object and source KMS key:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "MigrateOneTemplateObject",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::BUCKET_NAME/connectors/aws/sha256/DIGEST/identrail-readonly.yaml"
+    },
+    {
+      "Sid": "DecryptOneTemplateObject",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "KMS_KEY_ARN"
+    }
+  ]
+}
+```
+
+The KMS key policy must also allow this migration role to use
+`kms:Decrypt`; an identity policy alone is insufficient when the key policy
+does not delegate access. The SSE-S3 destination does not require
+`kms:Encrypt`. Remove the temporary role permission and key-policy grant after
+the migration, then rerun the release.
+
+This is an operator migration for an already-published object; the release
+workflow itself remains write-once and will not perform this overwrite.
+
+The helper reads the bucket- and account-level S3 Block Public Access settings
+before changing the policy. The effective settings must keep
+`BlockPublicAcls=true` and `IgnorePublicAcls=true`, while allowing this narrow
+public policy with `BlockPublicPolicy=false` and `RestrictPublicBuckets=false`.
+It never changes those settings. If an organization or account policy enforces
+all four blocks, this anonymous S3 URL design is incompatible and the helper
+fails without changing the bucket policy.
 
 Hosted WorkOS login is optional. Configure these values only when deploying the
 hosted sign-in/sign-up flow:
