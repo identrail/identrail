@@ -127,6 +127,8 @@ hand.
 Repository configuration required before the workflow can plan:
 
 - secret `AWS_ROLE_ARN`: GitHub OIDC deployment role ARN
+- secret `AWS_CFN_TEMPLATE_SETUP_ROLE_ARN`: dedicated GitHub OIDC role for
+  the protected template bucket policy setup workflow
 - variable `AWS_REGION`: AWS region, such as `us-east-1`
 - variable `AWS_TERRAFORM_STATE_BUCKET`: existing S3 bucket for Terraform state
 - variable `AWS_CFN_TEMPLATE_BUCKET`: private-write/public-read bucket used to
@@ -169,8 +171,21 @@ deployment role needs `s3:PutObject` and `s3:GetObject` on
 `s3:PutObjectAcl`. A setup role needs `s3:GetBucketPolicy`,
 `s3:PutBucketPolicy`, `s3:GetBucketPublicAccessBlock`,
 `s3:GetAccountPublicAccessBlock`, and `sts:GetCallerIdentity` to provision and
-verify the policy. Run the idempotent helper from the repository root after
-setting the bucket and region:
+verify the policy.
+
+The preferred provisioning path is the manually dispatched
+`AWS Template Bucket Policy Setup` workflow
+(`.github/workflows/aws-cfn-template-bucket-policy.yml`) from the `dev`
+branch. Type `configure-cfn-template-bucket` when dispatching it; the
+workflow pauses at the protected `production` environment, assumes only the
+dedicated `AWS_CFN_TEMPLATE_SETUP_ROLE_ARN`, applies the idempotent helper,
+and records an anonymous-read probe in the run summary. The setup role trust
+must be limited to `repo:identrail/identrail:ref:refs/heads/dev`. Keep the
+normal `AWS_ROLE_ARN` deployment role separate and without bucket-policy
+mutation permissions.
+
+For a break-glass or local setup, run the same idempotent helper from the
+repository root after setting the bucket and region:
 
 ```bash
 AWS_CFN_TEMPLATE_BUCKET=identrail-cloudformation-templates \

@@ -1,0 +1,175 @@
+name: AWS Template Bucket Policy Setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type configure-cfn-template-bucket to continue."
+        required: true
+        type: string
+      bucket:
+        description: "Bucket name. Leave blank to use AWS_CFN_TEMPLATE_BUCKET."
+        required: false
+        type: string
+        default: ""
+      region:
+        description: "AWS region. Leave blank to use AWS_REGION."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-cfn-template-bucket-policy-setup
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    name: Approve template bucket policy setup
+    if: github.repository == 'identrail/identrail' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - name: Record production approval
+        run: echo "Production approval granted for template bucket policy setup."
+
+  configure:
+    name: Configure template bucket policy
+    needs: approve
+    if: github.repository == 'identrail/identrail' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AWS_REGION: ${{ inputs.region || vars.AWS_REGION || 'us-east-1' }}
+      AWS_CFN_TEMPLATE_BUCKET: ${{ inputs.bucket || vars.AWS_CFN_TEMPLATE_BUCKET || 'identrail-cloudformation-templates' }}
+      AWS_CFN_TEMPLATE_SETUP_ROLE_ARN: ${{ secrets.AWS_CFN_TEMPLATE_SETUP_ROLE_ARN }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Validate setup inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${CONFIRMATION}" != "configure-cfn-template-bucket" ]; then
+            echo "Type configure-cfn-template-bucket to continue." >&2
+            exit 1
+          fi
+          if ! [[ "${AWS_REGION}" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]; then
+            echo "AWS_REGION must be an AWS region such as us-east-1." >&2
+            exit 1
+          fi
+          if ! [[ "${AWS_CFN_TEMPLATE_BUCKET}" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]]; then
+            echo "AWS_CFN_TEMPLATE_BUCKET must use lowercase letters, numbers, and hyphens only." >&2
+            exit 1
+          fi
+          if ! [[ "${AWS_CFN_TEMPLATE_SETUP_ROLE_ARN}" =~ ^arn:aws(-[a-z0-9-]+)?:iam::[0-9]{12}:role/.+$ ]]; then
+            echo "AWS_CFN_TEMPLATE_SETUP_ROLE_ARN must be an IAM role ARN." >&2
+            exit 1
+          fi
+          echo "::add-mask::${AWS_CFN_TEMPLATE_SETUP_ROLE_ARN}"
+
+      - name: Configure AWS credentials from GitHub OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+          token_response="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com"
+          )"
+          oidc_token="$(jq -r '.value // empty' <<< "${token_response}")"
+          if [ -z "${oidc_token}" ]; then
+            echo "GitHub did not return an OIDC token."
+            exit 1
+          fi
+          credentials="$(
+            aws sts assume-role-with-web-identity \
+              --role-arn "${AWS_CFN_TEMPLATE_SETUP_ROLE_ARN}" \
+              --role-session-name "identrail-template-policy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --web-identity-token "${oidc_token}" \
+              --duration-seconds 900 \
+              --query Credentials \
+              --output json
+          )"
+          access_key_id="$(jq -r '.AccessKeyId // empty' <<< "${credentials}")"
+          secret_access_key="$(jq -r '.SecretAccessKey // empty' <<< "${credentials}")"
+          session_token="$(jq -r '.SessionToken // empty' <<< "${credentials}")"
+          if [ -z "${access_key_id}" ] || [ -z "${secret_access_key}" ] || [ -z "${session_token}" ]; then
+            echo "AWS did not return complete temporary credentials."
+            exit 1
+          fi
+          echo "::add-mask::${access_key_id}"
+          echo "::add-mask::${secret_access_key}"
+          echo "::add-mask::${session_token}"
+          {
+            echo "AWS_ACCESS_KEY_ID=${access_key_id}"
+            echo "AWS_SECRET_ACCESS_KEY=${secret_access_key}"
+            echo "AWS_SESSION_TOKEN=${session_token}"
+            echo "AWS_DEFAULT_REGION=${AWS_REGION}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Verify setup role identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          identity="$(aws sts get-caller-identity --output json)"
+          echo "Using AWS account $(jq -r '.Account' <<< "${identity}") for the gated template bucket setup."
+          echo "Using role $(jq -r '.Arn' <<< "${identity}") for the gated template bucket setup."
+
+      - name: Apply prefix-scoped bucket policy
+        shell: bash
+        run: ./scripts/configure_cfn_template_bucket_policy.sh
+
+      - name: Verify anonymous template reachability
+        shell: bash
+        run: |
+          set -euo pipefail
+          template="deploy/connectors/aws/identrail-readonly.yaml"
+          digest="$(sha256sum "${template}" | awk '{print $1}')"
+          key="connectors/aws/sha256/${digest}/identrail-readonly.yaml"
+          template_url="https://${AWS_CFN_TEMPLATE_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}"
+          downloaded="${RUNNER_TEMP}/identrail-readonly.yaml"
+          if ! http_status="$(curl -sS --retry 5 --retry-all-errors \
+            -o "${downloaded}" -w '%{http_code}' "${template_url}")"; then
+            echo "Could not probe ${template_url} after configuring the bucket policy." >&2
+            exit 1
+          fi
+          case "${http_status}" in
+            200)
+              published_digest="$(sha256sum "${downloaded}" | awk '{print $1}')"
+              if [ "${published_digest}" != "${digest}" ]; then
+                echo "Public template digest ${published_digest} does not match ${digest}." >&2
+                exit 1
+              fi
+              echo "Verified anonymous read and SHA-256 for ${template_url}."
+              ;;
+            404)
+              echo "Anonymous policy reachability returned 404 because the current digest is not published yet."
+              echo "The bucket policy is configured; the next production release will publish this digest."
+              ;;
+            403)
+              echo "The bucket policy was applied, but anonymous read still returned 403." >&2
+              echo "Check account or organization-level S3 Block Public Access settings." >&2
+              exit 1
+              ;;
+            *)
+              echo "Anonymous template probe returned unexpected HTTP status ${http_status}." >&2
+              exit 1
+              ;;
+          esac
+          {
+            echo "## AWS template bucket policy setup"
+            echo
+            echo "- Bucket: \`${AWS_CFN_TEMPLATE_BUCKET}\`"
+            echo "- Region: \`${AWS_REGION}\`"
+            echo "- Policy: prefix-scoped public \`s3:GetObject\`"
+            echo "- Anonymous probe: HTTP \`${http_status}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
