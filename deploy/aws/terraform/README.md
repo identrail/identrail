@@ -147,6 +147,11 @@ the protected `AWS Template Bucket Policy Setup` workflow from `dev` with the
 confirmation `configure-cfn-template-bucket`, then retry the production
 release.
 
+The role trust policy derives the GitHub OIDC audience from the active AWS
+partition: `sts.amazonaws.com.cn` for AWS China and `sts.amazonaws.com` for
+the commercial and GovCloud partitions. The OIDC provider ARN must belong to
+that same partition.
+
 ## Local Validation
 
 ```bash

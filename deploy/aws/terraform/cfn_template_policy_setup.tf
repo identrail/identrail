@@ -13,7 +13,7 @@ data "aws_iam_policy_document" "cfn_template_policy_setup_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
-      values   = ["sts.amazonaws.com"]
+      values   = [local.cfn_template_policy_setup_oidc_audience]
     }
 
     condition {
@@ -62,7 +62,8 @@ data "aws_iam_policy_document" "cfn_template_policy_setup" {
 }
 
 locals {
-  cfn_template_policy_setup_bucket_arn = "arn:${data.aws_partition.current.partition}:s3:::${trimspace(var.cfn_template_policy_setup_bucket_name)}"
+  cfn_template_policy_setup_oidc_audience = data.aws_partition.current.partition == "aws-cn" ? "sts.amazonaws.com.cn" : "sts.amazonaws.com"
+  cfn_template_policy_setup_bucket_arn    = "arn:${data.aws_partition.current.partition}:s3:::${trimspace(var.cfn_template_policy_setup_bucket_name)}"
 }
 
 resource "aws_iam_role" "cfn_template_policy_setup" {
@@ -78,10 +79,10 @@ resource "aws_iam_role" "cfn_template_policy_setup" {
   lifecycle {
     precondition {
       condition = can(regex(
-        "^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:oidc-provider/token\\.actions\\.githubusercontent\\.com$",
+        "^arn:${data.aws_partition.current.partition}:iam::[0-9]{12}:oidc-provider/token\\.actions\\.githubusercontent\\.com$",
         trimspace(var.cfn_template_policy_setup_oidc_provider_arn)
       ))
-      error_message = "cfn_template_policy_setup_oidc_provider_arn must be the account GitHub Actions OIDC provider ARN when the setup role is enabled."
+      error_message = "cfn_template_policy_setup_oidc_provider_arn must be the account GitHub Actions OIDC provider ARN in the active AWS partition when the setup role is enabled."
     }
   }
 }
