@@ -131,19 +131,21 @@ jobs:
           fi
           template_url="https://${AWS_CFN_TEMPLATE_BUCKET}.s3.${AWS_REGION}.${s3_dns_suffix}/${key}"
           downloaded="${RUNNER_TEMP}/identrail-readonly.yaml"
-          head_error="${RUNNER_TEMP}/identrail-readonly-head.err"
-          if aws s3api head-object \
+          list_error="${RUNNER_TEMP}/identrail-readonly-list.err"
+          if ! listed_objects="$(aws s3api list-objects-v2 \
             --bucket "${AWS_CFN_TEMPLATE_BUCKET}" \
-            --key "${key}" \
+            --prefix "${key}" \
+            --max-keys 1 \
             --region "${AWS_REGION}" \
-            >/dev/null 2>"${head_error}"; then
-            object_exists=true
-          elif grep -Eq '(^|[^0-9])(404|Not Found|NoSuchKey)([^0-9]|$)' "${head_error}"; then
-            object_exists=false
-          else
+            --output json 2>"${list_error}")"; then
             echo "Could not determine whether ${key} exists with the authenticated setup role." >&2
-            cat "${head_error}" >&2
+            cat "${list_error}" >&2
             exit 1
+          fi
+          if jq -e --arg key "${key}" 'any(.Contents[]?; .Key == $key)' <<<"${listed_objects}" >/dev/null; then
+            object_exists=true
+          else
+            object_exists=false
           fi
           if ! http_status="$(curl -sS --retry 5 --retry-all-errors \
             -o "${downloaded}" -w '%{http_code}' "${template_url}")"; then

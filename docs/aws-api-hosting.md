@@ -165,7 +165,7 @@ configured bucket name):
 }
 ```
 
-Do not grant `s3:ListBucket` or public write access. The `AWS_ROLE_ARN`
+Do not grant anonymous `s3:ListBucket` or public write access. The `AWS_ROLE_ARN`
 deployment role needs `s3:PutObject` and `s3:GetObject` on
 `connectors/aws/sha256/*/identrail-readonly.yaml`; it does not need
 `s3:PutObjectAcl`. It also remains separate from the setup role below.
@@ -175,9 +175,10 @@ The dedicated setup role needs these least-privilege permissions:
 - `s3:GetBucketPolicy`, `s3:PutBucketPolicy`, and
   `s3:GetBucketPublicAccessBlock` on the exact bucket resource
   `arn:aws:s3:::BUCKET_NAME`;
-- `s3:GetObject` on the exact template prefix
-  `arn:aws:s3:::BUCKET_NAME/connectors/aws/sha256/*`, used only to distinguish
-  a missing digest from a public-read failure;
+- `s3:ListBucket` on the exact bucket resource
+  `arn:aws:s3:::BUCKET_NAME`, conditioned with
+  `StringLike: {"s3:prefix": "connectors/aws/sha256/*"}` so the workflow can
+  distinguish a missing digest from a public-read failure;
 - `s3:GetAccountPublicAccessBlock` and `sts:GetCallerIdentity` on `*`.
 
 Do not grant `s3:PutBucketPolicy` on `*` or on an object ARN: S3 evaluates that
