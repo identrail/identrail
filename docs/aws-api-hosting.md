@@ -147,6 +147,26 @@ Repository configuration required before the workflow can plan:
 - secret `API_SESSION_KEY_SECRET_ARN`: Secrets Manager ARN containing
   `IDENTRAIL_SESSION_KEY`
 
+The dedicated setup role can be created by the Terraform root instead of by
+hand. The role is opt-in and disabled by default; enable
+`create_cfn_template_policy_setup_role` with the existing account OIDC provider
+ARN and the exact `AWS_CFN_TEMPLATE_BUCKET` value. Terraform outputs the role
+ARN, which must then be stored as the repository secret
+`AWS_CFN_TEMPLATE_SETUP_ROLE_ARN`. Terraform does not write GitHub secrets.
+
+The OIDC provider ARN can be found with:
+
+```bash
+aws iam list-open-id-connect-providers \
+  --query 'OpenIDConnectProviderList[?contains(Arn, `token.actions.githubusercontent.com`)].Arn | [0]' \
+  --output text
+```
+
+See `deploy/aws/terraform/README.md` for the exact plan, apply, and
+`gh secret set` commands. Do not point this workflow at the normal
+`AWS_ROLE_ARN`; its intentionally narrower permissions do not include bucket
+policy mutation.
+
 The template bucket name must use lowercase letters, numbers, and hyphens only;
 dotted S3 names are rejected because the release uses a virtual-hosted HTTPS
 URL whose wildcard certificate does not cover dotted bucket hostnames. The
