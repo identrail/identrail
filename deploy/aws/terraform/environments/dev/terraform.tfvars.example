@@ -7,6 +7,12 @@ create_foundation_resources = false
 create_api_hosting_resources = false
 create_worker_hosting_resources = false
 
+# Enable only when the GitHub OIDC provider already exists in this AWS account.
+# create_cfn_template_policy_setup_role       = true
+# cfn_template_policy_setup_oidc_provider_arn = "arn:aws:iam::<aws-account-id>:oidc-provider/token.actions.githubusercontent.com"
+# cfn_template_policy_setup_bucket_name       = "identrail-cloudformation-templates"
+# For AWS China, set aws_region to cn-* and use the arn:aws-cn OIDC provider ARN.
+
 create_runtime_secret = true
 log_retention_days    = 30
 

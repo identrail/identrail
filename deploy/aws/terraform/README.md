@@ -12,6 +12,14 @@ When `create_foundation_resources=true`, the root can create:
 - CloudWatch log groups for API and worker workloads.
 - A Secrets Manager secret metadata record for future runtime configuration.
 
+When `create_cfn_template_policy_setup_role=true`, the root can also create:
+
+- a dedicated GitHub OIDC role for the protected CloudFormation template
+  bucket policy setup workflow;
+- an inline policy limited to the configured template bucket, its
+  `connectors/aws/sha256/*` listing prefix, account-level S3 public-access
+  inspection, and caller identity.
+
 When `create_api_hosting_resources=true`, the root can also create:
 
 - an ECS/Fargate cluster, task definition, service, and autoscaling policy for
@@ -88,6 +96,7 @@ or session ID hashes.
 ## Safe Defaults
 
 The default configuration sets `create_foundation_resources=false`,
+`create_cfn_template_policy_setup_role=false`,
 `create_api_hosting_resources=false`, and
 `create_worker_hosting_resources=false`, so CI and pull requests can run
 `terraform init`, `terraform validate`, and `terraform plan` without creating
@@ -97,6 +106,51 @@ The checked-in root stays backendless for validation-only plans. The manual
 GitHub Actions deploy workflow writes a temporary S3 backend file at runtime and
 initializes it with the configured S3 state bucket and key before planning or
 applying AWS API hosting.
+
+## Manual Template Policy Setup Role Plan
+
+The GitHub Actions OIDC provider must already exist in the target AWS account;
+the normal `AWS_ROLE_ARN` deployment workflow proves that provider is usable.
+Find its ARN, then plan the dedicated role explicitly:
+
+```bash
+cd deploy/aws/terraform
+oidc_provider_arn="$(aws iam list-open-id-connect-providers \
+  --query 'OpenIDConnectProviderList[?contains(Arn, `token.actions.githubusercontent.com`)].Arn | [0]' \
+  --output text)"
+terraform plan \
+  -input=false \
+  -var-file=environments/dev/terraform.tfvars.example \
+  -var='create_cfn_template_policy_setup_role=true' \
+  -var="cfn_template_policy_setup_oidc_provider_arn=${oidc_provider_arn}" \
+  -var='cfn_template_policy_setup_bucket_name=identrail-cloudformation-templates'
+```
+
+Review the plan, then apply the same inputs. The role ARN is an output, not a
+secret; add it to the repository secret required by the setup workflow:
+
+```bash
+terraform apply \
+  -input=false \
+  -var-file=environments/dev/terraform.tfvars.example \
+  -var='create_cfn_template_policy_setup_role=true' \
+  -var="cfn_template_policy_setup_oidc_provider_arn=${oidc_provider_arn}" \
+  -var='cfn_template_policy_setup_bucket_name=identrail-cloudformation-templates'
+gh secret set AWS_CFN_TEMPLATE_SETUP_ROLE_ARN \
+  --repo identrail/identrail \
+  --body "$(terraform output -raw cfn_template_policy_setup_role_arn)"
+```
+
+The Terraform resource is disabled by default and does not modify the normal
+deployment role or the external bucket policy. After the secret is set, run
+the protected `AWS Template Bucket Policy Setup` workflow from `dev` with the
+confirmation `configure-cfn-template-bucket`, then retry the production
+release.
+
+The role trust policy derives the GitHub OIDC audience from the active AWS
+partition: `sts.amazonaws.com.cn` for AWS China and `sts.amazonaws.com` for
+the commercial and GovCloud partitions. The OIDC provider ARN must belong to
+that same partition.
 
 ## Local Validation
 

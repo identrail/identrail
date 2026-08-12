@@ -366,7 +366,7 @@ jobs:
           downloaded="${RUNNER_TEMP}/identrail-readonly.yaml"
           if ! curl -fsSL --retry 5 --retry-all-errors "${template_url}" -o "${downloaded}"; then
             echo "Template URL ${template_url} is not publicly readable." >&2
-            echo "Configure the documented prefix-scoped bucket policy before retrying the production release." >&2
+            echo "Run the AWS Template Bucket Policy Setup workflow from the dev branch before retrying the production release." >&2
             exit 1
           fi
           published_digest="$(sha256sum "${downloaded}" | awk '{print $1}')"

@@ -7,12 +7,15 @@ The AWS module is intentionally safe by default:
 - It validates AWS provider wiring and naming conventions.
 - It defines production-adjacent primitives needed by later API hosting work.
 - It does not create foundation resources unless `create_foundation_resources=true`.
+- It does not create the template-policy setup role unless
+  `create_cfn_template_policy_setup_role=true`.
 - It does not create the API hosting layer unless `create_api_hosting_resources=true`.
 - It does not deploy the worker, database, or public domains yet.
 
 ## Current Scope
 
 - Terraform foundation: `terraform/`
+- Template bucket policy setup role: `terraform/cfn_template_policy_setup.tf`
 - API hosting plan: `terraform/api_hosting.tf`
 - GitHub OIDC role verification: `.github/workflows/aws-oidc-verification.yml`
 - Dev-only foundation plan workflow: `.github/workflows/aws-deployment-foundation.yml`
