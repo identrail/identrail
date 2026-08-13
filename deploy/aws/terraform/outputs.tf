@@ -3,6 +3,11 @@ output "foundation_resources_enabled" {
   value       = var.create_foundation_resources
 }
 
+output "cfn_template_policy_setup_role_arn" {
+  description = "ARN of the dedicated GitHub OIDC role for the protected CloudFormation template bucket policy setup workflow."
+  value       = try(aws_iam_role.cfn_template_policy_setup[0].arn, null)
+}
+
 output "log_group_names" {
   description = "CloudWatch log groups for future Identrail services."
   value       = { for name, log_group in aws_cloudwatch_log_group.service : name => log_group.name }

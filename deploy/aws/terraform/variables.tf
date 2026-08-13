@@ -34,6 +34,44 @@ variable "create_foundation_resources" {
   default     = false
 }
 
+variable "create_cfn_template_policy_setup_role" {
+  description = "Create the dedicated GitHub OIDC role used by the protected CloudFormation template bucket policy setup workflow."
+  type        = bool
+  default     = false
+}
+
+variable "cfn_template_policy_setup_bucket_name" {
+  description = "Exact operator-owned S3 bucket whose SHA-addressed CloudFormation template policy the setup role may manage."
+  type        = string
+  default     = "identrail-cloudformation-templates"
+
+  validation {
+    condition = (
+      length(trimspace(var.cfn_template_policy_setup_bucket_name)) >= 3 &&
+      length(trimspace(var.cfn_template_policy_setup_bucket_name)) <= 63 &&
+      can(regex("^[a-z0-9][a-z0-9-]*[a-z0-9]$", trimspace(var.cfn_template_policy_setup_bucket_name)))
+    )
+    error_message = "cfn_template_policy_setup_bucket_name must be a 3-63 character lowercase S3 bucket name using letters, numbers, and dashes."
+  }
+}
+
+variable "cfn_template_policy_setup_oidc_provider_arn" {
+  description = "AWS account GitHub Actions OIDC provider ARN used by the dedicated template bucket policy setup role. Required when the role is enabled."
+  type        = string
+  default     = ""
+}
+
+variable "cfn_template_policy_setup_role_name" {
+  description = "IAM role name for the dedicated CloudFormation template bucket policy setup role."
+  type        = string
+  default     = "identrail-cfn-template-policy-setup"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9+=,.@_-]{1,64}$", var.cfn_template_policy_setup_role_name))
+    error_message = "cfn_template_policy_setup_role_name must be 1-64 characters using IAM role name characters."
+  }
+}
+
 variable "create_runtime_secret" {
   description = "Create the Secrets Manager metadata record for future Identrail runtime configuration."
   type        = bool
