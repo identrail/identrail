@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
 // SetupTracing wires a real OpenTelemetry SDK tracer provider and W3C propagation.
@@ -18,9 +18,11 @@ func SetupTracing(_ context.Context, serviceName string) (func(context.Context) 
 	if err != nil {
 		return nil, err
 	}
+	// Schemaless so the merge cannot fail when an SDK bump advances the schema
+	// URL carried by resource.Default(); the default's schema URL is preserved.
 	res, err := resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName(serviceName)),
+		resource.NewSchemaless(semconv.ServiceName(serviceName)),
 	)
 	if err != nil {
 		return nil, err
