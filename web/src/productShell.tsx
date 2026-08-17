@@ -17605,7 +17605,7 @@ function awsSecretPermissionEquivalenceStatusFilterToken(value: string | undefin
     case 'queued':
       return 'review';
     case 'blocked':
-      return 'action_required';
+      return 'blocked';
     case 'unavailable':
       return undefined;
     default:

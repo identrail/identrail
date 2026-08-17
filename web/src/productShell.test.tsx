@@ -8124,6 +8124,16 @@ describe('Domain-first app routes', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Remediation' }), { target: { value: 'blocked' } });
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', status: 'blocked' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
   });
 
   it('shows incomplete live AWS evidence instead of an empty findings result', async () => {
