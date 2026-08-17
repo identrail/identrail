@@ -8045,8 +8045,8 @@ describe('Domain-first app routes', () => {
       account_id: '123456789012',
       region: 'us-east-1',
       identity_node_id: 'aws:identity:case-triage',
-      agent_id: 'case-triage',
-      agent_name: 'case-triage',
+      agent_id: 'case-triage-id',
+      agent_name: 'Case Triage',
       secret_node_id: 'aws:resource:secret:openai-api-key',
       secret_label: 'openai/api-key',
       provider: 'openai',
@@ -8091,7 +8091,7 @@ describe('Domain-first app routes', () => {
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
     expect(within(findingsTable).getByRole('link', { name: /Agent provider key equivalence/i })).toHaveAttribute(
       'href',
-      '/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=case-triage&tab=secrets'
+      '/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=case-triage-id&tab=secrets'
     );
     expect(within(findingsTable).getByText('High')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Review')).toBeInTheDocument();
@@ -8203,6 +8203,38 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load AWS findings");
     expect(screen.getByText('AWS inventory request failed')).toBeInTheDocument();
     expect(screen.queryByText('No AWS findings')).not.toBeInTheDocument();
+  });
+
+  it('does not show findings as loading when the AWS connector is not ready', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Connect AWS to load operational context')).toBeInTheDocument();
+    expect(screen.queryByText('Loading AWS findings')).not.toBeInTheDocument();
   });
 
   it('keeps AWS resources inventory metadata-only when no environment exists', async () => {

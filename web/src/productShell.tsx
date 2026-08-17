@@ -17096,7 +17096,7 @@ function awsSecretPermissionEquivalenceDetailLink(
   if (!scope || !environmentID) {
     return undefined;
   }
-  const agent = finding.agent_name || finding.agent_id;
+  const agent = finding.agent_id || finding.agent_name;
   if (agent) {
     return awsAgentIdentityDetailLink(scope, environmentID, agent, 'secrets');
   }
@@ -18053,7 +18053,8 @@ function AWSFindingsContent({
 }) {
   const rows = findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, scope, environmentID, connection)) ?? [];
   const displayedRows = filterAWSInventoryRows(rows, filters);
-  const isLoading = loading || (!findings && !error);
+  const isReadyToLoad = Boolean(scope && environmentID && connection?.connected);
+  const isLoading = loading || (isReadyToLoad && !findings && !error);
 
   return (
     <>
