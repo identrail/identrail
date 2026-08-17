@@ -6906,8 +6906,12 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText(/Passrole unscoped trust path/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS cross-account trust findings' })).toBeInTheDocument();
     expect(screen.getByText(/Cross account resource access/i)).toBeInTheDocument();
-    expect(await screen.findByRole('table', { name: 'AWS secret-to-permission equivalence findings' })).toBeInTheDocument();
-    expect(screen.getByText(/Agent provider key equivalence/i)).toBeInTheDocument();
+    const secretPermissionTable = await screen.findByRole('table', { name: 'AWS secret-to-permission equivalence findings' });
+    expect(secretPermissionTable).toBeInTheDocument();
+    expect(within(secretPermissionTable).getByRole('link', { name: /Agent provider key equivalence/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=case-triage&tab=secrets'
+    );
     expect(getLeastPrivilege).toHaveBeenCalledWith(
       'workspace-a',
       'production',

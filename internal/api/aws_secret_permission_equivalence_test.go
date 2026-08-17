@@ -72,6 +72,33 @@ func TestGetAWSSecretPermissionEquivalenceBuildsFindingContract(t *testing.T) {
 	}
 }
 
+func TestGetAWSSecretPermissionEquivalenceSuppressesFixturesForLiveRequests(t *testing.T) {
+	now := time.Date(2026, 6, 21, 13, 2, 0, 0, time.UTC)
+	svc, ws := newSecretPermissionEquivalenceService(t, "project-secret-permission-equivalence-live", now)
+
+	result, err := svc.GetAWSSecretPermissionEquivalence(defaultScopeContext(), ws, "project-secret-permission-equivalence-live", AWSSecretPermissionEquivalenceRequest{
+		ConnectorID: "aws-prod",
+	})
+	if err != nil {
+		t.Fatalf("get live secret permission equivalence: %v", err)
+	}
+	if result.FixtureState != "" {
+		t.Fatalf("live request should not expose a fixture state, got %q", result.FixtureState)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("live request must not surface deterministic fixture findings: %+v", result.Findings)
+	}
+	if result.Status != awsPlatformDependencyStatusDegraded {
+		t.Fatalf("live request without source collectors should be degraded, got %q", result.Status)
+	}
+	if len(result.Diagnostics) == 0 || result.Diagnostics[len(result.Diagnostics)-1].Code != "live_inventory_unavailable" {
+		t.Fatalf("expected an explicit live inventory diagnostic, got %+v", result.Diagnostics)
+	}
+	if len(result.CoverageGaps) == 0 || result.CoverageGaps[len(result.CoverageGaps)-1].Capability != "secret_permission_live_inventory" {
+		t.Fatalf("expected a live inventory coverage gap, got %+v", result.CoverageGaps)
+	}
+}
+
 func TestGetAWSSecretPermissionEquivalenceFilters(t *testing.T) {
 	now := time.Date(2026, 6, 21, 13, 5, 0, 0, time.UTC)
 	svc, ws := newSecretPermissionEquivalenceService(t, "project-secret-permission-equivalence-filters", now)

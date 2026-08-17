@@ -161,8 +161,16 @@ func (s *Service) GetAWSSecretPermissionEquivalence(ctx context.Context, workspa
 	region := firstNonEmptyAWSValue(connection.Region, strings.TrimSpace(request.Region), "us-east-1")
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID))
 	sourceFixtureState := fixtureState
+	responseFixtureState := fixtureState
+	liveInventoryUnavailable := false
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
-		sourceFixtureState = ""
+		// The source inventories currently have fixture builders for their
+		// explicit demo states, but they do not yet have live collectors for
+		// every input required by this correlation. Keep live requests from
+		// promoting those deterministic records into customer findings.
+		sourceFixtureState = "empty"
+		responseFixtureState = ""
+		liveInventoryUnavailable = true
 	}
 
 	sources, err := s.awsSecretPermissionEquivalenceSourceSignals(ctx, workspaceID, projectID, connectorID, sourceFixtureState)
@@ -180,6 +188,26 @@ func (s *Service) GetAWSSecretPermissionEquivalence(ctx context.Context, workspa
 	relationships := awsSecretPermissionEquivalenceRelationships(filtered)
 	diagnostics := awsSecretPermissionEquivalenceDiagnostics(sources)
 	coverageGaps := awsSecretPermissionEquivalenceCoverageGaps(sources)
+	failureReasons := awsSecretPermissionEquivalenceFailureReasons(sources)
+	remediationHints := awsSecretPermissionEquivalenceRemediationHints(sources)
+	if liveInventoryUnavailable {
+		diagnostics = append(diagnostics, AWSSecretPermissionEquivalenceDiagnostic{
+			Collector:   "aws_secret_permission_equivalence",
+			SourceID:    connectorID,
+			Code:        "live_inventory_unavailable",
+			Message:     "Live credential, secret, KMS, and workload inventory is not available yet; deterministic fixture findings were suppressed.",
+			Remediation: "Enable the live AWS inventory collectors before treating an empty equivalence response as proof that no risks exist.",
+			Retryable:   true,
+		})
+		coverageGaps = append(coverageGaps, AWSSecretPermissionEquivalenceCoverageGap{
+			Capability:  "secret_permission_live_inventory",
+			Status:      "unavailable",
+			Reason:      "The connected account does not yet have live source records for every input used by secret-to-permission equivalence.",
+			Remediation: "Run or enable the live credential-reference, Secrets Manager, KMS, and workload inventory collectors for this connector.",
+		})
+		failureReasons = append(failureReasons, "live secret-permission inventory is unavailable")
+		remediationHints = append(remediationHints, "Enable live AWS inventory collectors before interpreting an empty equivalence response as no risk.")
+	}
 	status, confidence := summarizeAWSSecretPermissionEquivalenceStatus(sources, filtered, diagnostics)
 
 	return AWSSecretPermissionEquivalenceResult{
@@ -195,7 +223,7 @@ func (s *Service) GetAWSSecretPermissionEquivalence(ctx context.Context, workspa
 		CurrentIssueRef:    awsIssueRef(awsSecretPermissionEquivalenceCurrentIssue),
 		Version:            awsSecretPermissionEquivalenceVersion,
 		Status:             status,
-		FixtureState:       sourceFixtureState,
+		FixtureState:       responseFixtureState,
 		Confidence:         confidence,
 		CalculationVersion: awsSecretPermissionEquivalenceVersion,
 		AppliedFilters:     applied,
@@ -203,8 +231,8 @@ func (s *Service) GetAWSSecretPermissionEquivalence(ctx context.Context, workspa
 		Findings:           filtered,
 		Relationships:      relationships,
 		Caveats:            awsSecretPermissionEquivalenceCaveats(),
-		FailureReasons:     awsSecretPermissionEquivalenceFailureReasons(sources),
-		RemediationHints:   awsSecretPermissionEquivalenceRemediationHints(sources),
+		FailureReasons:     dedupeStrings(failureReasons),
+		RemediationHints:   dedupeStrings(remediationHints),
 		EvidenceLinks: dedupeStrings([]string{
 			awsIssueURL(awsPlatformDependencyParentIssue),
 			awsIssueURL(awsSecretPermissionEquivalenceCurrentIssue),
