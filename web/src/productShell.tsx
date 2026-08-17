@@ -17986,7 +17986,7 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
   return {
     id: finding.finding_id,
     title: awsSecretPermissionEquivalenceLabel(finding),
-    category: formatTokenLabel(finding.equivalence_type),
+    category: formatTokenLabel(finding.severity),
     evidence,
     owner: identity || 'Unknown identity',
     blastRadius: `${awsAccountRegionInventoryLabel(finding.account_id, finding.region)} · ${identity || 'Unknown identity'} · ${secret}`,
@@ -17999,7 +17999,7 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
       account: connection?.account_id && connection.account_id === finding.account_id ? 'connected' : 'unknown',
       region: connection?.region && connection.region === finding.region ? 'current' : 'unknown',
       evidence: finding.source_signals.some((source) => source.includes('runtime')) ? 'runtime-backed' : 'inventory-backed',
-      status: 'all'
+      status: awsSecretPermissionEquivalenceFindingStatusFilterToken(finding.status)
     },
     searchText: inventorySearchText([
       finding.finding_id,
@@ -18017,11 +18017,27 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
   };
 }
 
+function awsSecretPermissionEquivalenceFindingStatusFilterToken(value: string | undefined): string {
+  switch (normalizeFilterValue(value ?? '')) {
+    case 'action_required':
+      return 'open';
+    case 'review':
+      return 'queued';
+    case 'blocked':
+      return 'blocked';
+    default:
+      return 'unavailable';
+  }
+}
+
 function AWSFindingsContent({
   findings,
   scope,
   environmentID,
   connection,
+  loading,
+  error,
+  onRetry,
   filters,
   onFiltersChange
 }: {
@@ -18029,38 +18045,56 @@ function AWSFindingsContent({
   scope: ProductSession | null;
   environmentID?: string;
   connection: AWSConnectionStatus | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
   const rows = findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, scope, environmentID, connection)) ?? [];
   const displayedRows = filterAWSInventoryRows(rows, filters);
+  const isLoading = loading || (!findings && !error);
 
   return (
     <>
       <AWSRiskOperationFilterSet routeID="findings" filters={filters} onChange={onFiltersChange} />
-      <DomainDataTable
-        label="AWS findings"
-        rows={displayedRows}
-        getRowKey={(row) => row.id}
-        emptyState={
-          <DomainEmptyState
-            eyebrow={findings?.status === 'degraded' ? 'Evidence incomplete' : 'Empty'}
-            title={findings?.status === 'degraded' ? 'Live AWS findings are not available yet' : 'No AWS findings'}
-            body={
-              findings?.status === 'degraded'
-                ? findings.failure_reasons[0] ?? 'Live AWS inventory is unavailable, so Identrail is not presenting sample findings as customer risk.'
-                : 'No live AWS finding matches this environment yet. Run the collectors or clear filters to load evidence.'
-            }
-          />
-        }
-        columns={[
-          { key: 'title', header: 'Finding', render: (row) => row.detailLink ? <Link to={row.detailLink}>{row.title}</Link> : <strong>{row.title}</strong> },
-          { key: 'category', header: 'Severity', render: (row) => row.category },
-          { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
-          { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
-          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
-        ]}
-      />
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS findings"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : isLoading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Loading AWS findings"
+          body="Identrail is retrieving the latest AWS evidence for this environment."
+        />
+      ) : (
+        <DomainDataTable
+          label="AWS findings"
+          rows={displayedRows}
+          getRowKey={(row) => row.id}
+          emptyState={
+            <DomainEmptyState
+              eyebrow={findings?.status === 'degraded' ? 'Evidence incomplete' : 'Empty'}
+              title={findings?.status === 'degraded' ? 'Live AWS findings are not available yet' : 'No AWS findings'}
+              body={
+                findings?.status === 'degraded'
+                  ? findings.failure_reasons[0] ?? 'Live AWS inventory is unavailable, so Identrail is not presenting sample findings as customer risk.'
+                  : 'No live AWS finding matches this environment yet. Run the collectors or clear filters to load evidence.'
+              }
+            />
+          }
+          columns={[
+            { key: 'title', header: 'Finding', render: (row) => row.detailLink ? <Link to={row.detailLink}>{row.title}</Link> : <strong>{row.title}</strong> },
+            { key: 'category', header: 'Severity', render: (row) => row.category },
+            { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+            { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
+            { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+          ]}
+        />
+      )}
     </>
   );
 }
@@ -18419,7 +18453,8 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     setActiveFilters({ ...AWS_RISK_OPERATION_FILTER_DEFAULTS[routeID] });
   }, [routeID]);
 
-  const showSecretPermissionEquivalence = routeID === 'runtime' || routeID === 'findings';
+  const showSecretPermissionEquivalence = routeID === 'runtime';
+  const shouldLoadSecretPermissionEquivalence = routeID === 'runtime' || routeID === 'findings';
 
   const loadGraphExplorer = useCallback(async ({ append = false }: { append?: boolean } = {}) => {
     const requestID = ++graphExplorerRequestRef.current;
@@ -20216,7 +20251,7 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     const requestID = ++secretPermissionEquivalenceRequestRef.current;
     setSecretPermissionEquivalence(null);
     setSecretPermissionEquivalenceError('');
-    if (!showSecretPermissionEquivalence || !scope || !selectedEnvironmentID || !connection?.connected) {
+    if (!shouldLoadSecretPermissionEquivalence || !scope || !selectedEnvironmentID || !connection?.connected) {
       setSecretPermissionEquivalenceLoading(false);
       return;
     }
@@ -20247,7 +20282,7 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       }
     }
   }, [
-    showSecretPermissionEquivalence,
+    shouldLoadSecretPermissionEquivalence,
     scope?.tenantID,
     scope?.workspaceID,
     selectedEnvironmentID,
@@ -20648,6 +20683,9 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             scope={scope}
             environmentID={selectedEnvironmentID}
             connection={connection}
+            loading={secretPermissionEquivalenceLoading}
+            error={secretPermissionEquivalenceError}
+            onRetry={loadSecretPermissionEquivalence}
             filters={activeFilters}
             onFiltersChange={onFiltersChange}
           />

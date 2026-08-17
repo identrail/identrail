@@ -8035,10 +8035,34 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const equivalenceFinding = {
+      finding_id: 'aws-secret-permission-equivalence:findings-route',
+      equivalence_type: 'agent_provider_key_equivalence',
+      severity: 'high',
+      status: 'review',
+      score: 82,
+      confidence: 0.9,
+      account_id: '123456789012',
+      region: 'us-east-1',
+      identity_node_id: 'aws:identity:case-triage',
+      agent_id: 'case-triage',
+      agent_name: 'case-triage',
+      secret_node_id: 'aws:resource:secret:openai-api-key',
+      secret_label: 'openai/api-key',
+      provider: 'openai',
+      equivalent_permissions: ['openai:api_request'],
+      source_signals: ['ai_agent_identities'],
+      rationale: 'Agent provider-key metadata is readable.',
+      evidence_boundary: 'metadata_only_no_secret_values_no_payloads',
+      impacted_nodes: ['aws:identity:case-triage', 'aws:resource:secret:openai-api-key'],
+      impacted_path: [],
+      evidence: [],
+      next_action: 'Review the provider credential scope.'
+    } as any;
     const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockResolvedValue({
       findings: {
         status: 'ready',
-        findings: [],
+        findings: [equivalenceFinding],
         summary: {
           external_provider_key_count: 0,
           aws_managed_secret_count: 0,
@@ -8064,6 +8088,14 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Findings' })).toBeInTheDocument();
+    const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
+    expect(within(findingsTable).getByRole('link', { name: /Agent provider key equivalence/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=case-triage&tab=secrets'
+    );
+    expect(within(findingsTable).getByText('High')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Review')).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'AWS secret-to-permission equivalence findings' })).not.toBeInTheDocument();
     await waitFor(() =>
       expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
         'workspace-a',
@@ -8092,6 +8124,85 @@ describe('Domain-first app routes', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
+  });
+
+  it('shows incomplete live AWS evidence instead of an empty findings result', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockResolvedValue({
+      findings: {
+        status: 'degraded',
+        findings: [],
+        failure_reasons: ['live secret-permission inventory is unavailable'],
+        summary: {},
+        caveats: [],
+        remediation_hints: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Live AWS findings are not available yet')).toBeInTheDocument();
+    expect(screen.getByText('live secret-permission inventory is unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('No AWS findings')).not.toBeInTheDocument();
+  });
+
+  it('shows AWS findings load errors separately from an empty result', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockRejectedValue(new Error('AWS inventory request failed'));
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load AWS findings");
+    expect(screen.getByText('AWS inventory request failed')).toBeInTheDocument();
+    expect(screen.queryByText('No AWS findings')).not.toBeInTheDocument();
   });
 
   it('keeps AWS resources inventory metadata-only when no environment exists', async () => {
