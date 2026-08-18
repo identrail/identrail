@@ -171,6 +171,31 @@ func TestGetAWSOrganizationsTopologyNeverLeaksPayloads(t *testing.T) {
 	}
 }
 
+func TestBuildAWSOrganizationsTopologyLiveFailureUsesEmptyCollections(t *testing.T) {
+	now := time.Date(2026, 6, 12, 15, 45, 0, 0, time.UTC)
+	result := buildAWSOrganizationsTopologyLiveFailure(
+		db.Scope{TenantID: "tenant-a"},
+		db.TenancyProject{WorkspaceID: "workspace-a", ProjectID: "project-a"},
+		AWSConnectionStatus{ConnectorID: "aws-prod", AccountID: "123456789012", Region: "us-east-1"},
+		AWSOrganizationsTopologyRequest{ConnectorID: "aws-prod"},
+		now,
+		"organizations_discovery_failed",
+	)
+
+	if result.Accounts == nil || result.OrganizationalUnits == nil || result.Relationships == nil || result.EvidenceLinks == nil || result.CoverageGaps == nil {
+		t.Fatalf("live failure must preserve array-shaped API fields: %+v", result)
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal live failure: %v", err)
+	}
+	for _, field := range []string{`"accounts":[]`, `"organizational_units":[]`, `"relationships":[]`, `"evidence_links":[]`, `"coverage_gaps":[]`} {
+		if !strings.Contains(string(payload), field) {
+			t.Fatalf("expected %s in live failure payload: %s", field, payload)
+		}
+	}
+}
+
 // TestAWSOrganizationsTopologyConnectorScopePredicate locks in the rule that
 // ConnectorScoped reflects the connector's own scope. Before the fix, live
 // inventory reported every Organizations account as scan-eligible for the

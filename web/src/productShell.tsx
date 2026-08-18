@@ -5841,7 +5841,7 @@ function buildAWSOrganizationsTopologyRows(
   loading: boolean,
   connection: AWSConnectionStatus | null
 ): AWSInventoryCoverageRow[] {
-  if (topology?.accounts.length) {
+  if (topology?.accounts?.length) {
     return topology.accounts.map((account) => {
       const coverage = awsOrganizationsTopologyFilterValue(account);
       const coverageTokens = [coverage, account.state];
@@ -6383,7 +6383,7 @@ function AWSAccountsInventoryContent({
           <AWSPartialFailureReportList reports={partialFailureReports} label="AWS partial failure reports" />
         </DomainStatusPanel>
       ) : null}
-      {topology?.diagnostics.length ? (
+      {topology?.diagnostics?.length ? (
         <DomainStatusPanel
           eyebrow="Organizations diagnostics"
           title="Topology discovery has explicit recovery work"
@@ -6540,7 +6540,7 @@ function AWSAccountsInventoryContent({
             ))}
           </ul>
         ) : null}
-        {topology?.remediation_hints.length ? (
+        {topology?.remediation_hints?.length ? (
           <ul className="idt-domain-charter-list">
             {topology.remediation_hints.map((hint) => (
               <li key={hint}>{hint}</li>

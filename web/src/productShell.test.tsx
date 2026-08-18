@@ -3778,6 +3778,51 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('keeps AWS account inventory usable when Organizations arrays are null', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const { getOrganizationsTopology } = mockAWSCoverageDashboardAPIs(api);
+    getOrganizationsTopology.mockResolvedValue({
+      topology: {
+        ...readyAWSOrganizationsTopology,
+        status: 'blocked',
+        accounts: null,
+        organizational_units: null,
+        relationships: null,
+        diagnostics: null,
+        remediation_hints: null
+      } as any
+    });
+
+    const { ProductAWSAccountsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/accounts?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/accounts" element={<ProductAWSAccountsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Accounts' })).toBeInTheDocument();
+    expect(screen.queryByText('Workspace view failed to load')).not.toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'AWS Organizations topology' })).toBeInTheDocument();
+  });
+
   it('renders AWS coverage dashboard with scoped coverage, topology, fan-out, and onboarding data', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
