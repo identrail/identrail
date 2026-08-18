@@ -8105,6 +8105,28 @@ describe('Domain-first app routes', () => {
       )
     );
 
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'unknown' } });
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(getSecretPermissionEquivalence.mock.lastCall?.[2]?.accountID).toBeUndefined();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Region' }), { target: { value: 'unknown' } });
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(getSecretPermissionEquivalence.mock.lastCall?.[2]?.region).toBeUndefined();
+
     fireEvent.change(screen.getByRole('combobox', { name: 'Severity' }), { target: { value: 'high' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'connected' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Region' }), { target: { value: 'current' } });
@@ -8148,6 +8170,35 @@ describe('Domain-first app routes', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Remediation' }), { target: { value: 'all' } });
     await waitFor(() =>
       expect(screen.getByRole('link', { name: /Agent provider key equivalence/i })).toBeInTheDocument()
+    );
+
+    equivalenceFinding.evidence = [
+      {
+        source: 'secrets_kms_runtime_access',
+        evidence_ref: 'runtime-evidence://secret-read',
+        label: 'Runtime secret read',
+        confidence: 0.9,
+        relationship: 'read'
+      },
+      {
+        source: 'kms_key_policy',
+        evidence_ref: 'inventory-evidence://kms-policy',
+        label: 'KMS key policy',
+        confidence: 0.8,
+        relationship: 'decrypt'
+      }
+    ];
+    fireEvent.change(screen.getByRole('combobox', { name: 'Evidence' }), { target: { value: 'inventory-backed' } });
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /Agent provider key equivalence/i })).toBeInTheDocument()
+    );
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', evidence: 'inventory-backed' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
     );
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Findings search' }), { target: { value: 'openai:api_request' } });

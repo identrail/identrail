@@ -17084,17 +17084,19 @@ function awsSecretPermissionEquivalenceEvidenceFilterToken(finding: AWSSecretPer
   if (finding.evidence.length === 0) {
     return 'unavailable';
   }
+  const tokens: string[] = [];
+  if (finding.evidence.some((evidence) => evidence.source.trim().toLowerCase() === 'secrets_kms_runtime_access')) {
+    tokens.push('runtime-backed');
+  }
   if (
     finding.evidence.some(
-      (evidence) => evidence.source.trim().toLowerCase() === 'secrets_kms_runtime_access'
+      (evidence) =>
+        evidence.source.trim().length > 0 && evidence.source.trim().toLowerCase() !== 'secrets_kms_runtime_access'
     )
   ) {
-    return 'runtime-backed';
+    tokens.push('inventory-backed');
   }
-  if (finding.evidence.some((evidence) => evidence.source.trim().length > 0)) {
-    return 'inventory-backed';
-  }
-  return '';
+  return tokens.join(',');
 }
 
 function awsSecretPermissionEquivalenceSearchText(finding: AWSSecretPermissionEquivalenceFinding): string {
@@ -17667,7 +17669,7 @@ function awsSecretPermissionEquivalenceAccountFilterToken(
     case 'connected':
       return connection?.account_id || undefined;
     case 'unknown':
-      return 'unknown';
+      return undefined;
     default:
       return awsSecretPermissionEquivalenceFilterToken(value);
   }
@@ -17681,7 +17683,7 @@ function awsSecretPermissionEquivalenceRegionFilterToken(
     case 'current':
       return connection?.region || undefined;
     case 'unknown':
-      return 'unknown';
+      return undefined;
     default:
       return awsSecretPermissionEquivalenceFilterToken(value);
   }
