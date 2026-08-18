@@ -1,12 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
@@ -96,6 +99,31 @@ func TestGetAWSSecretPermissionEquivalenceSuppressesFixturesForLiveRequests(t *t
 	}
 	if len(result.CoverageGaps) == 0 || result.CoverageGaps[len(result.CoverageGaps)-1].Capability != "secret_permission_live_inventory" {
 		t.Fatalf("expected a live inventory coverage gap, got %+v", result.CoverageGaps)
+	}
+}
+
+func TestGetAWSSecretPermissionEquivalencePreservesLiveRuntimeInputs(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 21, 13, 3, 0, 0, time.UTC)
+	projectID := "project-secret-permission-equivalence-runtime"
+	seedDefaultProject(t, store, ctx, projectID)
+	seedAWSConnectorForScanTest(t, store, ctx, projectID, "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, projectID, "aws-prod")
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	fake := &fakeDeliveryIngester{result: AWSCloudTrailIngestResult{Status: "ready"}}
+	svc.AWSCloudTrailDeliveryFactory = func(_ context.Context, _ AWSConnectionStatus, _ AWSCloudTrailDeliverySource) (AWSCloudTrailRuntimeEventIngester, error) {
+		return fake, nil
+	}
+
+	_, err := svc.GetAWSSecretPermissionEquivalence(ctx, "default", projectID, AWSSecretPermissionEquivalenceRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get live secret permission equivalence: %v", err)
+	}
+	if fake.calls == 0 {
+		t.Fatalf("live runtime source was forced into fixture mode; delivery factory was never used")
 	}
 }
 

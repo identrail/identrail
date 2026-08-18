@@ -161,6 +161,7 @@ func (s *Service) GetAWSSecretPermissionEquivalence(ctx context.Context, workspa
 	region := firstNonEmptyAWSValue(connection.Region, strings.TrimSpace(request.Region), "us-east-1")
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID))
 	sourceFixtureState := fixtureState
+	runtimeFixtureState := fixtureState
 	responseFixtureState := fixtureState
 	liveInventoryUnavailable := false
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
@@ -169,11 +170,16 @@ func (s *Service) GetAWSSecretPermissionEquivalence(ctx context.Context, workspa
 		// every input required by this correlation. Keep live requests from
 		// promoting those deterministic records into customer findings.
 		sourceFixtureState = "empty"
+		// Runtime access has a live CloudTrail delivery path when the connector
+		// advertises runtime_evidence. Leave that request unforced so the
+		// runtime collector can choose its live inputs instead of being treated
+		// like a fixture-only inventory.
+		runtimeFixtureState = ""
 		responseFixtureState = ""
 		liveInventoryUnavailable = true
 	}
 
-	sources, err := s.awsSecretPermissionEquivalenceSourceSignals(ctx, workspaceID, projectID, connectorID, sourceFixtureState)
+	sources, err := s.awsSecretPermissionEquivalenceSourceSignals(ctx, workspaceID, projectID, connectorID, sourceFixtureState, runtimeFixtureState)
 	if err != nil {
 		return AWSSecretPermissionEquivalenceResult{}, err
 	}
@@ -268,7 +274,7 @@ func normalizeAWSSecretPermissionEquivalenceFixtureState(requested string, conne
 	}
 }
 
-func (s *Service) awsSecretPermissionEquivalenceSourceSignals(ctx context.Context, workspaceID, projectID, connectorID, fixtureState string) (awsSecretPermissionEquivalenceSources, error) {
+func (s *Service) awsSecretPermissionEquivalenceSourceSignals(ctx context.Context, workspaceID, projectID, connectorID, fixtureState, runtimeFixtureState string) (awsSecretPermissionEquivalenceSources, error) {
 	credentials, err := s.GetAWSCredentialReferencesInventory(ctx, workspaceID, projectID, AWSCredentialReferencesInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureState})
 	if err != nil {
 		return awsSecretPermissionEquivalenceSources{}, fmt.Errorf("secret permission equivalence credential references: %w", err)
@@ -281,7 +287,7 @@ func (s *Service) awsSecretPermissionEquivalenceSourceSignals(ctx context.Contex
 	if err != nil {
 		return awsSecretPermissionEquivalenceSources{}, fmt.Errorf("secret permission equivalence kms reachability: %w", err)
 	}
-	runtime, err := s.GetAWSSecretsKMSRuntimeAccess(ctx, workspaceID, projectID, AWSSecretsKMSRuntimeAccessRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+	runtime, err := s.GetAWSSecretsKMSRuntimeAccess(ctx, workspaceID, projectID, AWSSecretsKMSRuntimeAccessRequest{ConnectorID: connectorID, FixtureState: runtimeFixtureState})
 	if err != nil {
 		return awsSecretPermissionEquivalenceSources{}, fmt.Errorf("secret permission equivalence runtime access: %w", err)
 	}
