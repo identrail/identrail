@@ -8134,6 +8134,34 @@ describe('Domain-first app routes', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Evidence' }), { target: { value: 'unavailable' } });
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', evidence: 'unavailable' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Remediation' }), { target: { value: 'all' } });
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /Agent provider key equivalence/i })).toBeInTheDocument()
+    );
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Findings search' }), { target: { value: 'openai:api_request' } });
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /Agent provider key equivalence/i })).toBeInTheDocument()
+    );
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', search: 'openai:api_request' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
   });
 
   it('shows incomplete live AWS evidence instead of an empty findings result', async () => {

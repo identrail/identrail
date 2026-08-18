@@ -17080,6 +17080,52 @@ function awsSecretPermissionEquivalenceEvidenceLabel(finding: AWSSecretPermissio
   return `${formatConfidenceScore(finding.confidence)} · ${sources.join(', ') || 'No evidence refs'}`;
 }
 
+function awsSecretPermissionEquivalenceEvidenceFilterToken(finding: AWSSecretPermissionEquivalenceFinding): string {
+  if (finding.evidence.length === 0) {
+    return 'unavailable';
+  }
+  if (
+    finding.evidence.some(
+      (evidence) => evidence.source.trim().toLowerCase() === 'secrets_kms_runtime_access'
+    )
+  ) {
+    return 'runtime-backed';
+  }
+  if (finding.evidence.some((evidence) => evidence.source.trim().length > 0)) {
+    return 'inventory-backed';
+  }
+  return '';
+}
+
+function awsSecretPermissionEquivalenceSearchText(finding: AWSSecretPermissionEquivalenceFinding): string {
+  return inventorySearchText([
+    finding.account_id,
+    finding.region,
+    finding.identity_node_id,
+    finding.principal_arn,
+    finding.workload_id,
+    finding.workload_name,
+    finding.agent_id,
+    finding.agent_name,
+    finding.secret_node_id,
+    finding.secret_arn,
+    finding.secret_label,
+    finding.provider,
+    finding.provider_key_reference,
+    finding.equivalence_type,
+    finding.severity,
+    finding.status,
+    finding.rationale,
+    finding.evidence_boundary,
+    ...(finding.equivalent_permissions ?? []),
+    ...(finding.implied_actions ?? []),
+    ...(finding.source_signals ?? []),
+    ...(finding.impacted_nodes ?? []),
+    ...finding.evidence.flatMap((evidence) => [evidence.source, evidence.evidence_ref, evidence.label, evidence.relationship]),
+    ...finding.impacted_path.flatMap((step) => [step.node_id, step.node_type, step.label, step.account_id, step.region])
+  ]);
+}
+
 function awsSecretPermissionEquivalencePermissionLabel(finding: AWSSecretPermissionEquivalenceFinding): string {
   const permissions = finding.equivalent_permissions ?? [];
   if (permissions.length === 0) {
@@ -17998,22 +18044,10 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
       severity: finding.severity || 'unknown',
       account: connection?.account_id && connection.account_id === finding.account_id ? 'connected' : 'unknown',
       region: connection?.region && connection.region === finding.region ? 'current' : 'unknown',
-      evidence: finding.source_signals.some((source) => source.includes('runtime')) ? 'runtime-backed' : 'inventory-backed',
+      evidence: awsSecretPermissionEquivalenceEvidenceFilterToken(finding),
       status: awsSecretPermissionEquivalenceFindingStatusFilterToken(finding.status)
     },
-    searchText: inventorySearchText([
-      finding.finding_id,
-      finding.equivalence_type,
-      finding.severity,
-      finding.status,
-      identity,
-      secret,
-      finding.provider,
-      finding.provider_key_reference,
-      finding.rationale,
-      finding.next_action,
-      evidence
-    ])
+    searchText: awsSecretPermissionEquivalenceSearchText(finding)
   };
 }
 
