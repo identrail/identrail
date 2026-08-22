@@ -18180,6 +18180,7 @@ function AWSFindingEvidenceCell({ row }: { row: AWSRiskOperationTableRow }) {
 
 function awsSecretPermissionEquivalenceRiskOperationRow(
   finding: AWSSecretPermissionEquivalenceFinding,
+  result: AWSSecretPermissionEquivalenceResult,
   scope: ProductSession | null | undefined,
   environmentID: string | undefined,
   connection: AWSConnectionStatus | null
@@ -18206,7 +18207,7 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
     observedAt: finding.updated_at || finding.created_at,
     confidence: finding.confidence,
     provenance: 'Live AWS analysis',
-    completeness: finding.evidence.length > 0 ? 'complete' : 'unknown',
+    completeness: awsSecretPermissionEquivalenceCompleteness(result),
     evidenceBoundary: finding.evidence_boundary,
     technicalEvidence: [
       ...finding.evidence.map((evidence) => evidence.evidence_ref),
@@ -18221,6 +18222,16 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
     },
     searchText: awsSecretPermissionEquivalenceSearchText(finding)
   };
+}
+
+function awsSecretPermissionEquivalenceCompleteness(result: AWSSecretPermissionEquivalenceResult): string {
+  if (result.status === 'blocked') {
+    return 'unknown';
+  }
+  if (result.status === 'degraded' || result.coverage_gaps.length > 0) {
+    return 'partial';
+  }
+  return 'complete';
 }
 
 function awsPersistedFindingStage(finding: ApiFinding): AWSCapabilityStage {
@@ -18547,7 +18558,7 @@ function AWSFindingsContent({
   const persistedCompleteness = persistedScanPartial ? 'partial' : persistedScanCoverageUnknown ? 'unknown' : 'complete';
   const rows = showingPersistedScan
     ? persistedFindings?.map((finding) => awsPersistedFindingRiskOperationRow(finding, connection, persistedScan, persistedCompleteness)) ?? []
-    : findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, scope, environmentID, connection)) ?? [];
+    : findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, findings, scope, environmentID, connection)) ?? [];
   const displayedRows = filterAWSInventoryRows(rows, filters);
   const persistedScanReadyToLoad = Boolean(scope && environmentID);
   const liveFindingsReadyToLoad = Boolean(scope && environmentID && connection?.connected);

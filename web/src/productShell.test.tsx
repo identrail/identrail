@@ -8107,7 +8107,7 @@ describe('Domain-first app routes', () => {
     } as any;
     const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockResolvedValue({
       findings: {
-        status: 'ready',
+        status: 'degraded',
         findings: [equivalenceFinding],
         summary: {
           external_provider_key_count: 0,
@@ -8118,7 +8118,13 @@ describe('Domain-first app routes', () => {
         caveats: [],
         failure_reasons: [],
         remediation_hints: [],
-        coverage_gaps: [],
+        coverage_gaps: [
+          {
+            capability: 'secrets_manager_runtime',
+            status: 'partial',
+            reason: 'Runtime delivery evidence is unavailable.'
+          }
+        ],
         diagnostics: []
       } as any
     });
@@ -8135,6 +8141,7 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Findings' })).toBeInTheDocument();
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
+    expect(within(findingsTable).getByText(/Completeness: Partial/i)).toBeInTheDocument();
     expect(within(findingsTable).getByRole('link', { name: /Agent provider key equivalence/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=case-triage-id&tab=secrets'
