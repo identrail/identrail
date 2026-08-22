@@ -8393,9 +8393,12 @@ describe('Domain-first app routes', () => {
                 severity: 'high',
                 title: 'Overprivileged IAM role',
                 human_summary: 'The role grants more permissions than this workload requires.',
-                path: ['production-role', 'AdministratorAccess'],
+                path: ['production-role', 'aws%3Aaccess%3Aiam%3AGetRole%20-%3E%20aws%3Aaccess%3Aiam%3AListRoles'],
                 owner: 'AWS scanner',
-                evidence: { source: 'iam-policy' },
+                adapter_source: 'iam-policy collector',
+                confidence_score: 0.88,
+                first_seen_at: '2026-08-20T20:01:00Z',
+                evidence: { source: 'iam-policy', account_id: '123456789012', region: 'us-east-1' },
                 remediation: 'Reduce the role policy to the required actions.',
                 created_at: '2026-08-20T20:03:00Z',
                 lifecycle_status: 'open',
@@ -8422,6 +8425,12 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText(/could not verify source completeness/i)).toBeInTheDocument();
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
     expect(within(findingsTable).getByText('Overprivileged IAM role')).toBeInTheDocument();
+    const overprivilegedRow = within(findingsTable).getByText('Overprivileged IAM role').closest('tr');
+    expect(overprivilegedRow).not.toBeNull();
+    expect(within(overprivilegedRow as HTMLElement).getByText('Account 123456789012 · Region us-east-1 · IAM permission path · 2 evidence nodes')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('Source: iam-policy collector · Confidence: 88% · Completeness: Unknown')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('Technical evidence (2 refs)')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('scan-aws-complete')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Public S3 bucket')).toBeInTheDocument();
     expect(within(findingsTable).getByText('High')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Suppressed')).toBeInTheDocument();

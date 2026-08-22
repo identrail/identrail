@@ -33347,3 +33347,68 @@ html[data-theme='light'] .idt-danger-modal-typed input {
   background: #030304;
   color: #ffffff;
 }
+
+.idt-aws-finding-evidence-cell {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 15rem;
+}
+
+.idt-aws-finding-evidence-cell > small {
+  color: var(--idt-text-muted, #aeb8c9);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.idt-aws-finding-technical-evidence {
+  border: 1px solid rgba(154, 164, 190, 0.28);
+  border-radius: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  background: rgba(4, 8, 18, 0.28);
+  font-size: 0.72rem;
+}
+
+.idt-aws-finding-technical-evidence summary {
+  cursor: pointer;
+  color: var(--idt-text-muted, #aeb8c9);
+  font-weight: 600;
+}
+
+.idt-aws-finding-technical-evidence dl {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.55rem 0 0;
+}
+
+.idt-aws-finding-technical-evidence dl div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.idt-aws-finding-technical-evidence dt {
+  color: var(--idt-text-muted, #aeb8c9);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.idt-aws-finding-technical-evidence dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-finding-technical-evidence ul {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0.55rem 0 0;
+  padding-left: 1rem;
+}
+
+.idt-aws-finding-technical-evidence code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+html[data-theme='light'] .idt-aws-finding-technical-evidence {
+  background: rgba(242, 244, 249, 0.86);
+}

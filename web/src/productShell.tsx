@@ -13124,6 +13124,17 @@ type AWSRiskOperationTableRow = AWSInventoryFilterable & {
   status: string;
   stage: AWSCapabilityStage;
   detailLink?: string;
+  findingID?: string;
+  scanID?: string;
+  accountID?: string;
+  region?: string;
+  source?: string;
+  observedAt?: string;
+  confidence?: number;
+  provenance?: string;
+  completeness?: string;
+  evidenceBoundary?: string;
+  technicalEvidence?: string[];
 };
 
 function AWSRiskOperationFilterSet({
@@ -18092,6 +18103,81 @@ function AWSGraphEvidenceDrawer({ refs }: { refs: string[] }) {
   );
 }
 
+function AWSFindingTechnicalEvidenceDrawer({ row }: { row: AWSRiskOperationTableRow }) {
+  const refs = row.technicalEvidence?.filter(Boolean) ?? [];
+  return (
+    <details className="idt-aws-finding-technical-evidence">
+      <summary>Technical evidence{refs.length > 0 ? ` (${refs.length} refs)` : ''}</summary>
+      <dl>
+        <div>
+          <dt>Finding ID</dt>
+          <dd><code>{row.findingID || row.id}</code></dd>
+        </div>
+        <div>
+          <dt>Scan ID</dt>
+          <dd><code>{row.scanID || 'Unavailable'}</code></dd>
+        </div>
+        <div>
+          <dt>Scope</dt>
+          <dd>{row.accountID || 'Account unknown'} · {row.region || 'Region unknown'}</dd>
+        </div>
+        <div>
+          <dt>Observed</dt>
+          <dd>{row.observedAt || 'Unavailable'}</dd>
+        </div>
+        <div>
+          <dt>Provenance</dt>
+          <dd>{row.provenance || 'Unknown'}</dd>
+        </div>
+        <div>
+          <dt>Completeness</dt>
+          <dd>{awsPersistedFindingCompletenessLabel(row.completeness || 'unknown')}</dd>
+        </div>
+        {row.source ? (
+          <div>
+            <dt>Source</dt>
+            <dd>{row.source}</dd>
+          </div>
+        ) : null}
+        {row.evidenceBoundary ? (
+          <div>
+            <dt>Evidence boundary</dt>
+            <dd>{row.evidenceBoundary}</dd>
+          </div>
+        ) : null}
+        {row.confidence !== undefined ? (
+          <div>
+            <dt>Confidence</dt>
+            <dd>{formatConfidenceScore(row.confidence)}</dd>
+          </div>
+        ) : null}
+      </dl>
+      {refs.length > 0 ? (
+        <ul>
+          {refs.map((ref, index) => (
+            <li key={`${ref}-${index}`}><code>{ref}</code></li>
+          ))}
+        </ul>
+      ) : <p>No raw path or evidence references were returned.</p>}
+    </details>
+  );
+}
+
+function AWSFindingEvidenceCell({ row }: { row: AWSRiskOperationTableRow }) {
+  const metadata = [
+    row.source ? `Source: ${row.source}` : undefined,
+    row.confidence !== undefined ? `Confidence: ${formatConfidenceScore(row.confidence)}` : undefined,
+    row.completeness ? `Completeness: ${awsPersistedFindingCompletenessLabel(row.completeness)}` : undefined
+  ].filter(Boolean);
+  return (
+    <div className="idt-aws-finding-evidence-cell">
+      <span>{row.evidence}</span>
+      {metadata.length > 0 ? <small>{metadata.join(' · ')}</small> : null}
+      <AWSFindingTechnicalEvidenceDrawer row={row} />
+    </div>
+  );
+}
+
 function awsSecretPermissionEquivalenceRiskOperationRow(
   finding: AWSSecretPermissionEquivalenceFinding,
   scope: ProductSession | null | undefined,
@@ -18113,6 +18199,19 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
     status: finding.status,
     stage: awsSecretPermissionEquivalenceStage(finding),
     detailLink,
+    findingID: finding.finding_id,
+    accountID: finding.account_id,
+    region: finding.region,
+    source: finding.source_signals.join(', ') || 'AWS live analysis',
+    observedAt: finding.updated_at || finding.created_at,
+    confidence: finding.confidence,
+    provenance: 'Live AWS analysis',
+    completeness: finding.evidence.length > 0 ? 'complete' : 'unknown',
+    evidenceBoundary: finding.evidence_boundary,
+    technicalEvidence: [
+      ...finding.evidence.map((evidence) => evidence.evidence_ref),
+      ...finding.impacted_path.map((step) => step.node_id)
+    ].filter(Boolean),
     filters: {
       severity: finding.severity || 'unknown',
       account: connection?.account_id && connection.account_id === finding.account_id ? 'connected' : 'unknown',
@@ -18199,9 +18298,78 @@ async function listAllAWSScanFindings(scanID: string, auth: RequestAuthContext):
 function awsPersistedFindingEvidence(finding: ApiFinding): string {
   const summary = normalizeValue(finding.human_summary);
   if (summary) {
-    return summary;
+    return summary.length > 220 ? `${summary.slice(0, 217)}...` : summary;
   }
   return Object.keys(finding.evidence ?? {}).length > 0 ? 'Inventory-backed AWS evidence' : 'Evidence unavailable';
+}
+
+function awsPersistedFindingMetadataValue(finding: ApiFinding, keys: string[]): string | undefined {
+  const wantedKeys = new Set(keys.map((key) => key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()));
+  const visited = new Set<object>();
+  let result: string | undefined;
+
+  const inspect = (value: unknown, key?: string): void => {
+    if (result) {
+      return;
+    }
+    const normalizedKey = key?.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const normalizedValue = normalizeValue(value);
+    if (normalizedKey && wantedKeys.has(normalizedKey) && normalizedValue) {
+      result = normalizedValue;
+      return;
+    }
+    if (!value || typeof value !== 'object' || visited.has(value)) {
+      return;
+    }
+    visited.add(value);
+    for (const [childKey, childValue] of Object.entries(value)) {
+      inspect(childValue, childKey);
+    }
+  };
+
+  inspect(finding.evidence);
+  return result;
+}
+
+function awsPersistedFindingSource(finding: ApiFinding): string {
+  return (
+    normalizeValue(finding.adapter_source) ||
+    awsPersistedFindingMetadataValue(finding, ['source', 'collector', 'source_type', 'collector_type']) ||
+    'AWS scanner'
+  );
+}
+
+function awsPersistedFindingPathIsSerialized(value: string): boolean {
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // Keep the original value hidden if it is malformed encoded data.
+  }
+  return decoded.length > 120 || decoded.includes('aws:access:') || decoded.includes(' -> ') || value.includes('%');
+}
+
+function awsPersistedFindingAffectedResource(finding: ApiFinding): string {
+  const path = finding.path?.map((value) => normalizeValue(value)).filter(Boolean) ?? [];
+  if (path.length === 0) {
+    return 'Resource unavailable';
+  }
+  if (path.some(awsPersistedFindingPathIsSerialized)) {
+    return 'IAM permission path';
+  }
+  const firstPathNode = path[0];
+  return firstPathNode.length > 96 ? `${firstPathNode.slice(0, 93)}...` : firstPathNode;
+}
+
+function awsPersistedFindingCompletenessLabel(value: string): string {
+  switch (value) {
+    case 'partial':
+      return 'Partial';
+    case 'unknown':
+      return 'Unknown';
+    default:
+      return 'Complete';
+  }
 }
 
 type AWSPersistedFindingScope = {
@@ -18272,24 +18440,46 @@ function awsPersistedFindingScope(finding: ApiFinding): AWSPersistedFindingScope
 
 function awsPersistedFindingRiskOperationRow(
   finding: ApiFinding,
-  connection: AWSConnectionStatus | null
+  connection: AWSConnectionStatus | null,
+  persistedScan: ScanRecord | null,
+  completeness: string
 ): AWSRiskOperationTableRow {
   const status = awsPersistedFindingStatus(finding);
-  const path = finding.path?.filter(Boolean).join(' → ');
   const findingScope = awsPersistedFindingScope(finding);
   const account = findingScope.accountID ? `Account ${findingScope.accountID}` : 'Account unknown';
   const region = findingScope.region ? `Region ${findingScope.region}` : 'Region unknown';
   const evidence = awsPersistedFindingEvidence(finding);
+  const source = awsPersistedFindingSource(finding);
+  const scanID = normalizeValue(finding.scan_id) || normalizeValue(persistedScan?.id);
+  const observedAt =
+    normalizeValue(finding.last_seen_at) ||
+    normalizeValue(finding.first_seen_at) ||
+    normalizeValue(finding.created_at) ||
+    normalizeValue(persistedScan?.finished_at) ||
+    normalizeValue(persistedScan?.started_at);
+  const evidenceBoundary = awsPersistedFindingMetadataValue(finding, ['evidence_boundary', 'coverage', 'coverage_state']);
+  const technicalEvidence = finding.path?.map((value) => normalizeValue(value)).filter(Boolean) ?? [];
   return {
     id: finding.id,
     title: finding.title || formatTokenLabel(finding.type),
     category: formatTokenLabel(finding.severity),
     evidence,
-    owner: finding.owner || finding.adapter_source || 'AWS scanner',
-    blastRadius: path || `${account} · ${region}`,
+    owner: finding.owner || source,
+    blastRadius: `${account} · ${region} · ${awsPersistedFindingAffectedResource(finding)}${technicalEvidence.length > 0 ? ` · ${technicalEvidence.length} evidence node${technicalEvidence.length === 1 ? '' : 's'}` : ''}`,
     nextAction: finding.remediation || 'Review the finding evidence and remediate the affected AWS resource.',
     status,
     stage: awsPersistedFindingStage(finding),
+    findingID: finding.id,
+    scanID,
+    accountID: findingScope.accountID,
+    region: findingScope.region,
+    source,
+    observedAt,
+    confidence: finding.confidence_score,
+    provenance: 'AWS discovery scan',
+    completeness,
+    evidenceBoundary,
+    technicalEvidence,
     filters: {
       severity: normalizeValue(finding.severity).toLowerCase() || 'unknown',
       account: findingScope.accountID && findingScope.accountID === connection?.account_id ? 'connected' : 'unknown',
@@ -18354,8 +18544,9 @@ function AWSFindingsContent({
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
   const showingPersistedScan = Boolean(persistedScanID);
+  const persistedCompleteness = persistedScanPartial ? 'partial' : persistedScanCoverageUnknown ? 'unknown' : 'complete';
   const rows = showingPersistedScan
-    ? persistedFindings?.map((finding) => awsPersistedFindingRiskOperationRow(finding, connection)) ?? []
+    ? persistedFindings?.map((finding) => awsPersistedFindingRiskOperationRow(finding, connection, persistedScan, persistedCompleteness)) ?? []
     : findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, scope, environmentID, connection)) ?? [];
   const displayedRows = filterAWSInventoryRows(rows, filters);
   const persistedScanReadyToLoad = Boolean(scope && environmentID);
@@ -18428,7 +18619,7 @@ function AWSFindingsContent({
           columns={[
             { key: 'title', header: 'Finding', render: (row) => row.detailLink ? <Link to={row.detailLink}>{row.title}</Link> : <strong>{row.title}</strong> },
             { key: 'category', header: 'Severity', render: (row) => row.category },
-            { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+            { key: 'evidence', header: 'Evidence', render: (row) => <AWSFindingEvidenceCell row={row} /> },
             { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
             { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={showingPersistedScan ? awsPersistedFindingStatusLabel(row.status) : formatTokenLabel(row.status)} /> }
           ]}
