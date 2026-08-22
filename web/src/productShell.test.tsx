@@ -8107,6 +8107,59 @@ describe('Domain-first app routes', () => {
     } as any;
     const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockResolvedValue({
       findings: {
+        status: 'ready',
+        findings: [equivalenceFinding],
+        summary: {
+          external_provider_key_count: 0,
+          aws_managed_secret_count: 0,
+          runtime_observed_count: 0,
+          kms_backed_count: 0
+        },
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        coverage_gaps: [
+          {
+            capability: 'secret_value_collection',
+            status: 'unsupported',
+            reason: 'Secret values are intentionally excluded.'
+          }
+        ],
+        diagnostics: []
+      } as any
+    });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Findings' })).toBeInTheDocument();
+    const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
+    expect(within(findingsTable).getByText(/Completeness: Complete/i)).toBeInTheDocument();
+    expect(within(findingsTable).getByRole('link', { name: /Agent provider key equivalence/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=case-triage-id&tab=secrets'
+    );
+    expect(within(findingsTable).getByText('High')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Review')).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'AWS secret-to-permission equivalence findings' })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    getSecretPermissionEquivalence.mockResolvedValue({
+      findings: {
         status: 'degraded',
         findings: [equivalenceFinding],
         summary: {
@@ -8129,31 +8182,25 @@ describe('Domain-first app routes', () => {
       } as any
     });
 
-    const { ProductAWSFindingsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 2, name: 'Findings' })).toBeInTheDocument();
-    const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
-    expect(within(findingsTable).getByText(/Completeness: Partial/i)).toBeInTheDocument();
-    expect(within(findingsTable).getByRole('link', { name: /Agent provider key equivalence/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=case-triage-id&tab=secrets'
-    );
-    expect(within(findingsTable).getByText('High')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('Review')).toBeInTheDocument();
-    expect(screen.queryByRole('table', { name: 'AWS secret-to-permission equivalence findings' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Findings search' }), { target: { value: 'openai' } });
     await waitFor(() =>
       expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
         'workspace-a',
         'production',
-        expect.objectContaining({ connectorID: 'aws-connector-1' }),
+        expect.objectContaining({ connectorID: 'aws-connector-1', search: 'openai' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await waitFor(() =>
+      expect(within(screen.getByRole('table', { name: 'AWS findings' })).getByText(/Completeness: Partial/i)).toBeInTheDocument()
+    );
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Findings search' }), { target: { value: '' } });
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', search: undefined }),
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );

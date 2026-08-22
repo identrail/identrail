@@ -18228,7 +18228,7 @@ function awsSecretPermissionEquivalenceCompleteness(result: AWSSecretPermissionE
   if (result.status === 'blocked') {
     return 'unknown';
   }
-  if (result.status === 'degraded' || result.coverage_gaps.length > 0) {
+  if (result.status === 'degraded') {
     return 'partial';
   }
   return 'complete';
