@@ -26109,7 +26109,7 @@ button.idt-domain-finding-card:focus-visible {
 }
 
 .idt-domain-drawer.is-expanded {
-  width: min(72rem, 86vw);
+  width: min(var(--idt-domain-drawer-width, 72rem), 86vw);
 }
 
 .idt-domain-drawer.is-swiping {
@@ -33542,7 +33542,7 @@ html[data-theme='light'] .idt-danger-modal-typed input {
 .idt-aws-finding-summary-heading strong {
   display: block;
   margin-top: 0.2rem;
-  color: var(--idt-text, #f6f7f8);
+  color: var(--app-text);
 }
 
 .idt-aws-finding-summary-note {
@@ -33553,7 +33553,7 @@ html[data-theme='light'] .idt-danger-modal-typed input {
 
 .idt-aws-finding-severity-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.6rem;
 }
 
@@ -33570,8 +33570,22 @@ html[data-theme='light'] .idt-danger-modal-typed input {
 }
 
 .idt-aws-finding-severity-summary-item > strong {
-  color: var(--idt-text, #f6f7f8);
+  color: var(--app-text);
   font-size: 0.9rem;
+}
+
+@media (max-width: 720px) {
+  .idt-aws-finding-summary-heading {
+    flex-direction: column;
+  }
+
+  .idt-aws-finding-summary-note {
+    white-space: normal;
+  }
+
+  .idt-aws-finding-severity-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .idt-aws-finding-detail-badges {

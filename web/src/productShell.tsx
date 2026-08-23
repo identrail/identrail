@@ -18156,17 +18156,37 @@ function AWSFindingStatusBadge({ status, showingPersistedScan }: { status: strin
   return <span className="idt-aws-finding-status">{label}</span>;
 }
 
-function AWSFindingSeveritySummary({ rows, displayedCount }: { rows: AWSRiskOperationTableRow[]; displayedCount: number }) {
-  const counts = ['critical', 'high', 'medium', 'low'].map((severity) => ({
+function awsFindingResourceKey(row: AWSRiskOperationTableRow): string {
+  const resourceARN = normalizeValue(row.resourceARN);
+  if (resourceARN) {
+    return `arn:${resourceARN}`;
+  }
+  const resourceParts = [row.resourceType, row.resourceLabel, row.accountID, row.scopeLabel].map(normalizeValue);
+  if (resourceParts.some(Boolean)) {
+    return `resource:${resourceParts.join('|')}`;
+  }
+  const identityKey = normalizeValue(row.identityKey);
+  return identityKey ? `identity:${identityKey}` : `finding:${row.id}`;
+}
+
+function awsFindingDistinctResourceCount(rows: AWSRiskOperationTableRow[]): number {
+  return new Set(rows.map(awsFindingResourceKey)).size;
+}
+
+function AWSFindingSeveritySummary({ rows, resourceCount }: { rows: AWSRiskOperationTableRow[]; resourceCount: number }) {
+  const counts = ['critical', 'high', 'medium', 'low', 'unknown'].map((severity) => ({
     severity,
-    count: rows.filter((row) => normalizeValue(row.category).toLowerCase() === severity).length
+    count: rows.filter((row) => {
+      const normalized = normalizeValue(row.category).toLowerCase();
+      return normalized === severity || (severity === 'unknown' && !['critical', 'high', 'medium', 'low'].includes(normalized));
+    }).length
   }));
   return (
     <section className="idt-aws-finding-summary" aria-label="Finding priority summary">
       <div className="idt-aws-finding-summary-heading">
         <div>
           <p className="idt-app-kicker">Priority overview</p>
-          <strong>{rows.length} risk signals · {displayedCount} affected resources</strong>
+          <strong>{rows.length} risk signals · {resourceCount} affected resources</strong>
         </div>
         <span className="idt-aws-finding-summary-note">Sorted by severity</span>
       </div>
@@ -18965,7 +18985,7 @@ function AWSFindingsContent({
           </p>
         </DomainStatusPanel>
       ) : null}
-      {displayedRows.length > 0 ? <AWSFindingSeveritySummary rows={filteredRows} displayedCount={displayedRows.length} /> : null}
+      {displayedRows.length > 0 ? <AWSFindingSeveritySummary rows={filteredRows} resourceCount={awsFindingDistinctResourceCount(filteredRows)} /> : null}
       <AWSRiskOperationFilterSet routeID="findings" filters={filters} onChange={onFiltersChange} />
       {error ? (
         <DomainErrorState

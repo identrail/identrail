@@ -1053,7 +1053,7 @@ export function DomainDetailDrawer({
 
   const handleResizeKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const { min, max } = getDrawerWidthBounds();
-    const currentWidth = drawerWidth ?? Math.min(560, max);
+    const currentWidth = drawerWidth ?? (drawerRef.current?.getBoundingClientRect().width || Math.min(560, max));
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
       event.preventDefault();
       const nextWidth = event.key === 'Home'
@@ -1096,6 +1096,7 @@ export function DomainDetailDrawer({
               <button
                 type="button"
                 className="idt-domain-drawer-expand"
+                onPointerDown={(event) => event.stopPropagation()}
                 onClick={() => setIsExpanded((value) => !value)}
                 aria-label={isExpanded ? 'Restore detail drawer' : 'Expand detail drawer'}
                 title={isExpanded ? 'Restore detail drawer' : 'Expand detail drawer'}
@@ -1113,7 +1114,6 @@ export function DomainDetailDrawer({
             type="button"
             className="idt-domain-drawer-resize-handle"
             aria-label="Resize detail drawer"
-            aria-orientation="vertical"
             title="Resize detail drawer"
             onPointerDown={handleResizePointerDown}
             onPointerMove={handleResizePointerMove}

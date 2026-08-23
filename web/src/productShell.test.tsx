@@ -8703,6 +8703,20 @@ describe('Domain-first app routes', () => {
                 remediation: 'Assign an accountable owner to the role.',
                 created_at: '2026-08-20T20:03:00Z',
                 lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-unknown-severity',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_role',
+                severity: 'informational',
+                title: 'Unclassified IAM role signal',
+                human_summary: 'The severity is not mapped to a supported priority.',
+                path: ['unclassified-role'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy', account_id: '123456789012', region: 'us-east-1' },
+                remediation: 'Review the signal classification.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
               }
             ],
             next_cursor: 'aws-findings-page-2'
@@ -8724,6 +8738,7 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByText('AWS findings')).toBeInTheDocument();
     expect(screen.getByText(/source completeness could not be verified/i)).toBeInTheDocument();
+    expect(within(await screen.findByRole('region', { name: 'Finding priority summary' })).getByText('Unknown')).toBeInTheDocument();
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
     expect(within(findingsTable).getByText('production-role', { exact: true })).toBeInTheDocument();
     const overprivilegedRow = within(findingsTable).getByText('production-role', { exact: true }).closest('tr');

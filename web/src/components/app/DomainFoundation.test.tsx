@@ -405,13 +405,20 @@ describe('DomainFoundation', () => {
     expect(drawer).not.toHaveClass('is-expanded');
     expect(document.body.style.overflow).toBe('hidden');
 
+    Object.defineProperty(drawer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ width: 448 } as DOMRect)
+    });
+
     fireEvent.click(expandButton);
     expect(drawer).toHaveClass('is-expanded');
     expect(screen.getByRole('button', { name: 'Restore detail drawer' })).toBeInTheDocument();
 
     const resizeHandle = screen.getByRole('button', { name: 'Resize detail drawer' });
     fireEvent.keyDown(resizeHandle, { key: 'ArrowLeft' });
-    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toMatch(/px/);
+    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('472px');
+    fireEvent.keyDown(resizeHandle, { key: 'ArrowRight' });
+    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('448px');
 
     unmount();
     expect(document.body.style.overflow).toBe('');
