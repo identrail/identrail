@@ -368,6 +368,27 @@ describe('DomainFoundation', () => {
     expect(document.activeElement).toBe(approveButton);
   });
 
+  it('does not trap focus on a hidden resize handle', () => {
+    render(
+      <DomainDetailDrawer open title="Identity detail" onClose={() => undefined} resizable footer={<button type="button">Approve</button>}>
+        <a href="/inventory">View inventory</a>
+      </DomainDetailDrawer>
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Identity detail' });
+    const closeButton = screen.getByRole('button', { name: 'Close detail drawer' });
+    const approveButton = screen.getByRole('button', { name: 'Approve' });
+    const resizeHandle = screen.getByRole('button', { name: 'Resize detail drawer' });
+    resizeHandle.style.display = 'none';
+
+    approveButton.focus();
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(closeButton);
+
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(approveButton);
+  });
+
   it('restores focus to the prior element when the drawer closes', () => {
     function Host() {
       const [open, setOpen] = useState(false);

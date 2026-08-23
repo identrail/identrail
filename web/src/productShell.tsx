@@ -18158,6 +18158,11 @@ function AWSFindingStatusBadge({ status, showingPersistedScan }: { status: strin
 }
 
 function awsFindingResourceKey(row: AWSRiskOperationTableRow): string {
+  const identityKey = normalizeValue(row.identityKey);
+  const normalizedResourceType = normalizeValue(row.resourceType).toLowerCase();
+  if (identityKey && normalizedResourceType.startsWith('iam ')) {
+    return `identity:${identityKey}`;
+  }
   const resourceARN = normalizeValue(row.resourceARN);
   if (resourceARN) {
     return `arn:${resourceARN}`;
@@ -18166,7 +18171,6 @@ function awsFindingResourceKey(row: AWSRiskOperationTableRow): string {
   if (resourceParts.some(Boolean)) {
     return `resource:${resourceParts.join('|')}`;
   }
-  const identityKey = normalizeValue(row.identityKey);
   return identityKey ? `identity:${identityKey}` : `finding:${row.id}`;
 }
 

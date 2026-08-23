@@ -830,9 +830,13 @@ function getDomainDrawerFocusable(root: HTMLElement | null): HTMLElement[] {
   if (!root) {
     return [];
   }
-  return Array.from(root.querySelectorAll<HTMLElement>(DOMAIN_DRAWER_FOCUSABLE_SELECTOR)).filter(
-    (el) => el.getAttribute('aria-hidden') !== 'true'
-  );
+  return Array.from(root.querySelectorAll<HTMLElement>(DOMAIN_DRAWER_FOCUSABLE_SELECTOR)).filter((element) => {
+    if (element.hidden || element.getAttribute('aria-hidden') === 'true') {
+      return false;
+    }
+    const style = window.getComputedStyle(element);
+    return style.display !== 'none' && style.visibility !== 'hidden';
+  });
 }
 
 export function DomainDetailDrawer({

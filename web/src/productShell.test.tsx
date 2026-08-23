@@ -8738,7 +8738,9 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByText('AWS findings')).toBeInTheDocument();
     expect(screen.getByText(/source completeness could not be verified/i)).toBeInTheDocument();
-    expect(within(await screen.findByRole('region', { name: 'Finding priority summary' })).getByText('Unknown')).toBeInTheDocument();
+    const prioritySummary = await screen.findByRole('region', { name: 'Finding priority summary' });
+    expect(within(prioritySummary).getByText('Unknown')).toBeInTheDocument();
+    expect(within(prioritySummary).getByText('20 risk signals · 18 affected resources')).toBeInTheDocument();
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
     expect(within(findingsTable).getByText('production-role', { exact: true })).toBeInTheDocument();
     const overprivilegedRow = within(findingsTable).getByText('production-role', { exact: true }).closest('tr');
