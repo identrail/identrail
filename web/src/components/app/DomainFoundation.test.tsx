@@ -410,15 +410,23 @@ describe('DomainFoundation', () => {
       value: () => ({ width: 448 } as DOMRect)
     });
 
+    const resizeHandle = screen.getByRole('button', { name: 'Resize detail drawer' });
+    fireEvent.keyDown(resizeHandle, { key: 'ArrowLeft' });
+    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('472px');
+
     fireEvent.click(expandButton);
     expect(drawer).toHaveClass('is-expanded');
+    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('');
     expect(screen.getByRole('button', { name: 'Restore detail drawer' })).toBeInTheDocument();
 
-    const resizeHandle = screen.getByRole('button', { name: 'Resize detail drawer' });
     fireEvent.keyDown(resizeHandle, { key: 'ArrowLeft' });
     expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('472px');
     fireEvent.keyDown(resizeHandle, { key: 'ArrowRight' });
     expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('448px');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore detail drawer' }));
+    expect(drawer).not.toHaveClass('is-expanded');
+    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('472px');
 
     unmount();
     expect(document.body.style.overflow).toBe('');

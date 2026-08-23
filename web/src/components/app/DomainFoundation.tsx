@@ -861,6 +861,7 @@ export function DomainDetailDrawer({
   const [dragOffset, setDragOffset] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
   const [drawerWidth, setDrawerWidth] = useState<number | null>(null);
+  const [drawerWidthBeforeExpand, setDrawerWidthBeforeExpand] = useState<number | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const dragOffsetRef = useRef(0);
   const resizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
@@ -910,6 +911,7 @@ export function DomainDetailDrawer({
       setIsSwiping(false);
       dragRef.current = null;
       setDrawerWidth(null);
+      setDrawerWidthBeforeExpand(null);
       setIsExpanded(false);
       resizeRef.current = null;
     }
@@ -1070,6 +1072,18 @@ export function DomainDetailDrawer({
     ...(drawerWidth ? { '--idt-domain-drawer-width': `${drawerWidth}px` } : {})
   } as CSSProperties;
 
+  const toggleExpanded = () => {
+    if (isExpanded) {
+      setDrawerWidth(drawerWidthBeforeExpand);
+      setDrawerWidthBeforeExpand(null);
+      setIsExpanded(false);
+      return;
+    }
+    setDrawerWidthBeforeExpand(drawerWidth);
+    setDrawerWidth(null);
+    setIsExpanded(true);
+  };
+
   if (!open) {
     return null;
   }
@@ -1097,7 +1111,7 @@ export function DomainDetailDrawer({
                 type="button"
                 className="idt-domain-drawer-expand"
                 onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => setIsExpanded((value) => !value)}
+                onClick={toggleExpanded}
                 aria-label={isExpanded ? 'Restore detail drawer' : 'Expand detail drawer'}
                 title={isExpanded ? 'Restore detail drawer' : 'Expand detail drawer'}
               >
