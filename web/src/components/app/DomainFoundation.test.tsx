@@ -393,6 +393,30 @@ describe('DomainFoundation', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it('supports expanding and keyboard resizing the detail drawer', () => {
+    const { unmount } = render(
+      <DomainDetailDrawer open title="Identity detail" onClose={() => undefined} resizable expandable>
+        <p>Identity payload</p>
+      </DomainDetailDrawer>
+    );
+
+    const drawer = screen.getByText('Identity payload').closest<HTMLElement>('.idt-domain-drawer')!;
+    const expandButton = screen.getByRole('button', { name: 'Expand detail drawer' });
+    expect(drawer).not.toHaveClass('is-expanded');
+    expect(document.body.style.overflow).toBe('hidden');
+
+    fireEvent.click(expandButton);
+    expect(drawer).toHaveClass('is-expanded');
+    expect(screen.getByRole('button', { name: 'Restore detail drawer' })).toBeInTheDocument();
+
+    const resizeHandle = screen.getByRole('button', { name: 'Resize detail drawer' });
+    fireEvent.keyDown(resizeHandle, { key: 'ArrowLeft' });
+    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toMatch(/px/);
+
+    unmount();
+    expect(document.body.style.overflow).toBe('');
+  });
+
   it('closes the drawer when swiped off screen on touch devices', () => {
     const onClose = vi.fn();
     render(

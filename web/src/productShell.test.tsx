@@ -8722,8 +8722,8 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('Showing findings from this AWS scan')).toBeInTheDocument();
-    expect(screen.getByText(/could not verify source completeness/i)).toBeInTheDocument();
+    expect(await screen.findByText('AWS findings')).toBeInTheDocument();
+    expect(screen.getByText(/source completeness could not be verified/i)).toBeInTheDocument();
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
     expect(within(findingsTable).getByText('production-role', { exact: true })).toBeInTheDocument();
     const overprivilegedRow = within(findingsTable).getByText('production-role', { exact: true }).closest('tr');
@@ -8763,11 +8763,11 @@ describe('Domain-first app routes', () => {
     expect(within(findingsTable).getByText('Blocked')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Suppressed')).toBeInTheDocument();
     expect(within(findingsTable).queryByText(/Region unknown/i)).not.toBeInTheDocument();
-    expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region eu-west-1 · 1 evidence node')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('shared-function-colon · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('payments · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('database-password-abc123 · Secrets Manager secret · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region us-east-1')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region eu-west-1')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('shared-function-colon · Lambda function · Account 123456789012 · Region us-east-1')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('payments · Lambda function · Account 123456789012 · Region us-east-1')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('database-password-abc123 · Secrets Manager secret · Account 123456789012 · Region us-east-1')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Production database secret', { exact: true })).toBeInTheDocument();
     expect(within(findingsTable).getByText('Staging database secret', { exact: true })).toBeInTheDocument();
 
@@ -8860,7 +8860,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('Showing findings from this AWS scan')).toBeInTheDocument();
+    expect(await screen.findByText('AWS findings')).toBeInTheDocument();
     expect(await screen.findByText('Historical IAM finding')).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'unknown' } });

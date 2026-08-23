@@ -842,7 +842,9 @@ export function DomainDetailDrawer({
   onClose,
   closeLabel = 'Close detail drawer',
   children,
-  footer
+  footer,
+  resizable = false,
+  expandable = false
 }: {
   open: boolean;
   title: string;
@@ -851,12 +853,17 @@ export function DomainDetailDrawer({
   closeLabel?: string;
   children: ReactNode;
   footer?: ReactNode;
+  resizable?: boolean;
+  expandable?: boolean;
 }) {
   const drawerRef = useRef<HTMLElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
+  const [drawerWidth, setDrawerWidth] = useState<number | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const dragOffsetRef = useRef(0);
+  const resizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -884,10 +891,27 @@ export function DomainDetailDrawer({
 
   useEffect(() => {
     if (!open) {
+      return;
+    }
+    const body = document.body;
+    const previousOverflow = body.style.overflow;
+    body.classList.add('idt-domain-drawer-open');
+    body.style.overflow = 'hidden';
+    return () => {
+      body.classList.remove('idt-domain-drawer-open');
+      body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
       setDragOffset(0);
       dragOffsetRef.current = 0;
       setIsSwiping(false);
       dragRef.current = null;
+      setDrawerWidth(null);
+      setIsExpanded(false);
+      resizeRef.current = null;
     }
   }, [open]);
 
@@ -984,8 +1008,66 @@ export function DomainDetailDrawer({
     setDragOffset(nextOffset);
   };
 
+  const getDrawerWidthBounds = useCallback(() => {
+    const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
+    return {
+      min: Math.min(360, viewportWidth * 0.9),
+      max: Math.min(1120, viewportWidth * 0.86)
+    };
+  }, []);
+
+  const handleResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const { min, max } = getDrawerWidthBounds();
+    const currentWidth = drawerRef.current?.getBoundingClientRect().width || drawerWidth || Math.min(560, max);
+    resizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: Math.min(max, Math.max(min, currentWidth))
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handleResizePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const resize = resizeRef.current;
+    if (!resize) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const { min, max } = getDrawerWidthBounds();
+    const nextWidth = Math.min(max, Math.max(min, resize.startWidth + resize.startX - event.clientX));
+    setDrawerWidth(nextWidth);
+  };
+
+  const finishResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const resize = resizeRef.current;
+    if (!resize) {
+      return;
+    }
+    event.stopPropagation();
+    resizeRef.current = null;
+    event.currentTarget.releasePointerCapture?.(resize.pointerId);
+  };
+
+  const handleResizeKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const { min, max } = getDrawerWidthBounds();
+    const currentWidth = drawerWidth ?? Math.min(560, max);
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      const nextWidth = event.key === 'Home'
+        ? min
+        : event.key === 'End'
+          ? max
+          : currentWidth + (event.key === 'ArrowLeft' ? 24 : -24);
+      setDrawerWidth(Math.min(max, Math.max(min, nextWidth)));
+    }
+  };
+
   const drawerStyle = {
-    '--idt-domain-drawer-swipe-x': `${dragOffset}px`
+    '--idt-domain-drawer-swipe-x': `${dragOffset}px`,
+    ...(drawerWidth ? { '--idt-domain-drawer-width': `${drawerWidth}px` } : {})
   } as CSSProperties;
 
   if (!open) {
@@ -995,7 +1077,7 @@ export function DomainDetailDrawer({
     <div className="idt-domain-drawer-root" role="dialog" aria-modal="true" aria-label={title} onKeyDown={handleKeyDown}>
       <button type="button" className="idt-domain-drawer-scrim" aria-hidden="true" tabIndex={-1} onClick={onClose} />
       <aside
-        className={classNames(['idt-domain-drawer', isSwiping ? 'is-swiping' : ''])}
+        className={classNames(['idt-domain-drawer', isSwiping ? 'is-swiping' : '', isExpanded ? 'is-expanded' : ''])}
         onPointerCancel={() => finishSwipe()}
         onPointerDown={handleDrawerPointerDown}
         onPointerMove={handleDrawerPointerMove}
@@ -1009,10 +1091,37 @@ export function DomainDetailDrawer({
             {eyebrow ? <p className="idt-app-kicker">{eyebrow}</p> : null}
             <h3>{title}</h3>
           </div>
-          <button type="button" className="idt-domain-drawer-close" onClick={onClose} aria-label={closeLabel}>
-            ESC
-          </button>
+          <div className="idt-domain-drawer-header-actions">
+            {expandable ? (
+              <button
+                type="button"
+                className="idt-domain-drawer-expand"
+                onClick={() => setIsExpanded((value) => !value)}
+                aria-label={isExpanded ? 'Restore detail drawer' : 'Expand detail drawer'}
+                title={isExpanded ? 'Restore detail drawer' : 'Expand detail drawer'}
+              >
+                {isExpanded ? 'RESTORE' : 'EXPAND'}
+              </button>
+            ) : null}
+            <button type="button" className="idt-domain-drawer-close" onClick={onClose} aria-label={closeLabel}>
+              ESC
+            </button>
+          </div>
         </header>
+        {resizable ? (
+          <button
+            type="button"
+            className="idt-domain-drawer-resize-handle"
+            aria-label="Resize detail drawer"
+            aria-orientation="vertical"
+            title="Resize detail drawer"
+            onPointerDown={handleResizePointerDown}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={finishResize}
+            onPointerCancel={finishResize}
+            onKeyDown={handleResizeKeyDown}
+          />
+        ) : null}
         <div className="idt-domain-drawer-body">{children}</div>
         {footer ? <footer>{footer}</footer> : null}
       </aside>

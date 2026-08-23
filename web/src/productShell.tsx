@@ -888,7 +888,7 @@ export const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig>
       productDomainRoute('observability', 'Observability', 'observability', 'Observability', '', 'Platform health, metrics, traces, and alerts for AWS collection and governance.'),
       productDomainRoute('ga-demo', 'GA Demo', 'ga-demo', 'GA Demo', '', 'End-to-end AWS operator walkthrough, permission docs, and GA readiness checks.'),
       productDomainRoute('graph', 'Graph', 'graph', 'Graph', '', 'How AWS roles can reach things, visualised.'),
-      productDomainRoute('findings', 'Findings', 'findings', 'Findings', '', 'Risks Identrail found in your AWS setup.'),
+      productDomainRoute('findings', 'Findings', 'findings', 'Findings', '', 'Prioritized AWS risks for the connected scope.'),
       productDomainRoute('remediation', 'Remediation', 'remediation', 'Remediation', '', 'AWS fixes Identrail prepares for you to approve.'),
       productDomainRoute('outcomes', 'Outcomes', 'outcomes', 'Outcomes', '', 'Executive outcome view for coverage, risk reduction, verified fixes, enforcement, and remaining exposure.'),
       productDomainRoute('governance', 'Governance', 'governance', 'Governance', '', "Advice on AWS access. Identrail won't apply changes for you.")
@@ -12709,7 +12709,7 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     routeID: 'findings',
     title: 'Findings',
     eyebrow: '',
-    description: 'Risks Identrail found in your AWS setup.',
+    description: 'Prioritized AWS risks for the connected scope.',
     statusLabel: '',
     currentCapability: '',
     plannedCapability: '',
@@ -18145,6 +18145,43 @@ function AWSFindingEvidenceCell({ row }: { row: AWSRiskOperationTableRow }) {
   );
 }
 
+function AWSFindingSeverityBadge({ severity }: { severity: string }) {
+  const normalized = normalizeValue(severity).toLowerCase();
+  const tone = ['critical', 'high', 'medium', 'low'].includes(normalized) ? normalized : 'unknown';
+  return <span className={`idt-aws-finding-severity is-${tone}`}>{formatTokenLabel(severity)}</span>;
+}
+
+function AWSFindingStatusBadge({ status, showingPersistedScan }: { status: string; showingPersistedScan: boolean }) {
+  const label = showingPersistedScan ? awsPersistedFindingStatusLabel(status) : formatTokenLabel(status);
+  return <span className="idt-aws-finding-status">{label}</span>;
+}
+
+function AWSFindingSeveritySummary({ rows, displayedCount }: { rows: AWSRiskOperationTableRow[]; displayedCount: number }) {
+  const counts = ['critical', 'high', 'medium', 'low'].map((severity) => ({
+    severity,
+    count: rows.filter((row) => normalizeValue(row.category).toLowerCase() === severity).length
+  }));
+  return (
+    <section className="idt-aws-finding-summary" aria-label="Finding priority summary">
+      <div className="idt-aws-finding-summary-heading">
+        <div>
+          <p className="idt-app-kicker">Priority overview</p>
+          <strong>{rows.length} risk signals · {displayedCount} affected resources</strong>
+        </div>
+        <span className="idt-aws-finding-summary-note">Sorted by severity</span>
+      </div>
+      <div className="idt-aws-finding-severity-summary">
+        {counts.map(({ severity, count }) => (
+          <div className="idt-aws-finding-severity-summary-item" key={severity}>
+            <AWSFindingSeverityBadge severity={severity} />
+            <strong>{count}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function awsFindingSeverityRank(value: string): number {
   switch (normalizeValue(value).toLowerCase()) {
     case 'critical': return 4;
@@ -18201,7 +18238,12 @@ function groupAWSFindingRows(rows: AWSRiskOperationTableRow[]): AWSRiskOperation
     const primary = [...(statusRows.length > 0 ? statusRows : group)].sort(
       (left, right) => awsFindingSeverityRank(right.category) - awsFindingSeverityRank(left.category)
     )[0];
-    const orderedGroup = [primary, ...group.filter((row) => row !== primary)];
+    const orderedGroup = [
+      primary,
+      ...group
+        .filter((row) => row !== primary)
+        .sort((left, right) => awsFindingSeverityRank(right.category) - awsFindingSeverityRank(left.category) || left.title.localeCompare(right.title))
+    ];
     return {
       ...primary,
       id: `aws-identity-group:${key}`,
@@ -18275,12 +18317,15 @@ function AWSFindingDetailsDrawer({
   }, [open, representative?.findingID, representative?.scanID, scope?.tenantID, scope?.workspaceID, showingPersistedScan]);
 
   return (
-    <DomainDetailDrawer open={open} title="Finding details" eyebrow="AWS risk" onClose={onClose}>
+    <DomainDetailDrawer open={open} title="Finding details" eyebrow="AWS risk" onClose={onClose} resizable expandable>
       {row && representative ? (
         <div className="idt-aws-finding-detail">
           <div className="idt-aws-finding-detail-heading">
             <h4>{representative.title}</h4>
-            <AWSInventoryPill stage={representative.stage} label={showingPersistedScan ? awsPersistedFindingStatusLabel(representative.status) : formatTokenLabel(representative.status)} />
+            <div className="idt-aws-finding-detail-badges">
+              <AWSFindingSeverityBadge severity={representative.category} />
+              <AWSFindingStatusBadge status={representative.status} showingPersistedScan={showingPersistedScan} />
+            </div>
           </div>
           <section>
             <h5>Why it matters</h5>
@@ -18352,7 +18397,13 @@ function AWSFindingDetailsDrawer({
               <ol className="idt-aws-finding-history">{history.map((event) => <li key={event.id}><strong>{formatTokenLabel(event.from_status)} → {formatTokenLabel(event.to_status)}</strong><span>{formatDateLabel(event.created_at)}{event.actor ? ` · ${event.actor}` : ''}</span>{event.comment ? <p>{event.comment}</p> : null}</li>)}</ol>
             ) : <p>No recorded triage changes.</p>}
           </section>
-          {representative.consoleLink ? <a className="idt-aws-finding-console-link" href={representative.consoleLink} target="_blank" rel="noreferrer">Open in AWS Console <ExternalLink size={15} aria-hidden="true" /></a> : null}
+          {representative.consoleLink ? (
+            <a className="idt-aws-finding-console-link" href={representative.consoleLink} target="_blank" rel="noreferrer">
+              Open in AWS Console <ExternalLink size={15} aria-hidden="true" />
+            </a>
+          ) : (
+            <p className="idt-aws-finding-console-unavailable">No direct AWS Console link is available for this resource type.</p>
+          )}
         </div>
       ) : null}
     </DomainDetailDrawer>
@@ -18791,7 +18842,7 @@ function awsPersistedFindingRiskOperationRow(
     category: formatTokenLabel(finding.severity),
     evidence,
     owner: finding.triage?.assignee || (finding.owner && finding.owner !== source ? finding.owner : undefined) || 'Unassigned',
-    blastRadius: `${findingScope.resourceLabel} · ${findingScope.resourceType} · ${findingScope.scopeLabel}${technicalEvidence.length > 0 ? ` · ${technicalEvidence.length} evidence node${technicalEvidence.length === 1 ? '' : 's'}` : ''}`,
+    blastRadius: `${findingScope.resourceLabel} · ${findingScope.resourceType} · ${findingScope.scopeLabel}`,
     nextAction: finding.remediation || 'Review the finding evidence and remediate the affected AWS resource.',
     status,
     stage: awsPersistedFindingStage(finding),
@@ -18887,7 +18938,9 @@ function AWSFindingsContent({
     ? persistedFindings?.map((finding) => awsPersistedFindingRiskOperationRow(finding, connection, persistedScan, persistedCompleteness)) ?? []
     : findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, findings, scope, environmentID, connection)) ?? [];
   const filteredRows = filterAWSInventoryRows(rows, filters);
-  const displayedRows = groupAWSFindingRows(filteredRows);
+  const displayedRows = groupAWSFindingRows(filteredRows).sort(
+    (left, right) => awsFindingSeverityRank(right.category) - awsFindingSeverityRank(left.category) || left.title.localeCompare(right.title) || left.id.localeCompare(right.id)
+  );
   const [selectedRowID, setSelectedRowID] = useState<string | null>(null);
   const selectedRow = displayedRows.find((row) => row.id === selectedRowID) ?? null;
   const persistedScanReadyToLoad = Boolean(scope && environmentID);
@@ -18898,20 +18951,21 @@ function AWSFindingsContent({
     <>
       {showingPersistedScan && persistedScan ? (
         <DomainStatusPanel
-          eyebrow="Discovery result"
-          title="Showing findings from this AWS scan"
+          eyebrow="Scan result"
+          title="AWS findings"
           status={`${persistedScan.finding_count} finding${persistedScan.finding_count === 1 ? '' : 's'}`}
           tone={persistedScanPartial || persistedScanCoverageUnknown ? 'warning' : 'success'}
         >
           <p>
             {persistedScanPartial
-              ? 'The scan completed with some unavailable sources. These findings are valid for the evidence Identrail collected; review coverage gaps before treating the result as complete.'
+              ? 'Partial coverage: some AWS sources were unavailable. Review coverage before treating this result as complete.'
               : persistedScanCoverageUnknown
-                ? 'These findings come directly from the completed AWS discovery run, but Identrail could not verify source completeness. Run discovery again if you need a fresh coverage check.'
-                : 'These findings come directly from the completed AWS discovery run.'}
+                ? 'Source completeness could not be verified. Run discovery again if you need a fresh coverage check.'
+                : 'Complete coverage for the sources included in this scan.'}
           </p>
         </DomainStatusPanel>
       ) : null}
+      {displayedRows.length > 0 ? <AWSFindingSeveritySummary rows={filteredRows} displayedCount={displayedRows.length} /> : null}
       <AWSRiskOperationFilterSet routeID="findings" filters={filters} onChange={onFiltersChange} />
       {error ? (
         <DomainErrorState
@@ -18959,10 +19013,10 @@ function AWSFindingsContent({
           }
           columns={[
             { key: 'title', header: 'Finding', render: (row) => row.detailLink ? <Link to={row.detailLink}>{row.title}</Link> : <strong>{row.title}</strong> },
-            { key: 'category', header: 'Severity', render: (row) => row.category },
+            { key: 'category', header: 'Severity', render: (row) => <AWSFindingSeverityBadge severity={row.category} /> },
             { key: 'evidence', header: 'Evidence', render: (row) => <AWSFindingEvidenceCell row={row} /> },
             { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
-            { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={showingPersistedScan ? awsPersistedFindingStatusLabel(row.status) : formatTokenLabel(row.status)} /> },
+            { key: 'status', header: 'Status', render: (row) => <AWSFindingStatusBadge status={row.status} showingPersistedScan={showingPersistedScan} /> },
             { key: 'action', header: 'Action', render: (row) => <button type="button" className="idt-aws-finding-view-details" onClick={() => setSelectedRowID(row.id)}>View details</button> }
           ]}
         />
