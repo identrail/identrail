@@ -8771,7 +8771,8 @@ describe('Domain-first app routes', () => {
     fireEvent.click(within(findingDrawer).getByRole('button', { name: 'Close detail drawer' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
     expect(within(findingsTable).getByText('Public S3 bucket')).toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).getByText('Medium')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('High')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).queryByText('Medium')).not.toBeInTheDocument();
     expect(within(overprivilegedRow as HTMLElement).getByText('Open')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Acknowledged')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Resolved')).toBeInTheDocument();

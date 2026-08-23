@@ -13121,6 +13121,7 @@ type AWSRiskOperationTableRow = AWSInventoryFilterable & {
   id: string;
   title: string;
   category: string;
+  maxSeverity?: string;
   evidence: string;
   owner: string;
   blastRadius: string;
@@ -18212,6 +18213,10 @@ function awsFindingSeverityRank(value: string): number {
   }
 }
 
+function awsFindingDisplaySeverity(row: AWSRiskOperationTableRow): string {
+  return row.maxSeverity || row.category;
+}
+
 function awsFindingAggregateStatus(rows: AWSRiskOperationTableRow[]): string {
   const statuses = new Set(rows.map((row) => normalizeValue(row.status).toLowerCase()));
   if (statuses.has('open') || statuses.has('action_required')) return 'open';
@@ -18258,6 +18263,10 @@ function groupAWSFindingRows(rows: AWSRiskOperationTableRow[]): AWSRiskOperation
     const primary = [...(statusRows.length > 0 ? statusRows : group)].sort(
       (left, right) => awsFindingSeverityRank(right.category) - awsFindingSeverityRank(left.category)
     )[0];
+    const maxSeverity = group.reduce(
+      (highest, row) => awsFindingSeverityRank(row.category) > awsFindingSeverityRank(highest) ? row.category : highest,
+      group[0].category
+    );
     const orderedGroup = [
       primary,
       ...group
@@ -18268,6 +18277,7 @@ function groupAWSFindingRows(rows: AWSRiskOperationTableRow[]): AWSRiskOperation
       ...primary,
       id: `aws-identity-group:${key}`,
       title: primary.resourceLabel || primary.title,
+      maxSeverity,
       evidence: `${group.length} related risks detected for this identity.`,
       blastRadius: `${primary.identity ? `${primary.identity} · ` : ''}${primary.resourceLabel || primary.title} · ${primary.resourceType || 'AWS resource'} · ${primary.scopeLabel || primary.blastRadius}`,
       status: aggregateStatus,
@@ -18959,7 +18969,7 @@ function AWSFindingsContent({
     : findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, findings, scope, environmentID, connection)) ?? [];
   const filteredRows = filterAWSInventoryRows(rows, filters);
   const displayedRows = groupAWSFindingRows(filteredRows).sort(
-    (left, right) => awsFindingSeverityRank(right.category) - awsFindingSeverityRank(left.category) || left.title.localeCompare(right.title) || left.id.localeCompare(right.id)
+    (left, right) => awsFindingSeverityRank(awsFindingDisplaySeverity(right)) - awsFindingSeverityRank(awsFindingDisplaySeverity(left)) || left.title.localeCompare(right.title) || left.id.localeCompare(right.id)
   );
   const [selectedRowID, setSelectedRowID] = useState<string | null>(null);
   const selectedRow = displayedRows.find((row) => row.id === selectedRowID) ?? null;
@@ -19033,7 +19043,7 @@ function AWSFindingsContent({
           }
           columns={[
             { key: 'title', header: 'Finding', render: (row) => row.detailLink ? <Link to={row.detailLink}>{row.title}</Link> : <strong>{row.title}</strong> },
-            { key: 'category', header: 'Severity', render: (row) => <AWSFindingSeverityBadge severity={row.category} /> },
+            { key: 'category', header: 'Severity', render: (row) => <AWSFindingSeverityBadge severity={awsFindingDisplaySeverity(row)} /> },
             { key: 'evidence', header: 'Evidence', render: (row) => <AWSFindingEvidenceCell row={row} /> },
             { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
             { key: 'status', header: 'Status', render: (row) => <AWSFindingStatusBadge status={row.status} showingPersistedScan={showingPersistedScan} /> },
