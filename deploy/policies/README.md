@@ -5,7 +5,7 @@ These templates define minimum read-only permissions for Identrail collectors.
 ## AWS IAM
 
 - File: `deploy/policies/aws/identrail-readonly-iam-policy.json`
-- Scope: IAM role and policy metadata required for AWS identity discovery.
+- Scope: read-only IAM and AWS workload metadata required for the SDK identity and reachability collectors.
 - Usage:
   - Create policy from file.
   - Attach to a dedicated scanner role or user.

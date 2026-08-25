@@ -84,6 +84,6 @@ Both routes are covered by the OpenAPI v1 spec and the route-policy registry.
 - `identrail aws-disable`, `identrail aws-enable`, and
   `identrail aws-disconnect` mirror the app lifecycle controls. Disconnect
   requires `--confirm` to exactly match the connector ID.
-- Update organization connector stacks to template `2.1.0` before expecting
-  live Organizations and StackSet inventory. The template adds read-only
-  Organizations and `cloudformation:ListStackInstances` permissions.
+- Update organization connector stacks to template `2.2.0` before expecting
+  complete collector coverage. The template adds the read-only permissions
+  required by the current AWS metadata collectors.

@@ -143,6 +143,10 @@ deliberate: validation must never silently use a value from another workspace,
 project, or connector.
 
 The read-only policy and rationale live together under `deploy/connectors/aws/policies/`.
+The current CloudFormation template is version `2.2.0`; update existing connector
+stacks so the role includes the permissions used by every enabled metadata
+collector. The standalone and legacy policy artifacts are kept in parity with
+that same action contract.
 
 ## Scope Contract
 

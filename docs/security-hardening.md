@@ -36,6 +36,8 @@ This works because Identrail supports multi-key auth during transition.
 
 - AWS policy template:
   - `deploy/policies/aws/identrail-readonly-iam-policy.json`
+  - The connector template and downloadable policy are kept in parity with the
+    same collector action contract.
 - Kubernetes RBAC template:
   - `deploy/policies/kubernetes/identrail-readonly-clusterrole.yaml`
 

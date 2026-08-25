@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"encoding/json"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -9,6 +10,93 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+type readOnlyPolicyFixture struct {
+	Statement []struct {
+		Action json.RawMessage `json:"Action"`
+	} `json:"Statement"`
+}
+
+func policyActionsFromJSON(t *testing.T, body []byte) map[string]struct{} {
+	t.Helper()
+	var policy readOnlyPolicyFixture
+	if err := json.Unmarshal(body, &policy); err != nil {
+		t.Fatalf("parse policy JSON: %v", err)
+	}
+	actions := map[string]struct{}{}
+	for _, statement := range policy.Statement {
+		var many []string
+		if err := json.Unmarshal(statement.Action, &many); err == nil {
+			for _, action := range many {
+				actions[action] = struct{}{}
+			}
+			continue
+		}
+		var one string
+		if err := json.Unmarshal(statement.Action, &one); err != nil {
+			t.Fatalf("parse policy action: %v", err)
+		}
+		actions[one] = struct{}{}
+	}
+	return actions
+}
+
+func requirePolicyActions(t *testing.T, want map[string]struct{}, got map[string]struct{}, source string) {
+	t.Helper()
+	for action := range want {
+		if _, ok := got[action]; !ok {
+			t.Errorf("%s is missing read-only action %q", source, action)
+		}
+	}
+}
+
+func permissionPreviewActions() map[string]struct{} {
+	actions := map[string]struct{}{}
+	for _, item := range PermissionPreview() {
+		for _, action := range item.Actions {
+			actions[action] = struct{}{}
+		}
+	}
+	return actions
+}
+
+func yamlPolicyActions(t *testing.T, template map[string]any) map[string]struct{} {
+	t.Helper()
+	resources := requireYAMLMap(t, template, "Resources")
+	role := requireYAMLMap(t, resources, "IdentrailReadOnlyRole")
+	properties := requireYAMLMap(t, role, "Properties")
+	policies, ok := properties["Policies"].([]any)
+	if !ok || len(policies) == 0 {
+		t.Fatalf("read-only role has no inline policy")
+	}
+	policy := requireYAMLMap(t, policies[0].(map[string]any), "PolicyDocument")
+	statements, ok := policy["Statement"].([]any)
+	if !ok {
+		t.Fatalf("read-only policy statements have unexpected type: %#v", policy["Statement"])
+	}
+	actions := map[string]struct{}{}
+	for _, raw := range statements {
+		statement, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("read-only policy statement has unexpected type: %#v", raw)
+		}
+		switch values := statement["Action"].(type) {
+		case string:
+			actions[values] = struct{}{}
+		case []any:
+			for _, value := range values {
+				action, ok := value.(string)
+				if !ok {
+					t.Fatalf("read-only policy action has unexpected type: %#v", value)
+				}
+				actions[action] = struct{}{}
+			}
+		default:
+			t.Fatalf("read-only policy action has unexpected type: %#v", statement["Action"])
+		}
+	}
+	return actions
+}
 
 func TestReadOnlyTemplateAutomaticRegistrationContract(t *testing.T) {
 	templatePath := filepath.Join("..", "..", "..", "deploy", "connectors", "aws", "identrail-readonly.yaml")
@@ -56,6 +144,40 @@ func TestReadOnlyTemplateAutomaticRegistrationContract(t *testing.T) {
 	if _, leaksToken := registrationProperties["RegistrationToken"]; leaksToken {
 		t.Fatal("registration phase must use the stack-bound bootstrap result, not replay the launch token")
 	}
+}
+
+func TestReadOnlyPolicyArtifactsStayInSync(t *testing.T) {
+	canonical, err := ReadOnlyPolicyDocument()
+	if err != nil {
+		t.Fatalf("read canonical policy: %v", err)
+	}
+	want := policyActionsFromJSON(t, canonical)
+	requirePolicyActions(t, want, permissionPreviewActions(), "permission preview")
+
+	standalonePath := filepath.Join("..", "..", "..", "deploy", "connectors", "aws", "policies", "identrail-readonly-policy.json")
+	standalone, err := os.ReadFile(standalonePath)
+	if err != nil {
+		t.Fatalf("read standalone read-only policy: %v", err)
+	}
+	requirePolicyActions(t, want, policyActionsFromJSON(t, standalone), "standalone policy")
+
+	legacyPath := filepath.Join("..", "..", "..", "deploy", "policies", "aws", "identrail-readonly-iam-policy.json")
+	legacy, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatalf("read legacy read-only policy: %v", err)
+	}
+	requirePolicyActions(t, want, policyActionsFromJSON(t, legacy), "legacy policy")
+
+	templatePath := filepath.Join("..", "..", "..", "deploy", "connectors", "aws", "identrail-readonly.yaml")
+	templateBody, err := os.ReadFile(templatePath)
+	if err != nil {
+		t.Fatalf("read read-only template: %v", err)
+	}
+	var template map[string]any
+	if err := yaml.Unmarshal(templateBody, &template); err != nil {
+		t.Fatalf("parse read-only template: %v", err)
+	}
+	requirePolicyActions(t, want, yamlPolicyActions(t, template), "CloudFormation policy")
 }
 
 func requireYAMLMap(t *testing.T, parent map[string]any, key string) map[string]any {

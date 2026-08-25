@@ -62,6 +62,68 @@ const readOnlyPolicyJSON = `{
       "Resource": "*"
     },
     {
+      "Sid": "IdentityTrustGraphReadOnlyLambda",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListFunctions",
+        "lambda:ListEventSourceMappings",
+        "lambda:ListAliases",
+        "lambda:ListVersionsByFunction",
+        "lambda:ListTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyCodePipeline",
+      "Effect": "Allow",
+      "Action": [
+        "codepipeline:ListPipelines",
+        "codepipeline:GetPipeline",
+        "codepipeline:GetPipelineState"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyStepFunctions",
+      "Effect": "Allow",
+      "Action": [
+        "states:ListStateMachines",
+        "states:DescribeStateMachine",
+        "states:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyEventDriven",
+      "Effect": "Allow",
+      "Action": [
+        "events:ListEventBuses",
+        "events:ListRules",
+        "events:ListTargetsByRule",
+        "events:ListTagsForResource",
+        "scheduler:ListSchedules",
+        "scheduler:GetSchedule",
+        "pipes:ListPipes",
+        "pipes:DescribePipe"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyManagedCompute",
+      "Effect": "Allow",
+      "Action": [
+        "apprunner:ListServices",
+        "apprunner:DescribeService",
+        "batch:DescribeComputeEnvironments",
+        "batch:DescribeJobDefinitions",
+        "glue:GetJobs",
+        "glue:GetCrawlers",
+        "elasticmapreduce:ListClusters",
+        "elasticmapreduce:DescribeCluster"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "IdentityTrustGraphReadOnlyEKS",
       "Effect": "Allow",
       "Action": [
@@ -174,6 +236,60 @@ const readOnlyPolicyJSON = `{
       "Resource": "*"
     },
     {
+      "Sid": "IdentityTrustGraphReadOnlySecretsManager",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:ListSecrets",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetResourcePolicy",
+        "secretsmanager:ListSecretVersionIds"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlySSM",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:DescribeParameters",
+        "ssm:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyAgentCore",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:ListAgentRuntimes",
+        "bedrock-agentcore:GetAgentRuntime",
+        "bedrock-agentcore:ListAgentRuntimeEndpoints",
+        "bedrock-agentcore:ListGateways",
+        "bedrock-agentcore:GetGateway",
+        "bedrock-agentcore:ListGatewayTargets",
+        "bedrock-agentcore:GetGatewayTarget",
+        "bedrock-agentcore:ListMemories",
+        "bedrock-agentcore:GetMemory",
+        "bedrock-agentcore:ListBrowsers",
+        "bedrock-agentcore:GetBrowser",
+        "bedrock-agentcore:ListCodeInterpreters",
+        "bedrock-agentcore:GetCodeInterpreter"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "OrganizationRolloutInventory",
+      "Effect": "Allow",
+      "Action": [
+        "organizations:DescribeOrganization",
+        "organizations:ListAccountsForParent",
+        "organizations:ListDelegatedAdministrators",
+        "organizations:ListDelegatedServicesForAccount",
+        "organizations:ListOrganizationalUnitsForParent",
+        "organizations:ListRoots",
+        "cloudformation:ListStackInstances"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "IdentityTrustGraphCallerIdentity",
       "Effect": "Allow",
       "Action": "sts:GetCallerIdentity",
@@ -269,6 +385,68 @@ func PermissionPreview() []PermissionPreviewItem {
 			},
 			Resources: []string{"*"},
 			Reason:    "Maps CodeBuild projects back to service roles, project sources, artifacts, VPC metadata, and metadata-only secret references.",
+		},
+		{
+			Service: "Lambda",
+			Actions: []string{
+				"lambda:ListFunctions",
+				"lambda:ListEventSourceMappings",
+				"lambda:ListAliases",
+				"lambda:ListVersionsByFunction",
+				"lambda:ListTags",
+			},
+			Resources: []string{"*"},
+			Reason:    "Maps Lambda functions, aliases, versions, event sources, and tags back to execution roles without invoking functions or reading payloads.",
+		},
+		{
+			Service: "CodePipeline",
+			Actions: []string{
+				"codepipeline:ListPipelines",
+				"codepipeline:GetPipeline",
+				"codepipeline:GetPipelineState",
+			},
+			Resources: []string{"*"},
+			Reason:    "Maps CodePipeline deployment roles, artifact stores, stages, actions, and execution state without starting or mutating pipelines.",
+		},
+		{
+			Service: "Step Functions",
+			Actions: []string{
+				"states:ListStateMachines",
+				"states:DescribeStateMachine",
+				"states:ListTagsForResource",
+			},
+			Resources: []string{"*"},
+			Reason:    "Maps Step Functions state-machine roles and service integrations from metadata and definitions without starting executions.",
+		},
+		{
+			Service: "EventBridge/Scheduler/Pipes",
+			Actions: []string{
+				"events:ListEventBuses",
+				"events:ListRules",
+				"events:ListTargetsByRule",
+				"events:ListTagsForResource",
+				"scheduler:ListSchedules",
+				"scheduler:GetSchedule",
+				"pipes:ListPipes",
+				"pipes:DescribePipe",
+			},
+			Resources: []string{"*"},
+			Reason:    "Maps event-driven roles and targets without publishing events, invoking targets, or changing schedules and pipes.",
+		},
+		{
+			Service: "Managed Compute",
+			Actions: []string{
+				"apprunner:ListServices",
+				"apprunner:DescribeService",
+				"batch:DescribeComputeEnvironments",
+				"batch:DescribeJobDefinitions",
+				"glue:GetJobs",
+				"glue:GetCrawlers",
+				"elasticmapreduce:ListClusters",
+				"elasticmapreduce:DescribeCluster",
+			},
+			Resources: []string{"*"},
+			Reason:    "Maps managed compute service roles and workload metadata without submitting jobs, starting clusters, or changing services.",
 		},
 		{
 			Service: "EKS",
@@ -368,6 +546,60 @@ func PermissionPreview() []PermissionPreviewItem {
 			},
 			Resources: []string{"*"},
 			Reason:    "Reads table and cluster/proxy metadata, resource policies, tags, and associated role bindings required to reconstruct data-plane reachability for DynamoDB and RDS without modifying workload state.",
+		},
+		{
+			Service: "Secrets Manager",
+			Actions: []string{
+				"secretsmanager:ListSecrets",
+				"secretsmanager:DescribeSecret",
+				"secretsmanager:GetResourcePolicy",
+				"secretsmanager:ListSecretVersionIds",
+			},
+			Resources: []string{"*"},
+			Reason:    "Reads secret metadata, resource policies, version stages, rotation, and tags without reading secret values.",
+		},
+		{
+			Service: "SSM Parameter Store",
+			Actions: []string{
+				"ssm:DescribeParameters",
+				"ssm:ListTagsForResource",
+			},
+			Resources: []string{"*"},
+			Reason:    "Reads Parameter Store metadata and tags without retrieving parameter values or history.",
+		},
+		{
+			Service: "Bedrock AgentCore",
+			Actions: []string{
+				"bedrock-agentcore:ListAgentRuntimes",
+				"bedrock-agentcore:GetAgentRuntime",
+				"bedrock-agentcore:ListAgentRuntimeEndpoints",
+				"bedrock-agentcore:ListGateways",
+				"bedrock-agentcore:GetGateway",
+				"bedrock-agentcore:ListGatewayTargets",
+				"bedrock-agentcore:GetGatewayTarget",
+				"bedrock-agentcore:ListMemories",
+				"bedrock-agentcore:GetMemory",
+				"bedrock-agentcore:ListBrowsers",
+				"bedrock-agentcore:GetBrowser",
+				"bedrock-agentcore:ListCodeInterpreters",
+				"bedrock-agentcore:GetCodeInterpreter",
+			},
+			Resources: []string{"*"},
+			Reason:    "Reads AgentCore runtime, gateway, and capability metadata without invoking agents or retrieving customer payloads.",
+		},
+		{
+			Service: "Organizations/CloudFormation",
+			Actions: []string{
+				"organizations:DescribeOrganization",
+				"organizations:ListAccountsForParent",
+				"organizations:ListDelegatedAdministrators",
+				"organizations:ListDelegatedServicesForAccount",
+				"organizations:ListOrganizationalUnitsForParent",
+				"organizations:ListRoots",
+				"cloudformation:ListStackInstances",
+			},
+			Resources: []string{"*"},
+			Reason:    "Reads organization and StackSet inventory metadata for approved multi-account rollouts without changing organization state.",
 		},
 		{
 			Service: "ECR",

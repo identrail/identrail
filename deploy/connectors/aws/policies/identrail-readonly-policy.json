@@ -6,6 +6,7 @@
       "Effect": "Allow",
       "Action": [
         "iam:GetAccountSummary",
+        "iam:GetInstanceProfile",
         "iam:GetPolicy",
         "iam:GetPolicyVersion",
         "iam:GetRole",
@@ -24,7 +25,131 @@
       "Action": [
         "ec2:DescribeIamInstanceProfileAssociations",
         "ec2:DescribeInstances",
+        "ec2:DescribeLaunchTemplateVersions",
+        "ec2:DescribeLaunchTemplates",
         "ec2:DescribeRegions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyECS",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeServices",
+        "ecs:DescribeTaskDefinition",
+        "ecs:ListClusters",
+        "ecs:ListServices",
+        "ecs:ListTaskDefinitions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyCodeBuild",
+      "Effect": "Allow",
+      "Action": [
+        "codebuild:BatchGetProjects",
+        "codebuild:ListProjects"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyLambda",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListFunctions",
+        "lambda:ListEventSourceMappings",
+        "lambda:ListAliases",
+        "lambda:ListVersionsByFunction",
+        "lambda:ListTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyCodePipeline",
+      "Effect": "Allow",
+      "Action": [
+        "codepipeline:ListPipelines",
+        "codepipeline:GetPipeline",
+        "codepipeline:GetPipelineState"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyStepFunctions",
+      "Effect": "Allow",
+      "Action": [
+        "states:ListStateMachines",
+        "states:DescribeStateMachine",
+        "states:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyEventDriven",
+      "Effect": "Allow",
+      "Action": [
+        "events:ListEventBuses",
+        "events:ListRules",
+        "events:ListTargetsByRule",
+        "events:ListTagsForResource",
+        "scheduler:ListSchedules",
+        "scheduler:GetSchedule",
+        "pipes:ListPipes",
+        "pipes:DescribePipe"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyManagedCompute",
+      "Effect": "Allow",
+      "Action": [
+        "apprunner:ListServices",
+        "apprunner:DescribeService",
+        "batch:DescribeComputeEnvironments",
+        "batch:DescribeJobDefinitions",
+        "glue:GetJobs",
+        "glue:GetCrawlers",
+        "elasticmapreduce:ListClusters",
+        "elasticmapreduce:DescribeCluster"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyEKS",
+      "Effect": "Allow",
+      "Action": [
+        "eks:DescribeCluster",
+        "eks:DescribeFargateProfile",
+        "eks:DescribeNodegroup",
+        "eks:DescribePodIdentityAssociation",
+        "eks:ListClusters",
+        "eks:ListFargateProfiles",
+        "eks:ListNodegroups",
+        "eks:ListPodIdentityAssociations"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlySageMaker",
+      "Effect": "Allow",
+      "Action": [
+        "sagemaker:DescribeDomain",
+        "sagemaker:DescribeEndpoint",
+        "sagemaker:DescribeEndpointConfig",
+        "sagemaker:DescribeModel",
+        "sagemaker:DescribeNotebookInstance",
+        "sagemaker:DescribePipeline",
+        "sagemaker:DescribeProcessingJob",
+        "sagemaker:DescribeTrainingJob",
+        "sagemaker:DescribeTransformJob",
+        "sagemaker:ListDomains",
+        "sagemaker:ListEndpoints",
+        "sagemaker:ListModels",
+        "sagemaker:ListNotebookInstances",
+        "sagemaker:ListPipelines",
+        "sagemaker:ListProcessingJobs",
+        "sagemaker:ListTrainingJobs",
+        "sagemaker:ListTransformJobs"
       ],
       "Resource": "*"
     },
@@ -41,6 +166,19 @@
         "s3:GetEncryptionConfiguration",
         "s3:ListAccessPoints",
         "s3:ListAllMyBuckets"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyECR",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:DescribeImages",
+        "ecr:DescribeRepositories",
+        "ecr:GetLifecyclePolicy",
+        "ecr:GetRepositoryPolicy",
+        "ecr:GetRegistryScanningConfiguration",
+        "ecr:ListTagsForResource"
       ],
       "Resource": "*"
     },
@@ -74,26 +212,57 @@
       "Resource": "*"
     },
     {
-      "Sid": "IdentityTrustGraphReadOnlySageMaker",
+      "Sid": "IdentityTrustGraphReadOnlyDynamoDBRDS",
       "Effect": "Allow",
       "Action": [
-        "sagemaker:DescribeDomain",
-        "sagemaker:DescribeEndpoint",
-        "sagemaker:DescribeEndpointConfig",
-        "sagemaker:DescribeModel",
-        "sagemaker:DescribeNotebookInstance",
-        "sagemaker:DescribePipeline",
-        "sagemaker:DescribeProcessingJob",
-        "sagemaker:DescribeTrainingJob",
-        "sagemaker:DescribeTransformJob",
-        "sagemaker:ListDomains",
-        "sagemaker:ListEndpoints",
-        "sagemaker:ListModels",
-        "sagemaker:ListNotebookInstances",
-        "sagemaker:ListPipelines",
-        "sagemaker:ListProcessingJobs",
-        "sagemaker:ListTrainingJobs",
-        "sagemaker:ListTransformJobs"
+        "dynamodb:ListTables",
+        "dynamodb:DescribeTable",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:GetResourcePolicy",
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBClusters",
+        "rds:DescribeDBProxies",
+        "rds:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlySecretsManager",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:ListSecrets",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetResourcePolicy",
+        "secretsmanager:ListSecretVersionIds"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlySSM",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:DescribeParameters",
+        "ssm:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyAgentCore",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:ListAgentRuntimes",
+        "bedrock-agentcore:GetAgentRuntime",
+        "bedrock-agentcore:ListAgentRuntimeEndpoints",
+        "bedrock-agentcore:ListGateways",
+        "bedrock-agentcore:GetGateway",
+        "bedrock-agentcore:ListGatewayTargets",
+        "bedrock-agentcore:GetGatewayTarget",
+        "bedrock-agentcore:ListMemories",
+        "bedrock-agentcore:GetMemory",
+        "bedrock-agentcore:ListBrowsers",
+        "bedrock-agentcore:GetBrowser",
+        "bedrock-agentcore:ListCodeInterpreters",
+        "bedrock-agentcore:GetCodeInterpreter"
       ],
       "Resource": "*"
     },
