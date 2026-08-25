@@ -427,6 +427,15 @@ func TestRuleSetGroupsServiceLinkedRoleAnomalies(t *testing.T) {
 func TestRuleSetEmitsInformationalConnectorTrustReview(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	roleARN := "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	expectedActions, err := expectedConnectorPermissionActions()
+	if err != nil {
+		t.Fatalf("expected connector actions: %v", err)
+	}
+	actions := make([]string, 0, len(expectedActions))
+	for action := range expectedActions {
+		actions = append(actions, action)
+	}
+	slices.Sort(actions)
 	role := IAMRole{
 		ARN:                      roleARN,
 		Name:                     identrailConnectorRoleName,
@@ -435,7 +444,7 @@ func TestRuleSetEmitsInformationalConnectorTrustReview(t *testing.T) {
 		PermissionPolicies: []IAMPermissionPolicy{{
 			Name:           "IdentrailReadOnlyCollector",
 			AttachmentType: "inline",
-			Document:       `{"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":["iam:ListRoles","iam:GetRole"],"Resource":"*"}}`,
+			Document:       mustJSON(map[string]any{"Version": "2012-10-17", "Statement": map[string]any{"Effect": "Allow", "Action": actions, "Resource": "*"}}),
 		}},
 	}
 	bundle, relationships := normalizeRoleForRuleTest(t, role)
@@ -458,6 +467,33 @@ func TestRuleSetEmitsInformationalConnectorTrustReview(t *testing.T) {
 	}
 	if encoded, err := json.Marshal(finding); err != nil || strings.Contains(string(encoded), "connector-external-id") {
 		t.Fatalf("connector external ID must not be emitted, payload=%s err=%v", encoded, err)
+	}
+}
+
+func TestRuleSetFlagsMissingConnectorPermissionActions(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	roleARN := "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	role := IAMRole{
+		ARN:                      roleARN,
+		Name:                     identrailConnectorRoleName,
+		AssumeRolePolicyDocument: trustPolicyJSON(map[string]any{"AWS": "arn:aws:iam::210987654321:root"}, "connector-external-id"),
+		PermissionPolicies: []IAMPermissionPolicy{{
+			Name:           "IdentrailReadOnlyCollector",
+			AttachmentType: "inline",
+			Document:       `{"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":["iam:ListRoles","iam:GetRole"],"Resource":"*"}}`,
+		}},
+	}
+	bundle, relationships := normalizeRoleForRuleTest(t, role)
+	findings, err := NewRuleSet(
+		WithRuleClock(func() time.Time { return now }),
+		WithConnectorRoleExpectation(ConnectorRoleExpectation{RoleARN: roleARN, AccountID: "123456789012", TrustedAccountID: "210987654321", ExternalID: "connector-external-id"}),
+	).Evaluate(context.Background(), bundle, relationships)
+	if err != nil || len(findings) != 1 {
+		t.Fatalf("expected one connector drift finding, findings=%+v err=%v", findings, err)
+	}
+	signals, _ := findings[0].Evidence["contributing_signals"].([]string)
+	if findings[0].Severity != domain.SeverityHigh || findings[0].Actionability != domain.FindingActionabilityActionRequired || !containsString(signals, "permission_scope_incomplete") {
+		t.Fatalf("missing collector actions must be actionable drift: %+v", findings[0])
 	}
 }
 

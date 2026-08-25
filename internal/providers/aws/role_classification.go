@@ -298,8 +298,13 @@ func connectorRoleSignals(bundle providers.NormalizedBundle, identity domain.Ide
 	if len(permissionPolicies) == 0 {
 		completeness = "partial"
 		signals = append(signals, "permission_evidence_missing")
-	} else if connectorPermissionScopeExpanded(permissionPolicies) {
-		signals = append(signals, "permission_scope_expanded")
+	} else {
+		if connectorPermissionScopeExpanded(permissionPolicies) {
+			signals = append(signals, "permission_scope_expanded")
+		}
+		if connectorPermissionActionsMissing(permissionPolicies) {
+			signals = append(signals, "permission_scope_incomplete")
+		}
 	}
 	return sortedUniqueStrings(signals), completeness
 }
@@ -347,6 +352,43 @@ func connectorPermissionScopeExpanded(policies []domain.Policy) bool {
 					return true
 				}
 			}
+		}
+	}
+	return false
+}
+
+// connectorPermissionActionsMissing reports an incomplete connector policy
+// boundary. Scope validation must catch both permissions that are too broad
+// and permissions that are absent; otherwise an existing role can appear
+// compliant while newly wired collectors fail with AccessDenied.
+func connectorPermissionActionsMissing(policies []domain.Policy) bool {
+	expected, err := expectedConnectorPermissionActions()
+	if err != nil {
+		return true
+	}
+	observed := map[string]struct{}{}
+	for _, policy := range policies {
+		statements, err := parseNormalizedStatements(policy.Normalized[statementsKey])
+		if err != nil {
+			return true
+		}
+		for _, statement := range statements {
+			effect, _ := statement["effect"].(string)
+			if !strings.EqualFold(effect, "Allow") {
+				continue
+			}
+			for _, action := range parseStringList(statement["actions"]) {
+				normalized := strings.ToLower(strings.TrimSpace(action))
+				if normalized == "*" {
+					return false
+				}
+				observed[normalized] = struct{}{}
+			}
+		}
+	}
+	for expectedAction := range expected {
+		if _, ok := observed[expectedAction]; !ok {
+			return true
 		}
 	}
 	return false
