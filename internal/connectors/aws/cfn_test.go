@@ -48,6 +48,11 @@ func requirePolicyActions(t *testing.T, want map[string]struct{}, got map[string
 			t.Errorf("%s is missing read-only action %q", source, action)
 		}
 	}
+	for action := range got {
+		if _, ok := want[action]; !ok {
+			t.Errorf("%s grants unrequested read-only action %q", source, action)
+		}
+	}
 }
 
 func permissionPreviewActions() map[string]struct{} {
