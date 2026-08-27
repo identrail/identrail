@@ -14153,7 +14153,6 @@ html[data-theme='light'] .idt-nav a.is-active,
   min-height: 44px;
   display: inline-flex;
   align-items: center;
-  gap: 0.68rem;
   border: 1px solid rgba(5, 5, 5, 0.22);
   border-radius: 999px;
   background: #ffffff;
@@ -14186,30 +14185,6 @@ html[data-theme='light'] .idt-nav a.is-active,
 .idt-header-auth-chip.is-primary:focus-visible {
   background: #171717;
   color: #ffffff;
-}
-
-.idt-header-keycap {
-  display: inline-grid;
-  place-items: center;
-  width: 1.7rem;
-  height: 1.7rem;
-  border: 1px solid rgba(5, 5, 5, 0.18);
-  border-radius: 0.42rem;
-  background: #ededed;
-  color: #050505;
-  font-family: var(--idt-nav-font);
-  font-size: 0.86rem;
-  font-weight: 820;
-  line-height: 1;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 1px 2px rgba(15, 23, 42, 0.16);
-}
-
-.idt-header-auth-chip.is-primary .idt-header-keycap {
-  border-color: rgba(255, 255, 255, 0.28);
-  background: #f6f6f6;
-  color: #050505;
 }
 
 .idt-header-demo {
@@ -27969,12 +27944,11 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding.is-sourc
   }
 }
 
-/* Header auth shortcut polish. */
+/* Header auth chip polish. */
 .idt-header-utility.idt-header-auth-chip {
   min-height: 44px;
   display: inline-flex;
   align-items: center;
-  gap: 0.68rem;
   border: 1px solid rgba(5, 5, 5, 0.22);
   border-radius: 999px;
   background: #ffffff;
@@ -28008,30 +27982,6 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding.is-sourc
   border-color: #050505;
   background: #171717;
   color: #ffffff;
-}
-
-.idt-header-keycap {
-  display: inline-grid;
-  place-items: center;
-  width: 1.7rem;
-  height: 1.7rem;
-  border: 1px solid rgba(5, 5, 5, 0.18);
-  border-radius: 0.42rem;
-  background: #ededed;
-  color: #050505;
-  font-family: var(--idt-nav-font);
-  font-size: 0.86rem;
-  font-weight: 820;
-  line-height: 1;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 1px 2px rgba(15, 23, 42, 0.16);
-}
-
-.idt-header-auth-chip.is-primary .idt-header-keycap {
-  border-color: rgba(255, 255, 255, 0.28);
-  background: #f6f6f6;
-  color: #050505;
 }
 
 @media (max-width: 880px) {
@@ -28102,25 +28052,10 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding.is-sourc
 
 .idt-header-utility.idt-header-auth-chip {
   flex: 0 0 auto;
-  justify-content: space-between;
-  min-width: 7.1rem;
-  gap: 0.72rem;
-  padding: 0.2rem 0.46rem 0.2rem 1rem;
+  justify-content: center;
+  min-width: 0;
+  padding: 0.2rem 1rem;
   white-space: nowrap;
-}
-
-.idt-header-utility.idt-header-auth-chip.is-primary {
-  min-width: 7.7rem;
-}
-
-.idt-header-auth-chip > span:first-child {
-  display: inline-block;
-  white-space: nowrap;
-}
-
-.idt-header-keycap {
-  flex: 0 0 auto;
-  pointer-events: none;
 }
 
 @media (max-width: 880px) {
