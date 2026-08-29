@@ -16,6 +16,7 @@
     "perf:bundle": "vite build --mode production"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "input-otp": "^1.5.0",
     "lucide-react": "^1.33.0",
     "react": "^19.2.7",
