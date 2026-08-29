@@ -1,5 +1,6 @@
 import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router';
+import { Analytics } from '@vercel/analytics/react';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { HeroOpenSourceProofPills } from './components/home/HeroOpenSourceProofPills';
@@ -4921,6 +4922,7 @@ export function App() {
       <ScanIntakeModalProvider>
         <RoutedSite />
       </ScanIntakeModalProvider>
+      <Analytics />
     </BrowserRouter>
   );
 }
