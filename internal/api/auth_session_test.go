@@ -66,7 +66,7 @@ func setupSessionRouter(t *testing.T) (*ginlessSessionHarness, string, string) {
 	if err != nil {
 		t.Fatalf("create current session: %v", err)
 	}
-	otherCookie, _, err := manager.CreateSession(context.Background(), db.Session{
+	_, _, err = manager.CreateSession(context.Background(), db.Session{
 		UserID:             user.ID,
 		CurrentOrgID:       "tenant-a",
 		CurrentWorkspaceID: "workspace-a",
@@ -78,8 +78,6 @@ func setupSessionRouter(t *testing.T) (*ginlessSessionHarness, string, string) {
 	if err != nil {
 		t.Fatalf("create other session: %v", err)
 	}
-	_ = otherCookie
-
 	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
 		FeatureNewAuth: true,
 		PublicBaseURL:  "http://localhost:8080",

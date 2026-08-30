@@ -298,7 +298,7 @@ func (s *Service) ProcessAWSConnectorRegistrationMessage(ctx context.Context, bo
 	// single-account delete path.
 	if awsRegistrationProperty(request.ResourceProperties, "RolloutId") != "" {
 		if request.RequestType == "Delete" {
-			return s.processAWSOrganizationRolloutMemberDelete(ctx, envelope.TopicARN, request, phase)
+			return s.processAWSOrganizationRolloutMemberDelete(ctx, envelope.TopicARN, request)
 		}
 		return s.processAWSOrganizationRolloutMemberRegistration(ctx, envelope.TopicARN, request, phase)
 	}

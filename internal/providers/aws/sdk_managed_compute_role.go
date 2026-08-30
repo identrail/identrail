@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/emr"
 	emrtypes "github.com/aws/aws-sdk-go-v2/service/emr/types"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
-	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/identrail/identrail/internal/providers"
@@ -386,7 +385,7 @@ func (a *SDKManagedComputeRoleAPI) listGlueRoles(ctx context.Context, pageSize i
 	return records, diagnostics, nil
 }
 
-func (a *SDKManagedComputeRoleAPI) listEMRRoles(ctx context.Context, pageSize int32) ([]ManagedComputeRole, []providers.SourceError, error) {
+func (a *SDKManagedComputeRoleAPI) listEMRRoles(ctx context.Context, _ int32) ([]ManagedComputeRole, []providers.SourceError, error) {
 	records := []ManagedComputeRole{}
 	diagnostics := []providers.SourceError{}
 	token := ""
@@ -419,7 +418,6 @@ func (a *SDKManagedComputeRoleAPI) listEMRRoles(ctx context.Context, pageSize in
 			break
 		}
 	}
-	_ = pageSize
 	return records, diagnostics, nil
 }
 
@@ -572,5 +570,3 @@ func managedComputeSDKPageSize(pageSize int32, max int32) int32 {
 	}
 	return pageSize
 }
-
-var _ = gluetypes.Job{}

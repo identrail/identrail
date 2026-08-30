@@ -140,7 +140,7 @@ func TestExecutiveReport_RequiresOrgContext(t *testing.T) {
 func TestExecutiveReport_ReturnsReportWithMTTRFromResolvedAt(t *testing.T) {
 	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
 	clock := now
-	svc, r, store := execReportRig(t, "org-a", &clock)
+	_, r, store := execReportRig(t, "org-a", &clock)
 
 	scope := execReportScope("org-a")
 	scanID := seedExecReportScan(t, store, scope, now.Add(-31*24*time.Hour))
@@ -149,7 +149,6 @@ func TestExecutiveReport_ReturnsReportWithMTTRFromResolvedAt(t *testing.T) {
 	resolvedAt := now.Add(-1 * 24 * time.Hour)
 	seedExecReportFinding(t, store, scope, scanID, "f3", domain.SeverityMedium, domain.FindingStaleIdentity, now.Add(-3*24*time.Hour), &resolvedAt)
 
-	_ = svc
 	w := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())

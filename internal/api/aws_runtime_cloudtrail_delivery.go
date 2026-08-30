@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/identrail/identrail/internal/runtime/cloudtrail"
 	"github.com/identrail/identrail/internal/runtime/cloudtraildelivery"
 )
 
@@ -171,9 +170,3 @@ func mergeDeliveryResults(results []AWSCloudTrailIngestResult) AWSCloudTrailInge
 	}
 	return merged
 }
-
-// Reuse cloudtrail.CollectorName so the API surface keeps a single
-// authoritative string identifier for the LookupEvents engine, and
-// have the unused cloudtrail import here remain stable across
-// refactors. Touching the import explicitly avoids a goimports prune.
-var _ = cloudtrail.CollectorName

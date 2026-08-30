@@ -15,7 +15,6 @@ secrets/**
 # Vercel local project state
 .vercel
 web/.vercel
-site/.vercel
 
 # Terraform local state and providers
 *.tfstate

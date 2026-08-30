@@ -405,7 +405,6 @@ func buildSAMLServiceProvider(conn db.IdentityConnection, publicBaseURL string) 
 		SignatureMethod:   "", // unsigned AuthnRequest in v1
 		AuthnNameIDFormat: saml.EmailAddressNameIDFormat,
 	}
-	_ = cert
 	return sp, nil
 }
 

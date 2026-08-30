@@ -10,7 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3control"
-	s3controltypes "github.com/aws/aws-sdk-go-v2/service/s3control/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/identrail/identrail/internal/providers"
@@ -407,7 +406,3 @@ func s3IsNoSuchTagSet(err error) bool {
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "nosuchtagset")
 }
-
-// silence unused import lint for s3controltypes when the build only references
-// the package indirectly through interface methods.
-var _ s3controltypes.AccessPoint

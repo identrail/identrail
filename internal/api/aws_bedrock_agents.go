@@ -732,7 +732,3 @@ func awsBedrockAgentsPartitionForRegion(region string) string {
 func awsBedrockAgentARN(partition, region, accountID, agentID string) string {
 	return "arn:" + partition + ":bedrock:" + region + ":" + accountID + ":agent/" + agentID
 }
-
-// allow ctx-typed helpers compile cleanly even though they're not used in this
-// file; kept reserved for the SDK-backed live mode that will plug in later.
-var _ = context.Background

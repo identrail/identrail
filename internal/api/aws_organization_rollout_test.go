@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -950,5 +949,3 @@ func TestAWSOrganizationInventoryExpandsTenThousandAccountOU(t *testing.T) {
 		t.Fatalf("expected deterministic sorted accounts, got first=%s last=%s", selected[0], selected[len(selected)-1])
 	}
 }
-
-var _ = json.Marshal // json import is referenced elsewhere; keep the reference explicit for future edits.

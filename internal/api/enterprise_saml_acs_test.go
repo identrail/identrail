@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -9,7 +8,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
-	"encoding/xml"
 	"errors"
 	"math/big"
 	"net/http"
@@ -90,35 +88,6 @@ func (i *samlFixtureIdP) mintSignedSAMLResponseWithTiming(t *testing.T, requestI
 
 	assertionID := "_assertion-" + randomHex(t, 8)
 	responseID := "_response-" + randomHex(t, 8)
-	tpl := `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
-  ID="` + responseID + `" Version="2.0" IssueInstant="` + now.Format(time.RFC3339) + `"
-  Destination="` + recipient + `" InResponseTo="` + requestID + `">
-  <saml:Issuer>https://idp.example.com/entity</saml:Issuer>
-  <samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/></samlp:Status>
-  <saml:Assertion ID="` + assertionID + `" Version="2.0" IssueInstant="` + now.Format(time.RFC3339) + `">
-    <saml:Issuer>https://idp.example.com/entity</saml:Issuer>
-    <saml:Subject>
-      <saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress">` + nameID + `</saml:NameID>
-      <saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
-        <saml:SubjectConfirmationData` + subjectNotBeforeAttr + ` NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `" Recipient="` + recipient + `" InResponseTo="` + requestID + `"/>
-      </saml:SubjectConfirmation>
-    </saml:Subject>
-    <saml:Conditions NotBefore="` + notBefore.Format(time.RFC3339) + `" NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `">
-      <saml:AudienceRestriction><saml:Audience>` + audience + `</saml:Audience></saml:AudienceRestriction>
-    </saml:Conditions>
-    <saml:AuthnStatement AuthnInstant="` + now.Format(time.RFC3339) + `" SessionIndex="_session">
-      <saml:AuthnContext><saml:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport</saml:AuthnContextClassRef></saml:AuthnContext>
-    </saml:AuthnStatement>
-    <saml:AttributeStatement>
-      <saml:Attribute Name="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress">
-        <saml:AttributeValue>` + email + `</saml:AttributeValue>
-      </saml:Attribute>
-      <saml:Attribute Name="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name">
-        <saml:AttributeValue>Test User</saml:AttributeValue>
-      </saml:Attribute>
-    </saml:AttributeStatement>
-  </saml:Assertion>
-</samlp:Response>`
 
 	// Sign the assertion as its own self-contained document so the saml:
 	// namespace prefix is in scope during canonicalisation, then splice the
@@ -168,7 +137,6 @@ func (i *samlFixtureIdP) mintSignedSAMLResponseWithTiming(t *testing.T, requestI
 	if err != nil {
 		t.Fatalf("serialize response: %v", err)
 	}
-	_ = tpl
 	return out
 }
 
@@ -971,12 +939,3 @@ func TestSAMLProfileFromAssertion_FallsBackToNameIDWhenEmailUnmapped(t *testing.
 		t.Errorf("expected NameID fallback for email, got %q", profile.Email)
 	}
 }
-
-// xmlMatches keeps the linter happy; the constant in newSAMLFixtureIdP relies
-// on it through the etree-driven mint path.
-var _ = xml.NewDecoder
-
-// bytesBufferAlias silences the strictly-unused import bytes when the
-// generator removes one of the helpers. Keeping it here removes the test
-// from being brittle to fixture changes.
-var _ = bytes.NewBuffer

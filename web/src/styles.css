@@ -1034,7 +1034,6 @@ h3 {
   .idt-btn,
   .idt-social-link,
   .idt-proof-link,
-  .idt-risk-scenario-item,
   .idt-demo-view-toggle button {
     transition: none !important;
     transform: none !important;
@@ -2745,46 +2744,6 @@ h2 {
   border-top: 1px solid var(--idt-line);
 }
 
-.idt-risk-insight-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 0.42fr) minmax(0, 1fr);
-  gap: 1rem;
-}
-
-.idt-risk-scenario-list {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.idt-risk-scenario-item {
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.02);
-  color: #e6ecfb;
-  text-align: left;
-  padding: 0.68rem 0.75rem;
-  display: grid;
-  gap: 0.2rem;
-  cursor: pointer;
-}
-
-.idt-risk-scenario-item small {
-  font-size: 0.74rem;
-  color: #a2b0c7;
-}
-
-.idt-risk-scenario-item.is-active,
-.idt-risk-scenario-item:hover,
-.idt-risk-scenario-item:focus-visible {
-  border-color: rgba(172, 196, 255, 0.46);
-  background: rgba(172, 196, 255, 0.09);
-}
-
-.idt-risk-evidence-card {
-  display: grid;
-  gap: 0.54rem;
-}
-
 /* PR-A: restrained premium foundation */
 body {
   background:
@@ -3063,41 +3022,6 @@ body {
   font-size: 0.86rem;
 }
 
-/* PR-B: product proof and workflow clarity */
-.idt-risk-scenario-item {
-  align-content: start;
-  gap: 0.25rem;
-}
-
-.idt-risk-scenario-item span {
-  font-weight: 700;
-}
-
-.idt-risk-scenario-item p {
-  margin: 0;
-  color: #9eb0ca;
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
-.idt-risk-path-list {
-  margin: 0.45rem 0 0.7rem;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.42rem;
-}
-
-.idt-risk-path-list li {
-  border: 1px solid rgba(161, 182, 219, 0.28);
-  border-radius: 999px;
-  background: rgba(12, 18, 29, 0.6);
-  padding: 0.22rem 0.54rem;
-  font-size: 0.76rem;
-  color: #d8e3f6;
-}
-
 .idt-demo-list-row {
   gap: 0.2rem;
 }
@@ -3304,7 +3228,6 @@ body {
   line-height: 1.55;
 }
 
-.idt-risk-follow-up,
 .idt-demo-follow-up {
   margin: 0.55rem 0 0;
   color: #adbed7;
@@ -3455,7 +3378,6 @@ html[data-theme='light'] .idt-proof-link {
 }
 
 html[data-theme='light'] .idt-hero-trust-cues li,
-html[data-theme='light'] .idt-risk-path-list li,
 html[data-theme='light'] .idt-hero-proof-meta span:not(.idt-severity-pill),
 html[data-theme='light'] .idt-adoption-card,
 html[data-theme='light'] .idt-workflow-output {
@@ -3536,7 +3458,6 @@ html[data-theme='light'] .idt-footer-trust-links a {
   .idt-pricing-grid,
   .idt-roi-grid,
   .idt-faq-groups,
-  .idt-risk-insight-grid,
   .idt-proof-architecture-list,
   .idt-problem-frame-grid,
   .idt-finding-proof-grid,
@@ -3725,7 +3646,6 @@ html[data-theme='light'] .idt-footer-trust-links a {
 
   .idt-demo-view-toggle button,
   .idt-demo-scenario-row button,
-  .idt-risk-scenario-item,
   .idt-proof-link {
     min-height: 44px;
   }
@@ -3960,7 +3880,6 @@ html[data-theme='light'] .idt-trust-strip {
 html[data-theme='light'] .idt-proof-item,
 html[data-theme='light'] .idt-logo-row span,
 html[data-theme='light'] .idt-hero-trust-cues li,
-html[data-theme='light'] .idt-risk-path-list li,
 html[data-theme='light'] .idt-hero-proof-meta span:not(.idt-severity-pill),
 html[data-theme='light'] .idt-workflow-output,
 html[data-theme='light'] .idt-demo-evidence,
@@ -3984,8 +3903,7 @@ html[data-theme='light'] .idt-intake-step {
 }
 
 html[data-theme='light'] .idt-demo-scenario-row button,
-html[data-theme='light'] .idt-demo-view-toggle button,
-html[data-theme='light'] .idt-risk-scenario-item {
+html[data-theme='light'] .idt-demo-view-toggle button {
   background: rgba(244, 249, 255, 0.94);
   color: #223a64;
   border-color: rgba(25, 45, 78, 0.22);
@@ -10019,10 +9937,6 @@ body {
   font-weight: 900;
 }
 
-.idt-risk-insight-grid {
-  gap: 1.15rem;
-}
-
 .idt-product-tour {
   display: grid;
   gap: 1.25rem;
@@ -10179,30 +10093,12 @@ body {
   line-height: 1.35;
 }
 
-.idt-risk-scenario-item,
-.idt-risk-evidence-card,
 .idt-proof-demo-card,
 .idt-table-wrap,
 .idt-lead-form,
 .idt-steps li {
   border-radius: 8px;
   border-color: rgba(229, 236, 222, 0.16);
-}
-
-.idt-risk-scenario-item {
-  background: rgba(8, 12, 13, 0.72);
-}
-
-.idt-risk-scenario-item.is-active,
-.idt-risk-scenario-item:hover,
-.idt-risk-scenario-item:focus-visible {
-  border-color: rgba(184, 243, 214, 0.44);
-  background: rgba(184, 243, 214, 0.09);
-}
-
-.idt-risk-path-list li {
-  border-radius: 8px;
-  border-color: rgba(184, 243, 214, 0.22);
 }
 
 .idt-workflow-track {
