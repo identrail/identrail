@@ -265,11 +265,11 @@ func awsIAMPassRoleRelationshipFixtureRecords(accountID string, region string, f
 	denyTargetARN := fmt.Sprintf("arn:%s:iam::%s:role/break-glass", partition, accountID)
 
 	records := []AWSIAMPassRoleRelationshipRecord{
-		awsIAMPassRoleFixtureRecord(accountID, region, deployRoleARN, "platform-deploy", lambdaTargetARN, "PassPaymentsLambda", "iam:PassRole", "Allow", "lambda.amazonaws.com", "StringEquals", checkedAt, partition),
-		awsIAMPassRoleFixtureRecord(accountID, region, pipelineRoleARN, "codepipeline-deploy", ecsTargetARN, "PassPaymentsEcs", "iam:PassRole", "Allow", "ecs-tasks.amazonaws.com", "StringEquals", checkedAt, partition),
-		awsIAMPassRoleFixtureRecord(accountID, region, wildcardRoleARN, "data-ops", wildcardTargetARN, "PassDataOpsRoles", "iam:PassRole", "Allow", "", "", checkedAt, partition),
-		awsIAMPassRoleFixtureRecord(accountID, region, starRoleARN, "security-admin", starTarget, "PassAny", "iam:PassRole", "Allow", "", "", checkedAt, partition),
-		awsIAMPassRoleFixtureRecord(accountID, region, denyRoleARN, "audit-readonly", denyTargetARN, "DenyBreakGlassPass", "iam:PassRole", "Deny", "", "", checkedAt, partition),
+		awsIAMPassRoleFixtureRecord(accountID, region, deployRoleARN, "platform-deploy", lambdaTargetARN, "PassPaymentsLambda", "iam:PassRole", "Allow", "lambda.amazonaws.com", "StringEquals", checkedAt),
+		awsIAMPassRoleFixtureRecord(accountID, region, pipelineRoleARN, "codepipeline-deploy", ecsTargetARN, "PassPaymentsEcs", "iam:PassRole", "Allow", "ecs-tasks.amazonaws.com", "StringEquals", checkedAt),
+		awsIAMPassRoleFixtureRecord(accountID, region, wildcardRoleARN, "data-ops", wildcardTargetARN, "PassDataOpsRoles", "iam:PassRole", "Allow", "", "", checkedAt),
+		awsIAMPassRoleFixtureRecord(accountID, region, starRoleARN, "security-admin", starTarget, "PassAny", "iam:PassRole", "Allow", "", "", checkedAt),
+		awsIAMPassRoleFixtureRecord(accountID, region, denyRoleARN, "audit-readonly", denyTargetARN, "DenyBreakGlassPass", "iam:PassRole", "Deny", "", "", checkedAt),
 	}
 	switch fixtureState {
 	case "empty":
@@ -315,7 +315,7 @@ func awsIAMPassRoleRelationshipFixtureRecords(accountID string, region string, f
 	}
 }
 
-func awsIAMPassRoleFixtureRecord(accountID, region, sourceARN, sourceName, target, sid, action, effect, service, conditionOp string, checkedAt time.Time, partition string) AWSIAMPassRoleRelationshipRecord {
+func awsIAMPassRoleFixtureRecord(accountID, region, sourceARN, sourceName, target, sid, action, effect, service, conditionOp string, checkedAt time.Time) AWSIAMPassRoleRelationshipRecord {
 	wildcardKind := awsIAMPassRoleWildcardKind(target)
 	unresolved := wildcardKind != "specific"
 	confidence := awsIAMPassRoleConfidenceFor(wildcardKind)
@@ -353,7 +353,6 @@ func awsIAMPassRoleFixtureRecord(accountID, region, sourceARN, sourceName, targe
 	if effect == "Deny" {
 		record.Status = "deny"
 	}
-	_ = partition
 	return record
 }
 

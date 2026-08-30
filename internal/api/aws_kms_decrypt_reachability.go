@@ -303,7 +303,7 @@ func awsKMSDecryptReachabilityFixtureRecords(accountID, region, fixtureState str
 
 	records := []AWSKMSDecryptReachabilityRecord{
 		// Private customer-managed key with IAM delegation + an app-role grant.
-		awsKMSDecryptReachabilityFixtureRecord(accountID, region, "aaaa1111-2222-3333-4444-555566667777", cmkARN, "private_with_grants", "CUSTOMER", checkedAt, partition, func(r *AWSKMSDecryptReachabilityRecord) {
+		awsKMSDecryptReachabilityFixtureRecord(accountID, region, "aaaa1111-2222-3333-4444-555566667777", cmkARN, "private_with_grants", "CUSTOMER", checkedAt, func(r *AWSKMSDecryptReachabilityRecord) {
 			r.HasKeyPolicy = true
 			r.KeyPolicyStatementCount = 2
 			r.IAMDelegationEnabled = true
@@ -341,7 +341,7 @@ func awsKMSDecryptReachabilityFixtureRecords(accountID, region, fixtureState str
 			r.ExposureReasons = []string{"kms_key_policy_allow_to_specific_principal"}
 		}),
 		// Public customer-managed key (wildcard principal, no condition).
-		awsKMSDecryptReachabilityFixtureRecord(accountID, region, "bbbb1111-2222-3333-4444-555566667777", publicKeyARN, "public", "CUSTOMER", checkedAt, partition, func(r *AWSKMSDecryptReachabilityRecord) {
+		awsKMSDecryptReachabilityFixtureRecord(accountID, region, "bbbb1111-2222-3333-4444-555566667777", publicKeyARN, "public", "CUSTOMER", checkedAt, func(r *AWSKMSDecryptReachabilityRecord) {
 			r.HasKeyPolicy = true
 			r.KeyPolicyStatementCount = 1
 			r.RotationSupported = true
@@ -359,7 +359,7 @@ func awsKMSDecryptReachabilityFixtureRecords(accountID, region, fixtureState str
 			r.ExposureReasons = []string{"kms_key_policy_allow_to_wildcard_principal"}
 		}),
 		// Cross-account customer-managed key (partner has Decrypt).
-		awsKMSDecryptReachabilityFixtureRecord(accountID, region, "cccc1111-2222-3333-4444-555566667777", crossAccountARN, "cross_account", "CUSTOMER", checkedAt, partition, func(r *AWSKMSDecryptReachabilityRecord) {
+		awsKMSDecryptReachabilityFixtureRecord(accountID, region, "cccc1111-2222-3333-4444-555566667777", crossAccountARN, "cross_account", "CUSTOMER", checkedAt, func(r *AWSKMSDecryptReachabilityRecord) {
 			r.HasKeyPolicy = true
 			r.KeyPolicyStatementCount = 1
 			r.RotationSupported = true
@@ -377,13 +377,13 @@ func awsKMSDecryptReachabilityFixtureRecords(accountID, region, fixtureState str
 			r.ExposureReasons = []string{"kms_key_policy_allow_to_cross_account_principal"}
 		}),
 		// AWS-managed key (not actionable — surfaces as managed_by_aws).
-		awsKMSDecryptReachabilityFixtureRecord(accountID, region, "dddd1111-2222-3333-4444-555566667777", awsManagedARN, "managed_by_aws", "AWS", checkedAt, partition, func(r *AWSKMSDecryptReachabilityRecord) {
+		awsKMSDecryptReachabilityFixtureRecord(accountID, region, "dddd1111-2222-3333-4444-555566667777", awsManagedARN, "managed_by_aws", "AWS", checkedAt, func(r *AWSKMSDecryptReachabilityRecord) {
 			r.Aliases = []string{"alias/aws/s3"}
 			r.HasKeyPolicy = false
 			r.ExposureReasons = []string{"kms_managed_by_aws"}
 		}),
 		// Explicitly restricted key (deny-all to wildcard).
-		awsKMSDecryptReachabilityFixtureRecord(accountID, region, "eeee1111-2222-3333-4444-555566667777", restrictedARN, "restricted", "CUSTOMER", checkedAt, partition, func(r *AWSKMSDecryptReachabilityRecord) {
+		awsKMSDecryptReachabilityFixtureRecord(accountID, region, "eeee1111-2222-3333-4444-555566667777", restrictedARN, "restricted", "CUSTOMER", checkedAt, func(r *AWSKMSDecryptReachabilityRecord) {
 			r.HasKeyPolicy = true
 			r.KeyPolicyStatementCount = 2
 			r.IAMDelegationEnabled = true
@@ -455,7 +455,7 @@ func awsKMSDecryptReachabilityFixtureRecords(accountID, region, fixtureState str
 
 const kmsCollectorRefForAPI = "aws_kms/kms_decrypt_reachability"
 
-func awsKMSDecryptReachabilityFixtureRecord(accountID, region, id, arn, exposure, manager string, checkedAt time.Time, partition string, mutate func(*AWSKMSDecryptReachabilityRecord)) AWSKMSDecryptReachabilityRecord {
+func awsKMSDecryptReachabilityFixtureRecord(accountID, region, id, arn, exposure, manager string, checkedAt time.Time, mutate func(*AWSKMSDecryptReachabilityRecord)) AWSKMSDecryptReachabilityRecord {
 	confidence := 0.9
 	switch exposure {
 	case "public":
@@ -496,7 +496,6 @@ func awsKMSDecryptReachabilityFixtureRecord(accountID, region, id, arn, exposure
 	if mutate != nil {
 		mutate(&record)
 	}
-	_ = partition
 	return record
 }
 

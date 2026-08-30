@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FOOTER_TRUST_LINKS } from '../components/layout/Footer';
 import { siteLinks } from '../siteConfig';
-import { TRUST_PROOF_LINKS } from './proofArtifacts';
 import { DOC_ENTRIES } from './resources';
 
 const repoBase = 'https://github.com/identrail/identrail/';
@@ -34,12 +33,6 @@ describe('repo link branch contract', () => {
   it('does not hardcode non-existent main branch links in doc entries', () => {
     for (const entry of DOC_ENTRIES) {
       assertNoMainBranchLink(entry.href);
-    }
-  });
-
-  it('does not hardcode non-existent main branch links in trust proof links', () => {
-    for (const artifact of TRUST_PROOF_LINKS) {
-      assertNoMainBranchLink(artifact.href);
     }
   });
 

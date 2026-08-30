@@ -284,9 +284,7 @@ func (s *Service) processAWSOrganizationRolloutMemberDelete(
 	ctx context.Context,
 	topicARN string,
 	request awsCloudFormationCustomResourceRequest,
-	phase string,
 ) error {
-	_ = phase
 	rolloutID := awsRegistrationProperty(request.ResourceProperties, "RolloutId")
 	if rolloutID == "" {
 		return s.respondToAWSCloudFormation(ctx, request, "SUCCESS", "", false, nil)

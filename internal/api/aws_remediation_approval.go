@@ -324,7 +324,6 @@ func awsRemediationApprovalEntryFromCase(source AWSRemediationCase, now time.Tim
 	idempotency := awsRemediationApprovalIdempotencyKey(source)
 	expires := awsRemediationApprovalExpiresAt(source, now, riskTier)
 	audit := awsRemediationApprovalAuditTrail(source, state, requestor, approvers, now)
-	evidenceRef := firstAWSRemediationCaseEvidenceRef(source.Evidence)
 	entry := AWSRemediationApprovalEntry{
 		ApprovalID:         "aws-remediation-approval:" + stableAWSBlastRadiusToken("approval", source.CaseID, riskTier),
 		CalculationVersion: awsRemediationApprovalVersion,
@@ -369,7 +368,6 @@ func awsRemediationApprovalEntryFromCase(source AWSRemediationCase, now time.Tim
 	if entry.RequestedAt.IsZero() {
 		entry.RequestedAt = now
 	}
-	_ = evidenceRef
 	return entry
 }
 

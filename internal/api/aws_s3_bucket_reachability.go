@@ -286,7 +286,7 @@ func awsS3BucketReachabilityFixtureRecords(accountID, region, fixtureState strin
 	restrictedARN := fmt.Sprintf("arn:%s:s3:::payments-encrypted", partition)
 	internalARN := fmt.Sprintf("arn:%s:s3:::payments-internal", partition)
 	records := []AWSS3BucketReachabilityRecord{
-		awsS3BucketReachabilityFixtureRecord(accountID, region, "payments-public", publicBucketARN, "public", checkedAt, partition, func(r *AWSS3BucketReachabilityRecord) {
+		awsS3BucketReachabilityFixtureRecord(accountID, region, "payments-public", publicBucketARN, "public", checkedAt, func(r *AWSS3BucketReachabilityRecord) {
 			r.HasBucketPolicy = true
 			r.BucketPolicyStatementCount = 1
 			r.IdentityGrants = []AWSS3IdentityGrant{{
@@ -300,7 +300,7 @@ func awsS3BucketReachabilityFixtureRecords(accountID, region, fixtureState strin
 			}}
 			r.ExposureReasons = []string{"bucket_policy_allow_to_wildcard_principal"}
 		}),
-		awsS3BucketReachabilityFixtureRecord(accountID, region, "payments-cross-account", crossAccountARN, "cross_account", checkedAt, partition, func(r *AWSS3BucketReachabilityRecord) {
+		awsS3BucketReachabilityFixtureRecord(accountID, region, "payments-cross-account", crossAccountARN, "cross_account", checkedAt, func(r *AWSS3BucketReachabilityRecord) {
 			r.HasBucketPolicy = true
 			r.BucketPolicyStatementCount = 1
 			r.IdentityGrants = []AWSS3IdentityGrant{{
@@ -323,7 +323,7 @@ func awsS3BucketReachabilityFixtureRecords(accountID, region, fixtureState strin
 			r.RestrictPublicBuckets = true
 			r.ExposureReasons = []string{"bucket_policy_allow_to_cross_account_principal", "public_access_block_fully_enabled"}
 		}),
-		awsS3BucketReachabilityFixtureRecord(accountID, region, "payments-encrypted", restrictedARN, "restricted", checkedAt, partition, func(r *AWSS3BucketReachabilityRecord) {
+		awsS3BucketReachabilityFixtureRecord(accountID, region, "payments-encrypted", restrictedARN, "restricted", checkedAt, func(r *AWSS3BucketReachabilityRecord) {
 			r.HasBucketPolicy = true
 			r.BucketPolicyStatementCount = 1
 			r.IdentityGrants = []AWSS3IdentityGrant{{
@@ -351,7 +351,7 @@ func awsS3BucketReachabilityFixtureRecords(accountID, region, fixtureState strin
 			r.RestrictPublicBuckets = true
 			r.ExposureReasons = []string{"bucket_policy_explicit_deny_to_all", "public_access_block_fully_enabled"}
 		}),
-		awsS3BucketReachabilityFixtureRecord(accountID, region, "payments-internal", internalARN, "private_with_grants", checkedAt, partition, func(r *AWSS3BucketReachabilityRecord) {
+		awsS3BucketReachabilityFixtureRecord(accountID, region, "payments-internal", internalARN, "private_with_grants", checkedAt, func(r *AWSS3BucketReachabilityRecord) {
 			r.HasBucketPolicy = true
 			r.BucketPolicyStatementCount = 1
 			r.IdentityGrants = []AWSS3IdentityGrant{{
@@ -422,7 +422,7 @@ func awsS3BucketReachabilityFixtureRecords(accountID, region, fixtureState strin
 	}
 }
 
-func awsS3BucketReachabilityFixtureRecord(accountID, region, name, arn, exposure string, checkedAt time.Time, partition string, mutate func(*AWSS3BucketReachabilityRecord)) AWSS3BucketReachabilityRecord {
+func awsS3BucketReachabilityFixtureRecord(accountID, region, name, arn, exposure string, checkedAt time.Time, mutate func(*AWSS3BucketReachabilityRecord)) AWSS3BucketReachabilityRecord {
 	confidence := 0.9
 	switch exposure {
 	case "public":
@@ -454,7 +454,6 @@ func awsS3BucketReachabilityFixtureRecord(accountID, region, name, arn, exposure
 	if mutate != nil {
 		mutate(&record)
 	}
-	_ = partition
 	return record
 }
 

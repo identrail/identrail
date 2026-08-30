@@ -44,8 +44,6 @@ web/coverage 2/
 web/coverage 3/
 .vercel/
 web/.vercel/
-site/.next/
-site/.vercel/
 *.tsbuildinfo
 
 # Testing
@@ -84,9 +82,6 @@ build/
 /* 3
 /* 2.*
 /* 3.*
-
-# Legacy/optional frontend worktree snapshots (not part of active dev branch)
-site/
 
 # Claude Code local agent state (transcripts, scheduled task locks, memory)
 .claude/
