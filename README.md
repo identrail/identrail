@@ -216,7 +216,6 @@ audit logging, use the [Enterprise Quickstart](./docs/enterprise-quickstart.md).
 
 ## What Identrail Does Not Do
 
-- It is not a cloud SIEM replacement.
 - It is not an endpoint runtime agent.
 - It is not a generic CSPM for every cloud and SaaS provider.
 - It does not mutate your cloud, cluster, or repository state during read-only scans.
@@ -262,7 +261,7 @@ If you discover a vulnerability, please use private reporting only:
 
 Maintainer targets for supported versions:
 
-- Acknowledge valid reports within 72 hours.
+- Acknowledge valid reports within 24 hours.
 - Initial triage within 7 days.
 - Weekly status updates until resolution.
 
