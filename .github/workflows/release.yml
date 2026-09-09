@@ -212,7 +212,7 @@ jobs:
           ref: refs/tags/${{ needs.prepare.outputs.tag }}
 
       - name: Setup QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
@@ -428,7 +428,7 @@ jobs:
           path: dist
 
       - name: Publish release with generated notes
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
           generate_release_notes: true
@@ -458,7 +458,7 @@ jobs:
           path: dist
 
       - name: Publish release with generated notes
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
           generate_release_notes: true
