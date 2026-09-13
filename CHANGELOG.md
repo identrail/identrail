@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Polish the existing homepage hero spacing and responsive panel sizing,
+  keeping its dashboard composition, copy, and animations intact.
 - Link the homepage Docker pull count directly to Identrail on Docker Hub.
 - Correct AWS service-level coverage diagnostics so permission failures are
   reported as non-retryable, and keep the findings table and detail drawer

@@ -33989,3 +33989,89 @@ html[data-theme='light'] .idt-danger-modal-typed input {
 html[data-theme='light'] .idt-aws-finding-technical-evidence {
   background: rgba(242, 244, 249, 0.86);
 }
+
+/* Fit the original overlapping hero composition without clipping either panel. */
+.idt-hero-copy,
+.idt-hero-product-stage {
+  transform: none;
+}
+
+.idt-hero .idt-inline-actions { gap: 0.75rem; }
+.idt-hero .idt-btn { padding-inline: 1.2rem; font-size: 0.875rem; }
+.idt-hero .idt-btn::after { display: none; }
+.idt-hero-proof-pill { min-width: 132px; }
+.idt-hero-proof-pill small { font-size: 0.6875rem; }
+
+.idt-admin-activity li.is-pending,
+.idt-mini-path li.is-pending {
+  opacity: 1;
+}
+
+.idt-admin-field-grid small,
+.idt-admin-activity li small,
+.idt-mini-path li span {
+  color: #5f697a;
+}
+
+@media (min-width: 721px) {
+  .idt-hero-product-stage {
+    display: grid;
+    grid-template-columns: var(--idt-preview-dashboard-left) minmax(0, 1fr);
+    align-items: start;
+    min-height: 800px;
+    padding: 12px 20px 24px 0;
+  }
+
+  .idt-hero-admin-window {
+    position: relative;
+    grid-column: 2;
+    grid-row: 1;
+    top: auto;
+    left: auto;
+    right: auto;
+    width: 100%;
+  }
+
+  .idt-hero-login-card {
+    position: relative;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    top: auto;
+    left: auto;
+    margin-top: 274px;
+    margin-left: var(--idt-preview-phone-left);
+    transform: none;
+  }
+
+  .idt-admin-profile-row > div:nth-child(2) { min-width: 0; }
+  .idt-admin-profile-row strong { display: block; min-height: 2.5em; }
+}
+
+@media (min-width: 1181px) {
+  .idt-hero-grid { grid-template-columns: minmax(300px, 0.6fr) minmax(0, 1.4fr); }
+}
+
+@media (min-width: 721px) and (max-width: 1180px) {
+  .idt-hero-grid { grid-template-columns: 1fr; }
+  .idt-hero-copy h1 { max-width: 17ch; }
+  .idt-hero-copy .idt-lead-body { max-width: 54ch; }
+  .idt-hero-product-stage {
+    --idt-preview-dashboard-left: clamp(180px, 23%, 240px);
+    --idt-preview-phone-width: 268px;
+    --idt-preview-phone-left: 20px;
+  }
+  .idt-admin-layout { grid-template-columns: 112px minmax(0, 1fr); }
+  .idt-admin-main { padding: 1rem; }
+}
+
+@media (max-width: 720px) {
+  .idt-hero .idt-hero-grid { width: calc(100% - 2.5rem); }
+  .idt-hero-copy h1,
+  html[data-theme='light'] .idt-hero-copy h1 {
+    max-width: 11.5ch;
+    font-size: clamp(2.65rem, 11vw, 3.35rem);
+  }
+  .idt-hero-copy .idt-lead-body { margin-top: 1.5rem; }
+  .idt-hero .idt-inline-actions { margin-top: 1.5rem; }
+  .idt-hero-proof-pill { min-height: 44px; }
+}
