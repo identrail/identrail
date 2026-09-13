@@ -35,7 +35,7 @@ describe('HeroOpenSourceProofPills', () => {
     render(<HeroOpenSourceProofPills />);
 
     const dockerPill = (await screen.findByText('Docker pulls')).closest('a');
-    expect(dockerPill).not.toBeNull();
+    expect(dockerPill).toHaveAttribute('href', 'https://hub.docker.com/r/identrail/identrail');
     await waitFor(() =>
       expect(within(dockerPill as HTMLElement).getByText('Live')).toBeInTheDocument()
     );
@@ -58,6 +58,10 @@ describe('HeroOpenSourceProofPills', () => {
 
     await waitFor(() => expect(screen.getByText('2.4k+')).toBeInTheDocument());
 
+    expect(screen.getByRole('link', { name: /2.4k.*Docker pulls/i })).toHaveAttribute(
+      'href',
+      'https://hub.docker.com/r/identrail/identrail'
+    );
     expect(dockerMetricPaths).toEqual(['/docker/pulls/identrail/identrail.json']);
   });
 

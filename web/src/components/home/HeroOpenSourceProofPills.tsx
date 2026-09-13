@@ -98,7 +98,7 @@ export function HeroOpenSourceProofPills() {
       {
         label: 'Docker pulls',
         value: formatMetric(stats.pulls),
-        href: siteLinks.quickstartDocker,
+        href: siteLinks.dockerHub,
         icon: '/brand-logos/docker.svg'
       }
     ],
