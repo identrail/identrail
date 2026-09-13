@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
 import { preloadAuthConfig } from '../../authConfigCache';
 import { siteLinks } from '../../siteConfig';
@@ -15,6 +15,7 @@ export function Header({
   githubRepo: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuToggleRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
 
   useEffect(() => {
@@ -29,6 +30,7 @@ export function Header({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setMenuOpen(false);
+        menuToggleRef.current?.focus();
       }
     };
 
@@ -38,18 +40,19 @@ export function Header({
 
   return (
     <header className="idt-header">
-      <div className="idt-shell idt-header-row">
+      <div className={`idt-shell idt-header-row ${menuOpen ? 'is-menu-open' : ''}`}>
         <Link to="/" className="idt-brand" aria-label="Identrail homepage">
           <img src="/identrail-logo.png" width="32" height="32" alt="Identrail" decoding="async" />
           <span>IDENTRAIL</span>
         </Link>
 
         <button
+          ref={menuToggleRef}
           className="idt-menu-toggle"
           type="button"
           onClick={() => setMenuOpen((prev) => !prev)}
           aria-expanded={menuOpen}
-          aria-controls="primary-nav"
+          aria-controls="primary-nav primary-nav-actions"
           aria-label={menuOpen ? 'Close primary navigation' : 'Open primary navigation'}
         >
           <span className="idt-menu-toggle-icon" aria-hidden="true" />
@@ -69,7 +72,7 @@ export function Header({
           ))}
         </nav>
 
-        <div className={`idt-header-actions ${menuOpen ? 'is-open' : ''}`}>
+        <div id="primary-nav-actions" className={`idt-header-actions ${menuOpen ? 'is-open' : ''}`}>
           <Link
             to={siteLinks.signIn}
             className="idt-header-utility idt-header-auth-chip"

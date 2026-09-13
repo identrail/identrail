@@ -393,14 +393,17 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /See every machine identity path/i
+        name: /Find risky.*machine identity.*paths/i
       })
     ).toBeInTheDocument();
 
-    const scanButtons = screen.getAllByRole('button', { name: 'Request Trust Path Review' });
+    const scanButtons = screen.getAllByRole('button', { name: 'Request a security review' });
     expect(scanButtons.length).toBeGreaterThan(0);
-    expect(document.querySelectorAll('.idt-logo-cloud-group')).toHaveLength(2);
-    expect(document.querySelectorAll('.idt-logo-cloud-group:first-child .idt-logo-cloud-item')).toHaveLength(8);
+    const sources = screen.getByRole('region', { name: 'Supported identity sources' });
+    expect(within(sources).getAllByRole('listitem')).toHaveLength(4);
+    expect(within(sources).queryByText('PostgreSQL')).not.toBeInTheDocument();
+    expect(screen.getByText('Example finding')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Explore the trust graph/i })).toHaveAttribute('href', '/features/trust-graph');
     fireEvent.click(scanButtons[0]);
     expect(screen.getByRole('dialog', { name: /Verify company identity/i })).toBeInTheDocument();
     expect(screen.queryByText('Read-only trust review')).not.toBeInTheDocument();
@@ -432,6 +435,22 @@ describe('App', () => {
 
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     expect(screen.getByRole('dialog', { name: /Verify company identity/i })).toBeInTheDocument();
+  });
+
+  it('toggles both navigation groups and closes the menu with Escape', () => {
+    setCurrentPath('/');
+    render(<App />);
+
+    const toggle = screen.getByRole('button', { name: 'Open primary navigation' });
+    expect(toggle).toHaveAttribute('aria-controls', 'primary-nav primary-nav-actions');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Product' }).focus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Open primary navigation' })).toBe(toggle);
+    expect(toggle).toHaveFocus();
   });
 
   it('removes auth keycap hints and single-key header navigation', () => {
@@ -584,7 +603,7 @@ describe('App', () => {
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request a security review' })[0]);
 
     fillScanIdentityStep({
       email: 'person@gmail.com',
@@ -601,7 +620,7 @@ describe('App', () => {
     setCurrentPath('/');
     vi.stubGlobal('fetch', vi.fn(async () => okJSON({ status: 'accepted' })));
     render(<App />);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request a security review' })[0]);
 
     expect(screen.getByRole('heading', { name: 'Request a trust path review' })).toBeInTheDocument();
     expect(screen.queryByText('Read-only trust review')).not.toBeInTheDocument();
@@ -612,7 +631,7 @@ describe('App', () => {
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request a security review' })[0]);
 
     fillScanIdentityStep({
       companyWebsite: 'other-company.com'
@@ -629,7 +648,7 @@ describe('App', () => {
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request a security review' })[0]);
 
     fillScanIdentityStep({
       company: '   '
@@ -646,7 +665,7 @@ describe('App', () => {
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request a security review' })[0]);
 
     fillScanIdentityStep();
     const form = document.querySelector('form.idt-scan-form');
@@ -662,7 +681,7 @@ describe('App', () => {
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request a security review' })[0]);
 
     fillScanIdentityStep({
       companyWebsite: 'https://www.company.com'

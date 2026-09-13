@@ -2403,41 +2403,20 @@ function HomePage() {
 
   return (
     <>
-      <section className="idt-hero">
-        <div className="idt-shell idt-hero-grid">
-          <div className="idt-hero-copy">
-            <p className="idt-eyebrow">Machine identity trust graph</p>
-            <h1>
-              See every machine identity path before it becomes <span>risk</span>.
-            </h1>
-            <p className="idt-lead idt-lead-body">
-              Identrail connects cloud, cluster, repository, and OIDC identity signals into one live risk graph so teams can
-              prioritize exposure and ship safer access changes.
+      <section className="idt-hero idt-home-hero">
+        <div className="idt-home-hero-grid">
+          <div className="idt-home-hero-copy">
+            <p className="idt-home-hero-eyebrow">Machine identity security</p>
+            <h1>Find risky<br />machine identity<br /><span>paths.</span></h1>
+            <p className="idt-home-hero-description">
+              Connect cloud, Kubernetes, repository, and OIDC identity signals to trace access,
+              investigate exposure, and prioritize fixes.
             </p>
-            <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
-              <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <div className="idt-home-hero-actions" data-ab-slot="hero_primary_cta">
+              <ScanIntakeCTA className="idt-btn idt-btn-primary">Request a security review</ScanIntakeCTA>
               <HeroOpenSourceProofPills />
             </div>
-            <dl className="idt-hero-metrics" aria-label="Product assurances">
-              <div>
-                <dt>Collection</dt>
-                <dd>Read-only by default</dd>
-              </div>
-              <div>
-                <dt>Coverage</dt>
-                <dd>AWS, K8s, GitHub, OIDC</dd>
-              </div>
-              <div>
-                <dt>Output</dt>
-                <dd>Prioritized risk graph</dd>
-              </div>
-            </dl>
-            <ul className="idt-hero-trust-cues" aria-label="Evaluation trust cues">
-              <li>Open-core under Apache-2.0</li>
-              <li>Read-only onboarding model</li>
-              <li>Self-hosted and hosted paths</li>
-              <li>Public docs and release history</li>
-            </ul>
+            <p className="idt-home-hero-note">Read-only discovery. Self-hosted or hosted.</p>
           </div>
           <HeroProductReveal />
         </div>
