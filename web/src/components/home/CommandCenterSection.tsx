@@ -66,12 +66,7 @@ export function CommandCenterSection() {
     <section className="idt-section idt-command-center" aria-labelledby="command-center-title">
       <div className="idt-command-center-grid">
         <div className="idt-command-copy">
-          <p className="idt-eyebrow">Trust operations layer</p>
           <h2 id="command-center-title">One operating view for machine identity risk.</h2>
-          <p>
-            Identrail gives security and platform teams the same operating picture: live trust paths, policy evidence,
-            blast-radius context, and a practical next step for each owner.
-          </p>
 
           <div className="idt-command-tabs" role="tablist" aria-label="Command center views">
             {COMMAND_VIEWS.map((view) => {

@@ -9642,10 +9642,6 @@ body {
 }
 
 .idt-problem-frame p,
-.idt-command-copy p {
-  color: rgba(226, 233, 224, 0.76);
-}
-
 .idt-command-center {
   width: 100%;
   padding: 4.6rem 0;
@@ -9667,8 +9663,7 @@ body {
   gap: 1rem;
 }
 
-.idt-command-copy h2,
-.idt-command-copy p {
+.idt-command-copy h2 {
   margin: 0;
 }
 
@@ -10061,8 +10056,7 @@ html[data-theme='light'] .idt-command-surface-head h3 {
 }
 
 html[data-theme='light'] .idt-lead,
-html[data-theme='light'] .idt-problem-frame p,
-html[data-theme='light'] .idt-command-copy p {
+html[data-theme='light'] .idt-problem-frame p {
   color: #3f554f;
 }
 
@@ -11266,7 +11260,6 @@ html[data-theme='light'] .idt-command-metrics strong {
 }
 
 html[data-theme='light'] .idt-problem-frame p,
-html[data-theme='light'] .idt-command-copy p,
 html[data-theme='light'] .idt-product-tour-copy p:not(.idt-eyebrow),
 html[data-theme='light'] .idt-tour-step p,
 html[data-theme='light'] .idt-command-list li,
@@ -17997,10 +17990,8 @@ html[data-theme='light'] .idt-home-after-stack .idt-product-tour-copy h2 {
 }
 
 .idt-home-after-stack .idt-section-title p,
-.idt-home-after-stack .idt-command-copy > p,
 .idt-home-after-stack .idt-product-tour-copy p:not(.idt-eyebrow),
 html[data-theme='light'] .idt-home-after-stack .idt-section-title p,
-html[data-theme='light'] .idt-home-after-stack .idt-command-copy > p,
 html[data-theme='light'] .idt-home-after-stack .idt-product-tour-copy p:not(.idt-eyebrow) {
   max-width: 46rem;
   margin-top: 1.1rem;
@@ -18171,11 +18162,6 @@ html[data-theme='light'] .idt-home-after-stack .idt-command-center {
 .idt-home-after-stack .idt-command-copy {
   position: sticky;
   top: 6rem;
-}
-
-.idt-home-after-stack .idt-command-copy > p,
-html[data-theme='light'] .idt-home-after-stack .idt-command-copy > p {
-  color: #52525b;
 }
 
 .idt-home-after-stack .idt-command-tabs,
@@ -31313,7 +31299,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-command-copy {
 
 .idt-home-after-stack .idt-command-copy h2,
 html[data-theme='light'] .idt-home-after-stack .idt-command-copy h2 {
-  max-width: 8.85ch;
+  max-width: 11.5ch;
   overflow-wrap: normal;
 }
 

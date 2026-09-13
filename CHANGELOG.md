@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Tighten the homepage command center by reducing its introduction to one focused headline while keeping the triage, simulation, and report controls intact.
 - Simplify the homepage risk story by removing its repeated workflow cards, reducing the framing to one focused headline, tightening the empty trust-graph panel, and clarifying the evidence, reachable impact, and recommended fix outputs.
 - Link the homepage Docker pull count directly to Identrail on Docker Hub.
 - Correct AWS service-level coverage diagnostics so permission failures are
