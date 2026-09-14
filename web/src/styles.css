@@ -10502,7 +10502,7 @@ html[data-theme='light'] .idt-tour-report {
   }
 
   .idt-home-compare .idt-compare-table td:nth-of-type(2)::before {
-    content: 'Conventional workflow';
+    content: 'Conventional workflows';
   }
 
   .idt-home-compare .idt-compare-table td::before {
