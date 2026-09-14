@@ -2092,8 +2092,7 @@ function DeploymentPathBanner() {
           </div>
           <aside className="idt-deployment-summary" aria-label="Recommended deployment path">
             <span>Recommended default</span>
-            <strong>Hosted SaaS gets most teams from zero to first risk path fastest.</strong>
-            <p>Open source stays ideal for internal control. Enterprise is built for private tenancy and procurement.</p>
+            <strong>Hosted SaaS: fastest path to a first trust scan.</strong>
           </aside>
         </div>
 
@@ -2104,7 +2103,6 @@ function DeploymentPathBanner() {
               <span className="idt-adoption-tag">Maximum control</span>
             </div>
             <h3>Open Source</h3>
-            <p className="idt-muted-strong">Best for: self-hosted evaluation and internal control.</p>
             <dl>
               <div>
                 <dt>Time to value</dt>
@@ -2129,7 +2127,6 @@ function DeploymentPathBanner() {
               <span className="idt-adoption-tag">Fastest path</span>
             </div>
             <h3>Hosted SaaS</h3>
-            <p className="idt-muted-strong">Best for: fastest onboarding and operational simplicity.</p>
             <dl>
               <div>
                 <dt>Time to value</dt>
@@ -2144,7 +2141,6 @@ function DeploymentPathBanner() {
                 <dd>Product support and assisted onboarding</dd>
               </div>
             </dl>
-            <p className="idt-adoption-note">Recommended for teams that need the fastest first scan.</p>
             <Link to="/signup" className="idt-inline-link">
               Start hosted evaluation →
             </Link>
@@ -2155,7 +2151,6 @@ function DeploymentPathBanner() {
               <span className="idt-adoption-tag">Private control</span>
             </div>
             <h3>Enterprise</h3>
-            <p className="idt-muted-strong">Best for: private tenancy, procurement, and compliance control.</p>
             <dl>
               <div>
                 <dt>Time to value</dt>
@@ -2177,10 +2172,7 @@ function DeploymentPathBanner() {
         </div>
         <div className="idt-inline-actions idt-adoption-actions">
           <Link to="/pricing" className="idt-btn idt-btn-dark">
-            Compare plan details
-          </Link>
-          <Link to="/enterprise" className="idt-btn idt-btn-ghost">
-            Talk through procurement
+            Compare plans
           </Link>
         </div>
       </div>
