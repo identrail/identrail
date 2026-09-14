@@ -10502,7 +10502,7 @@ html[data-theme='light'] .idt-tour-report {
   }
 
   .idt-home-compare .idt-compare-table td:nth-of-type(2)::before {
-    content: 'Typical alternative';
+    content: 'Conventional workflow';
   }
 
   .idt-home-compare .idt-compare-table td::before {
@@ -18640,6 +18640,13 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-compare-section {
   color: #09090b;
 }
 
+.idt-home-after-stack .idt-home-compare-section .idt-section-title h2,
+html[data-theme='light'] .idt-home-after-stack .idt-home-compare-section .idt-section-title h2 {
+  max-width: 23ch;
+  font-size: clamp(2.7rem, 4.8vw, 4.25rem);
+  line-height: 0.99;
+}
+
 .idt-home-after-stack .idt-home-compare-section .idt-section-title p,
 html[data-theme='light'] .idt-home-after-stack .idt-home-compare-section .idt-section-title p {
   color: #52525b;
@@ -18647,7 +18654,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-compare-section .idt-se
 
 .idt-home-after-stack .idt-home-compare,
 html[data-theme='light'] .idt-home-after-stack .idt-home-compare {
-  margin-top: 3rem;
+  margin-top: 2rem;
   border: 1px solid #18181b;
   border-radius: 0;
   background: #18181b;
@@ -18682,10 +18689,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-compare .idt-compare-ta
 
 .idt-home-after-stack .idt-home-final-cta,
 html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2rem;
-  align-items: end;
+  display: block;
   border-top: 1px solid #1f1f1f;
   background: #000000;
   color: #ffffff;
@@ -18697,8 +18701,8 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta .idt-section-
 }
 
 .idt-home-after-stack .idt-home-final-cta .idt-inline-actions {
-  margin: 0;
-  justify-content: flex-end;
+  margin-top: 1.5rem;
+  justify-content: flex-start;
 }
 
 .idt-home-after-stack .idt-home-final-cta .idt-final-cta-link,
@@ -19132,7 +19136,8 @@ html[data-theme='light'] .idt-social-link {
 .idt-home-after-stack .idt-home-final-cta,
 html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta {
   border-bottom: 0;
-  padding-bottom: clamp(5rem, 8vw, 7rem);
+  padding-top: clamp(3.5rem, 6vw, 5rem);
+  padding-bottom: clamp(3.5rem, 6vw, 5rem);
 }
 
 .idt-home-after-stack .idt-home-final-cta .idt-btn-primary,

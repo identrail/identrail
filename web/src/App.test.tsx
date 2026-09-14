@@ -410,7 +410,13 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: /From read-only signals to a safe fix/i })
     ).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /Book Demo/i }).length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole('heading', { level: 2, name: /How Identrail makes trust paths easier to act on/i })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Conventional workflows' })).toBeInTheDocument();
+    expect(screen.queryByText(/closed black-box workflows/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Map your first production trust path/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Request Trust Path Review/i }).length).toBeGreaterThan(0);
     expect(document.querySelector('#risk-scan-form')).not.toBeInTheDocument();
     expect(document.querySelector('.idt-trust-strip + .idt-home-after-stack')).toBeInTheDocument();
     expect(document.querySelector('.idt-home-after-stack .idt-shell')).not.toBeInTheDocument();

@@ -367,24 +367,19 @@ const DOCS_FEATURED_GUIDES = [
 
 const DIFFERENTIATION_ROWS = [
   {
-    area: 'Trust-path explainability',
-    identrail: 'Shows full identity chain with policy evidence and affected resources',
-    closed: 'Often returns abstract risk findings without chain-level context'
+    area: 'Explainable trust paths',
+    identrail: 'Identity chain, policy evidence, and affected resources',
+    closed: 'Risk findings without chain context'
   },
   {
-    area: 'Rollout safety',
-    identrail: 'Read-only collection, simulation-first remediation, staged enforcement',
-    closed: 'Policy hardening usually relies on external tooling and manual checks'
+    area: 'Safer remediation',
+    identrail: 'Read-only collection, policy simulation, and approval gates',
+    closed: 'Separate tools and manual checks'
   },
   {
-    area: 'Open-core transparency',
-    identrail: 'Public repository, documentation, and release history',
-    closed: 'Limited implementation visibility and slower verification by engineers'
-  },
-  {
-    area: 'Developer and platform fit',
-    identrail: 'Built for security + platform collaboration with inspectable outputs',
-    closed: 'Security-only workflows can be harder for platform teams to operationalize'
+    area: 'Open visibility',
+    identrail: 'Open-core code, documentation, and release history',
+    closed: 'Limited implementation visibility'
   }
 ] as const;
 
@@ -2430,7 +2425,7 @@ function HomePage() {
         <section className="idt-section idt-home-compare-section">
           <SectionTitle
             eyebrow="Comparison"
-            title="Why teams choose Identrail over closed black-box workflows"
+            title="How Identrail makes trust paths easier to act on"
           />
           <div className="idt-table-wrap idt-home-compare">
             <table className="idt-compare-table">
@@ -2438,7 +2433,7 @@ function HomePage() {
                 <tr>
                   <th scope="col">Category</th>
                   <th scope="col">Identrail</th>
-                  <th scope="col">Typical closed alternatives</th>
+                  <th scope="col">Conventional workflows</th>
                 </tr>
               </thead>
               <tbody>
@@ -2457,11 +2452,11 @@ function HomePage() {
         <section className="idt-section idt-final-cta idt-home-final-cta" id="enterprise-procurement">
           <SectionTitle
             eyebrow="Ready to evaluate"
-            title="Map your first production trust path in minutes"
-            body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
+            title="See your first production trust path"
+            body="Start with a read-only scan, review the evidence, and choose the deployment model that fits."
           />
           <div className="idt-inline-actions">
-            <ScanIntakeCTA className="idt-btn idt-btn-primary idt-home-demo-cta">Book Demo</ScanIntakeCTA>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary idt-home-demo-cta">Request Trust Path Review</ScanIntakeCTA>
           </div>
         </section>
       </div>
