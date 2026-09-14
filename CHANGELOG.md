@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Simplify the homepage product tour into a three-stage workflow with a focused risk-path preview and less repeated dashboard copy.
 - Tighten the homepage command center by reducing its introduction to one focused headline while keeping the triage, simulation, and report controls intact.
 - Simplify the homepage risk story by removing its repeated workflow cards, reducing the framing to one focused headline, tightening the empty trust-graph panel, and clarifying the evidence, reachable impact, and recommended fix outputs.
 - Link the homepage Docker pull count directly to Identrail on Docker Hub.

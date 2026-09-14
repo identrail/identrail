@@ -408,7 +408,7 @@ describe('App', () => {
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
     expect(
-      screen.getByRole('heading', { level: 2, name: /Connect sources, trace risk/i })
+      screen.getByRole('heading', { level: 2, name: /From read-only signals to a safe fix/i })
     ).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /Book Demo/i }).length).toBeGreaterThan(0);
     expect(document.querySelector('#risk-scan-form')).not.toBeInTheDocument();

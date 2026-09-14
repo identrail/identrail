@@ -15506,6 +15506,9 @@ html[data-theme='light'] .idt-product-tour-shell {
   gap: 0.55rem;
   align-content: start;
   min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .idt-tour-step,
@@ -15532,15 +15535,6 @@ html[data-theme='light'] .idt-tour-step {
   min-width: 0;
 }
 
-.idt-tour-step.is-active,
-html[data-theme='light'] .idt-tour-step.is-active {
-  border-color: rgba(17, 24, 39, 0.12);
-  background:
-    radial-gradient(circle at 12% 20%, rgba(109, 55, 221, 0.1), transparent 36%),
-    #0b0d12;
-  box-shadow: 0 22px 54px rgba(17, 24, 39, 0.18);
-}
-
 .idt-tour-step-index,
 .idt-tour-step > span,
 html[data-theme='light'] .idt-tour-step > span {
@@ -15553,23 +15547,6 @@ html[data-theme='light'] .idt-tour-step > span {
   color: #6d37dd;
   font-size: 0.72rem;
   font-weight: 760;
-}
-
-.idt-tour-step.is-active .idt-tour-step-index,
-html[data-theme='light'] .idt-tour-step.is-active .idt-tour-step-index {
-  background: #ffffff;
-  color: #111827;
-}
-
-.idt-tour-step small {
-  display: block;
-  margin: 0 0 0.28rem;
-  color: #7a8495;
-  font-size: 0.66rem;
-  font-weight: 780;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  text-transform: uppercase;
 }
 
 .idt-tour-step h3,
@@ -15591,20 +15568,6 @@ html[data-theme='light'] .idt-tour-step p {
   line-height: 1.5;
 }
 
-.idt-tour-step.is-active small {
-  color: rgba(255, 255, 255, 0.58);
-}
-
-.idt-tour-step.is-active h3,
-html[data-theme='light'] .idt-tour-step.is-active h3 {
-  color: #ffffff;
-}
-
-.idt-tour-step.is-active p,
-html[data-theme='light'] .idt-tour-step.is-active p {
-  color: rgba(255, 255, 255, 0.72);
-}
-
 .idt-tour-screen,
 html[data-theme='light'] .idt-tour-screen {
   overflow: hidden;
@@ -15618,7 +15581,7 @@ html[data-theme='light'] .idt-tour-screen {
 
 .idt-tour-screen-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.9rem;
   padding: 0.95rem 1rem;
@@ -15626,18 +15589,6 @@ html[data-theme='light'] .idt-tour-screen {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 248, 251, 0.92)),
     #ffffff;
-}
-
-.idt-tour-window-dots {
-  display: inline-flex;
-  gap: 0.34rem;
-}
-
-.idt-tour-window-dots span {
-  width: 0.58rem;
-  height: 0.58rem;
-  border-radius: 999px;
-  background: #d9dde4;
 }
 
 .idt-tour-screen-head p,
@@ -15696,9 +15647,15 @@ html[data-theme='light'] .idt-tour-screen-head > span {
 
 .idt-tour-connector-scope {
   display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
   gap: 0.65rem;
-  align-content: start;
+  align-items: center;
   padding: 0.9rem;
+}
+
+.idt-tour-connector-scope > p {
+  white-space: nowrap;
 }
 
 .idt-tour-connector-scope article {
@@ -15736,6 +15693,7 @@ html[data-theme='light'] .idt-tour-screen-head > span {
 }
 
 .idt-tour-path-panel {
+  grid-column: 1 / -1;
   padding: 1rem;
 }
 
@@ -15973,8 +15931,8 @@ html[data-theme='light'] .idt-tour-screen-head > span {
     grid-template-columns: 1fr;
   }
 
-  .idt-tour-window-dots {
-    display: none;
+  .idt-tour-connector-scope {
+    grid-template-columns: 1fr;
   }
 
   .idt-tour-step,
@@ -18292,26 +18250,19 @@ html[data-theme='light'] .idt-home-after-stack .idt-product-tour-shell {
 
 .idt-home-after-stack .idt-tour-rail {
   gap: 1px;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
   background: #18181b;
 }
 
 .idt-home-after-stack .idt-tour-step,
-html[data-theme='light'] .idt-home-after-stack .idt-tour-step,
-.idt-home-after-stack .idt-tour-step.is-active,
-html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active {
-  min-height: 150px;
+html[data-theme='light'] .idt-home-after-stack .idt-tour-step {
+  min-height: 116px;
+  padding: 1rem;
   border: 0;
   border-radius: 0;
   background: #050505;
   color: #ffffff;
   box-shadow: none;
-}
-
-.idt-home-after-stack .idt-tour-step.is-active,
-html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active {
-  background: #090909;
-  color: #ffffff;
-  box-shadow: inset 0 0 0 1px #1f1f1f;
 }
 
 .idt-home-after-stack .idt-tour-step-index,
@@ -18322,31 +18273,13 @@ html[data-theme='light'] .idt-home-after-stack .idt-tour-step > span {
   color: #000000;
 }
 
-.idt-home-after-stack .idt-tour-step.is-active .idt-tour-step-index,
-html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active .idt-tour-step-index {
-  background: #ffffff;
-  color: #000000;
-}
-
 .idt-home-after-stack .idt-tour-step h3,
 html[data-theme='light'] .idt-home-after-stack .idt-tour-step h3 {
   color: #ffffff;
 }
 
-.idt-home-after-stack .idt-tour-step.is-active h3,
-html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active h3 {
-  color: #ffffff;
-}
-
-.idt-home-after-stack .idt-tour-step small,
 .idt-home-after-stack .idt-tour-step p,
 html[data-theme='light'] .idt-home-after-stack .idt-tour-step p {
-  color: #a1a1aa;
-}
-
-.idt-home-after-stack .idt-tour-step.is-active small,
-.idt-home-after-stack .idt-tour-step.is-active p,
-html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active p {
   color: #a1a1aa;
 }
 
@@ -18394,6 +18327,15 @@ html[data-theme='light'] .idt-home-after-stack .idt-tour-screen-head > span {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: none;
+}
+
+.idt-home-after-stack .idt-tour-connector-scope {
+  grid-column: 1 / -1;
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
+}
+
+.idt-home-after-stack .idt-tour-path-panel {
+  grid-column: 1 / -1;
 }
 
 .idt-home-after-stack .idt-tour-connector-scope article,
@@ -18884,6 +18826,10 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta .idt-final-ct
     grid-template-columns: 1fr;
   }
 
+  .idt-home-after-stack .idt-tour-rail {
+    grid-template-rows: none;
+  }
+
   .idt-home-after-stack .idt-tour-screen,
   html[data-theme='light'] .idt-home-after-stack .idt-tour-screen {
     border-radius: 0 0 7px 7px;
@@ -18901,6 +18847,12 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta .idt-final-ct
 
   .idt-home-after-stack .idt-home-final-cta .idt-inline-actions {
     display: grid;
+  }
+}
+
+@media (max-width: 560px) {
+  .idt-home-after-stack .idt-tour-connector-scope {
+    grid-template-columns: 1fr;
   }
 }
 

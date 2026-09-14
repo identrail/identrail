@@ -391,31 +391,18 @@ const DIFFERENTIATION_ROWS = [
 const PRODUCT_TOUR_STEPS = [
   {
     step: '01',
-    title: 'Connect source systems',
-    detail: 'Validate AWS IAM, Kubernetes, GitHub Actions, and OIDC signals with scoped collection.',
-    proof: 'Connector scope',
-    active: true
+    title: 'Connect',
+    detail: 'Link read-only identity sources with scoped collection.'
   },
   {
     step: '02',
-    title: 'Trace real exposure',
-    detail: 'Show the identity, workload, role, and resource chain with severity context.',
-    proof: 'Exposure path',
-    active: false
+    title: 'Trace',
+    detail: 'Follow the identity path to the reachable resource.'
   },
   {
     step: '03',
-    title: 'Simulate the safest change',
-    detail: 'Preview trust-policy and RBAC edits before anything touches production.',
-    proof: 'Policy simulation',
-    active: false
-  },
-  {
-    step: '04',
-    title: 'Export the review bundle',
-    detail: 'Package source proof, owner notes, policy diffs, and residual risk for review.',
-    proof: 'Review bundle',
-    active: false
+    title: 'Fix',
+    detail: 'Simulate and share the safest first change.'
   }
 ] as const;
 
@@ -2201,53 +2188,45 @@ function DeploymentPathBanner() {
   );
 }
 
-function ProductTourSection() {
+export function ProductTourSection() {
   return (
     <section className="idt-section idt-product-tour" aria-labelledby="product-tour-title">
       <div className="idt-product-tour-copy">
-        <p className="idt-eyebrow">Product tour</p>
-        <h2 id="product-tour-title">Connect sources, trace risk, and ship the first safe fix.</h2>
+        <p className="idt-eyebrow">How it works</p>
+        <h2 id="product-tour-title">From read-only signals to a safe fix.</h2>
         <p>
-          Validate IAM, Kubernetes, GitHub, and OIDC signals, preview the impact, and give teams a clear remediation
-          plan.
+          Link IAM, Kubernetes, and OIDC evidence to see the reachable path, owner, and safest first change.
         </p>
       </div>
 
       <div className="idt-product-tour-shell" aria-label="Identrail product workflow preview">
-        <div className="idt-tour-rail">
+        <ol className="idt-tour-rail" aria-label="Identrail workflow steps">
           {PRODUCT_TOUR_STEPS.map((item) => (
-            <article
+            <li
               key={item.step}
-              aria-current={item.active ? 'step' : undefined}
-              className={`idt-tour-step${item.active ? ' is-active' : ''}`}
+              className="idt-tour-step"
             >
               <span className="idt-tour-step-index">{item.step}</span>
               <div>
-                <small>{item.proof}</small>
                 <h3>{item.title}</h3>
                 <p>{item.detail}</p>
               </div>
-            </article>
+            </li>
           ))}
-        </div>
+        </ol>
 
         <div className="idt-tour-screen">
           <div className="idt-tour-screen-head">
-            <div className="idt-tour-window-dots" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
             <div>
-              <p>Production workspace</p>
-              <h3>Owner-ready risk path</h3>
+              <p>Example risk path</p>
+              <h3>Billing ledger reachable</h3>
             </div>
-            <span>Evidence ready</span>
+            <span>Read-only preview</span>
           </div>
 
           <div className="idt-tour-product-preview">
-            <aside className="idt-tour-connector-scope" aria-label="Read-only connector scope">
-              <p>Connector scope</p>
+            <aside className="idt-tour-connector-scope" aria-label="Read-only sources">
+              <p>Read-only sources</p>
               {PRODUCT_TOUR_CONNECTORS.map((connector) => (
                 <article key={connector.name}>
                   <img src={connector.icon} alt="" aria-hidden="true" loading="lazy" />
@@ -2263,7 +2242,7 @@ function ProductTourSection() {
               <div className="idt-tour-path-head">
                 <div>
                   <p>Reachable path</p>
-                  <h4>GitHub workflow can reach billing data through AWS role trust.</h4>
+                  <h4>GitHub Actions can reach the billing ledger.</h4>
                 </div>
                 <span>High</span>
               </div>
@@ -2280,8 +2259,8 @@ function ProductTourSection() {
 
             <div className="idt-tour-simulation">
               <div>
-                <p>Safe fix simulation</p>
-                <strong>Restrict subject claim and namespace tags</strong>
+                <p>Safest first change</p>
+                <strong>Narrow the subject claim and namespace</strong>
               </div>
               <code>
                 <span className="is-remove">- sub = "*"</span>
@@ -2292,10 +2271,10 @@ function ProductTourSection() {
 
             <div className="idt-tour-evidence-packet">
               <div>
-                <p>Review bundle</p>
-                <strong>Ready for owner review</strong>
+                <p>Evidence bundle</p>
+                <strong>Ready to share with the owner</strong>
               </div>
-              <ul aria-label="Review bundle contents">
+              <ul aria-label="Evidence bundle contents">
                 {PRODUCT_TOUR_PACKET.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
