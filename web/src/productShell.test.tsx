@@ -3287,9 +3287,11 @@ describe('ProductOverviewPage', () => {
 
     const domainPosture = await screen.findByRole('region', { name: 'Domain posture' });
     const githubCard = within(domainPosture).getByRole('link', { name: /GitHub/i });
+    const agenticRiskCard = within(domainPosture).getByRole('link', { name: /AI \/ Agentic Risk/i });
 
-    await waitFor(() => expect(within(githubCard).getByText('Pending')).toBeInTheDocument());
-    expect(within(githubCard).getByText('No scans')).toBeInTheDocument();
+    await waitFor(() => expect(within(githubCard).getByText('No scan yet')).toBeInTheDocument());
+    expect(within(githubCard).getByText('Awaiting first scan')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('Awaiting first scan')).toBeInTheDocument();
     expect(githubCard).toHaveAttribute('href', '/app/tenant-a/workspace-a/github');
     expect(screen.queryByRole('link', { name: 'Connect GitHub' })).not.toBeInTheDocument();
   });
@@ -3342,10 +3344,164 @@ describe('ProductOverviewPage', () => {
     const agenticRiskCard = within(domainPosture).getByRole('link', { name: /AI \/ Agentic Risk/i });
 
     await waitFor(() => expect(within(githubCard).getByText('Not connected')).toBeInTheDocument());
-    expect(within(githubCard).getByText('No scans')).toBeInTheDocument();
+    expect(within(githubCard).getByText('Connect GitHub')).toBeInTheDocument();
     expect(within(agenticRiskCard).getByText('Not connected')).toBeInTheDocument();
-    expect(within(agenticRiskCard).getByText('No signals')).toBeInTheDocument();
-    expect(screen.getByText('0/4')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('Connect a source first')).toBeInTheDocument();
+    expect(screen.getByText('0 of 4')).toBeInTheDocument();
+  });
+
+  it('explains scan and connector gaps in the posture and next actions', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'project-a',
+        name: 'Production',
+        slug: 'production',
+        description: '',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: disconnectedKubernetes });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({
+      items: [{
+        ...queuedRepoScan,
+        id: 'repo-scan-failed-overview',
+        status: 'failed',
+        started_at: '2026-05-17T11:00:00Z',
+        finished_at: '2026-05-17T11:01:00Z',
+        error_message: 'Scan timed out'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Scan needs review')).toBeInTheDocument();
+    expect(screen.queryByText('Action needed')).not.toBeInTheDocument();
+    expect(screen.getByText('Active domains', { selector: '.idt-overview-metric-label' })).toBeInTheDocument();
+    expect(screen.getByText('2 of 4')).toBeInTheDocument();
+
+    const nextActions = screen.getByRole('region', { name: 'Recommended next actions' });
+    const actionLinks = within(nextActions).getAllByRole('link');
+    const agenticRiskCard = within(screen.getByRole('region', { name: 'Domain posture' }))
+      .getByRole('link', { name: /AI \/ Agentic Risk/i });
+    expect(actionLinks[0]).toHaveTextContent('Review 1 failed scan');
+    expect(actionLinks[0]).toHaveTextContent('Check the reported error, then run the scan again.');
+    expect(actionLinks[1]).toHaveTextContent('Connect AWS');
+    expect(actionLinks[1]).toHaveTextContent('AWS is not connected to this workspace.');
+    expect(actionLinks[2]).toHaveTextContent('Run a scan');
+    expect(actionLinks[2]).toHaveTextContent('Complete a scan to produce current evidence.');
+    expect(actionLinks[2]).toHaveAttribute('href', '/app/tenant-a/workspace-a/github');
+    expect(within(agenticRiskCard).getByText('Scan incomplete')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('Awaiting scan completion')).toBeInTheDocument();
+    expect(within(agenticRiskCard).queryByText('No findings')).not.toBeInTheDocument();
+    expect(within(agenticRiskCard).queryByText('No signals detected')).not.toBeInTheDocument();
+    expect(await screen.findByText('No completed scan')).toBeInTheDocument();
+  });
+
+  it('preserves completed evidence when it falls beyond the recent scan page', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    const recentFailedScans = Array.from({ length: 5 }, (_, index) => ({
+      ...queuedRepoScan,
+      id: `repo-scan-failed-${index}`,
+      status: 'failed',
+      started_at: `2026-05-${17 - index}T11:00:00Z`,
+      finished_at: `2026-05-${17 - index}T11:01:00Z`,
+      error_message: 'Scan timed out'
+    }));
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({
+      items: recentFailedScans,
+      next_cursor: 'older-scans',
+      has_successful_scan: true
+    });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('No high-priority findings')).toBeInTheDocument();
+    expect(screen.queryByText('No completed scan')).not.toBeInTheDocument();
+    const domainPosture = screen.getByRole('region', { name: 'Domain posture' });
+    const agenticRiskCard = within(domainPosture).getByRole('link', { name: /AI \/ Agentic Risk/i });
+    expect(within(agenticRiskCard).getByText('No findings')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('No signals detected')).toBeInTheDocument();
+    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(1));
+  });
+
+  it('withholds no-signals messaging when open findings are truncated', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({
+      items: [{
+        ...queuedRepoScan,
+        id: 'repo-scan-complete-overview',
+        status: 'succeeded',
+        finding_count: 51
+      }],
+      has_successful_scan: true
+    });
+    const nonAgenticFinding: Finding = {
+      id: 'finding-overview-non-agentic',
+      scan_id: 'repo-scan-complete-overview',
+      type: 'repo_misconfiguration',
+      severity: 'medium',
+      title: 'Default branch protection is missing',
+      human_summary: 'The default branch does not require pull request reviews.',
+      repository: 'owner/repo',
+      detector: 'github_default_branch_unprotected',
+      evidence: { adapter_source: 'github_posture' },
+      remediation: 'Enable branch protection with required reviews.',
+      created_at: '2026-05-17T11:00:00Z'
+    };
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({
+      items: [nonAgenticFinding],
+      next_cursor: 'more-findings'
+    });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const domainPosture = await screen.findByRole('region', { name: 'Domain posture' });
+    const agenticRiskCard = within(domainPosture).getByRole('link', { name: /AI \/ Agentic Risk/i });
+    expect(within(agenticRiskCard).getByText('More findings')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('More findings to review')).toBeInTheDocument();
+    expect(within(agenticRiskCard).queryByText('No signals detected')).not.toBeInTheDocument();
   });
 });
 

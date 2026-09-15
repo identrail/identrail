@@ -945,7 +945,15 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortRepoScans(items, sortBy, sortDesc)
-		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
+		hasSuccessfulScan, err := svc.HasSuccessfulRepoScan(c.Request.Context())
+		if err != nil {
+			logger.Error("summarize repo scans", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, repoScanListErrorResponse(err))
+			return
+		}
+		response := paginatedItemsResponse(items, offset, limit)
+		response["has_successful_scan"] = hasSuccessfulScan
+		c.JSON(http.StatusOK, response)
 	})
 
 	v1.GET("/repo-scans/:repo_scan_id", func(c *gin.Context) {

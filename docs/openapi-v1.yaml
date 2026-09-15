@@ -27130,6 +27130,9 @@ components:
             $ref: "#/components/schemas/RepoScanRecord"
         next_cursor:
           type: string
+        has_successful_scan:
+          type: boolean
+          description: Whether the scoped workspace has any completed repository scan.
     IdentityPage:
       type: object
       properties:

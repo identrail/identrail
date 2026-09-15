@@ -10665,7 +10665,7 @@ export const apiClient = {
     } = {},
     auth?: RequestAuthContext
   ) {
-    return request<{ items: RepoScanRecord[]; next_cursor?: string }>(
+    return request<{ items: RepoScanRecord[]; next_cursor?: string; has_successful_scan?: boolean }>(
       `/v1/repo-scans${buildQuery({ sort_by: 'started_at', sort_order: 'desc', ...filters })}`,
       auth
     );

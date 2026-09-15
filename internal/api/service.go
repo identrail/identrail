@@ -2835,6 +2835,13 @@ func (s *Service) ListRepoScans(ctx context.Context, limit int) ([]db.RepoScanRe
 	return s.Store.ListRepoScans(ctx, limit)
 }
 
+// HasSuccessfulRepoScan reports whether the scoped workspace has completed
+// repository scan evidence without paging through scan history.
+func (s *Service) HasSuccessfulRepoScan(ctx context.Context) (bool, error) {
+	ctx = s.scopeContext(ctx)
+	return s.Store.HasSuccessfulRepoScan(ctx)
+}
+
 // GetRepoScan returns one repository scan by id.
 func (s *Service) GetRepoScan(ctx context.Context, repoScanID string) (db.RepoScanRecord, error) {
 	ctx = s.scopeContext(ctx)

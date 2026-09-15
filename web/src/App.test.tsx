@@ -926,7 +926,7 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(await screen.findByText(/Highest priority/i)).toBeInTheDocument();
     expect(await screen.findByText(/High priority/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Review priority findings/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review 1 high-priority finding/i)).toBeInTheDocument();
     const domainPosture = screen.getByLabelText('Domain posture');
     const awsCard = within(domainPosture).getByRole('link', { name: /AWS/i });
     const githubCard = within(domainPosture).getByRole('link', { name: /GitHub/i });
@@ -1366,7 +1366,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
-    expect(await screen.findByText('Evidence', { selector: '.idt-overview-metric-label' })).toBeInTheDocument();
+    expect(await screen.findByText('Scan evidence', { selector: '.idt-overview-metric-label' })).toBeInTheDocument();
     expect(screen.getByText('No scans', { selector: '.idt-overview-metrics strong' })).toBeInTheDocument();
     expect(screen.queryByText(/Trend pending/i)).not.toBeInTheDocument();
     expect(screen.queryByText('+12')).not.toBeInTheDocument();

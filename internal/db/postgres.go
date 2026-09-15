@@ -4093,6 +4093,32 @@ func (p *PostgresStore) ListRepoScans(ctx context.Context, limit int) ([]RepoSca
 	return result, nil
 }
 
+// HasSuccessfulRepoScan reports whether the scoped workspace has completed
+// repository scan evidence using the status index rather than scan history.
+func (p *PostgresStore) HasSuccessfulRepoScan(ctx context.Context) (bool, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return false, err
+	}
+	var exists bool
+	err = p.queryRowContext(
+		ctx,
+		`SELECT EXISTS (
+			SELECT 1
+			FROM repo_scans
+			WHERE tenant_id = $1
+			  AND workspace_id = $2
+			  AND status IN ('succeeded', 'completed')
+		)`,
+		scope.TenantID,
+		scope.WorkspaceID,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check successful repo scans: %w", err)
+	}
+	return exists, nil
+}
+
 // ListRepoFindings returns latest repository findings first with optional filters.
 func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFindingFilter, limit int) ([]domain.Finding, error) {
 	normalized := NormalizeRepoFindingFilter(filter)

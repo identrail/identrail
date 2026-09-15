@@ -701,13 +701,17 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 		t.Fatalf("expected repo scans 200, got %d", repoScansW.Code)
 	}
 	var repoScansBody struct {
-		Items []db.RepoScanRecord `json:"items"`
+		Items             []db.RepoScanRecord `json:"items"`
+		HasSuccessfulScan bool                `json:"has_successful_scan"`
 	}
 	if err := json.Unmarshal(repoScansW.Body.Bytes(), &repoScansBody); err != nil {
 		t.Fatalf("decode repo scans body: %v", err)
 	}
 	if len(repoScansBody.Items) == 0 {
 		t.Fatal("expected repo scan items")
+	}
+	if !repoScansBody.HasSuccessfulScan {
+		t.Fatal("expected successful repo scan summary")
 	}
 
 	repoScanID := repoScansBody.Items[0].ID

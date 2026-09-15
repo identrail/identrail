@@ -891,6 +891,22 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 	if len(repoScans) != 1 || repoScans[0].ID != record.ID {
 		t.Fatalf("unexpected repo scans: %+v", repoScans)
 	}
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
+			SELECT 1
+			FROM repo_scans
+			WHERE tenant_id = $1
+			  AND workspace_id = $2
+			  AND status IN ('succeeded', 'completed')
+		)`)).
+		WithArgs("default", "default").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	hasSuccessful, err := store.HasSuccessfulRepoScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("check successful repo scan failed: %v", err)
+	}
+	if !hasSuccessful {
+		t.Fatal("expected successful repo scan summary")
+	}
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
 			SELECT 1

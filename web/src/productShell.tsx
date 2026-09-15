@@ -335,7 +335,7 @@ const OVERVIEW_DOMAIN_STATE_LABELS: Record<OverviewDomainState, string> = {
   connected: 'Connected',
   degraded: 'Needs review',
   not_connected: 'Not connected',
-  no_data: 'Pending',
+  no_data: 'No scan yet',
   shell: 'Unavailable'
 };
 
@@ -767,6 +767,7 @@ const ENVIRONMENT_QUERY_PARAM = 'environment';
 const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
 const OVERVIEW_SCAN_LIMIT = 5;
+const OVERVIEW_SCAN_FETCH_LIMIT = 50;
 const OVERVIEW_PROJECT_PAGE_LIMIT = 100;
 const ENVIRONMENT_SELECTOR_LIMIT = 50;
 const AI_RISKS_REPO_FINDINGS_PAGE_LIMIT = 100;
@@ -1124,6 +1125,35 @@ async function listOverviewProjects(
   } while (cursor);
 
   return items;
+}
+
+type OverviewScanLoadResult = {
+  items: RepoScanRecord[];
+  hasSuccessfulScan: boolean;
+  historyComplete: boolean;
+};
+
+async function listOverviewScans(auth: RequestAuthContext): Promise<OverviewScanLoadResult> {
+  const response = await apiClient.listRepoScans(
+    {
+      limit: OVERVIEW_SCAN_FETCH_LIMIT,
+      sort_by: 'started_at',
+      sort_order: 'desc'
+    },
+    auth
+  );
+  const hasServerSummary = typeof response.has_successful_scan === 'boolean';
+  const hasSuccessfulScan = hasServerSummary
+    ? response.has_successful_scan === true
+    : response.items.some((scan) => repoScanStatusTone(scan.status) === 'success');
+
+  return {
+    items: response.items.slice(0, OVERVIEW_SCAN_LIMIT),
+    hasSuccessfulScan,
+    // Older API deployments may not include the summary. In that case, a
+    // cursor means the visible page cannot establish the full history.
+    historyComplete: hasServerSummary || !response.next_cursor?.trim()
+  };
 }
 
 function emptyOverviewConnectionRollup(): OverviewConnectionRollup {
@@ -1934,7 +1964,7 @@ function summarizeRepoScanSourceHealth(scan: RepoScanRecord): string {
     case 'unavailable':
       return 'Unavailable source collection';
     case 'unknown':
-      return 'Unknown source collection';
+      return 'Source details unavailable';
     default:
       return '';
   }
@@ -33289,6 +33319,9 @@ export function ProductOverviewPage() {
   const [sourceConnectionRollups, setSourceConnectionRollups] = useState<OverviewConnectionRollups>(
     emptyOverviewConnectionRollups()
   );
+  const [hasHistoricalSuccessfulScan, setHasHistoricalSuccessfulScan] = useState(false);
+  const [scanHistoryComplete, setScanHistoryComplete] = useState(true);
+  const [findingsHistoryComplete, setFindingsHistoryComplete] = useState(true);
   const [, setInviteSkipTick] = useState(0);
   const [connectorConfiguredFromOnboarding, setConnectorConfiguredFromOnboarding] = useState(false);
   const [onboardingConnectorProvider, setOnboardingConnectorProvider] = useState<SourceProvider | null>(null);
@@ -33351,6 +33384,9 @@ export function ProductOverviewPage() {
       setError('Choose a workspace before loading the overview.');
       setLoading(false);
       setSourceConnectionRollups(emptyOverviewConnectionRollups());
+      setHasHistoricalSuccessfulScan(false);
+      setScanHistoryComplete(true);
+      setFindingsHistoryComplete(true);
       return;
     }
 
@@ -33359,6 +33395,9 @@ export function ProductOverviewPage() {
       const requestSessionVersion = currentProductAuthSessionVersion();
       setLoading(true);
       setError('');
+      setHasHistoricalSuccessfulScan(false);
+      setScanHistoryComplete(true);
+      setFindingsHistoryComplete(true);
       try {
         const auth = buildProductAuthContext(scope);
         const activeProjectItems = await listOverviewProjects(scope.workspaceID, { include_archived: false }, auth);
@@ -33368,7 +33407,7 @@ export function ProductOverviewPage() {
         primeEnvironmentScopeCache(scope, activeProjectItems);
         primeGitHubControlCenterDataCache(scope, activeProjectItems, sourceAvailability.github, auth);
         const [scanResponse, findingResponse, connectionRollups] = await Promise.all([
-          apiClient.listRepoScans({ limit: OVERVIEW_SCAN_LIMIT }, auth),
+          listOverviewScans(auth),
           apiClient.listRepoFindings(
             {
               limit: OVERVIEW_FINDING_LIMIT,
@@ -33389,11 +33428,14 @@ export function ProductOverviewPage() {
             .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
         );
         setRepoScans(scanResponse.items);
+        setHasHistoricalSuccessfulScan(scanResponse.hasSuccessfulScan);
+        setScanHistoryComplete(scanResponse.historyComplete);
         setRepoFindings(
           findingResponse.items
             .slice()
             .sort((left, right) => severityRank(right.severity) - severityRank(left.severity))
         );
+        setFindingsHistoryComplete(!findingResponse.next_cursor?.trim());
         setSourceConnectionRollups(connectionRollups);
       } catch (err) {
         if (!mounted || !isCurrentProductAuthSessionVersion(requestSessionVersion)) {
@@ -33401,6 +33443,9 @@ export function ProductOverviewPage() {
         }
         setError(formatAPIError(err, 'Unable to load workspace overview'));
         setSourceConnectionRollups(emptyOverviewConnectionRollups());
+        setHasHistoricalSuccessfulScan(false);
+        setScanHistoryComplete(true);
+        setFindingsHistoryComplete(true);
       } finally {
         if (mounted && isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           setLoading(false);
@@ -33457,8 +33502,7 @@ export function ProductOverviewPage() {
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
   const connectSourcesProvider = DOMAIN_NAV_ORDER.find((provider) => sourceAvailability[provider].available) ?? 'aws';
   const connectSourcesPath = scope ? buildScopedPath(scope, `${connectSourcesProvider}/connect`) : '/app';
-  const connectSourcesLabel = `Connect ${PRODUCT_DOMAIN_CONFIGS[connectSourcesProvider].navLabel}`;
-  const hasAnySuccessfulScan = succeededScanCount > 0;
+  const hasAnySuccessfulScan = succeededScanCount > 0 || hasHistoricalSuccessfulScan;
   const awsRollup = sourceConnectionRollups.aws;
   const kubernetesRollup = sourceConnectionRollups.kubernetes;
   // A source counts as connected when either (a) onboarding records a connector
@@ -33471,15 +33515,33 @@ export function ProductOverviewPage() {
     awsRollup.connectedCount > 0 ||
     kubernetesRollup.connectedCount > 0;
   const hasGitHubFindingEvidence = repoFindings.length > 0;
+  const hasMoreGitHubFindings = !findingsHistoryComplete;
   const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
+  const hasGitHubCompletedEvidence = hasAnySuccessfulScan || hasGitHubFindingEvidence;
   const hasGitHubConnectorEvidence = hasGitHubEvidence || onboardingConnectorProvider === 'github';
+  const hasActiveGitHubScan = repoScans.some((scan) => isActiveScanStatus(scan.status));
+  const hasGitHubScanWithoutCompletedEvidence = repoScans.length > 0 && !hasGitHubCompletedEvidence;
+  const hasUnknownGitHubScanHistory = hasGitHubScanWithoutCompletedEvidence && !scanHistoryComplete;
+  const githubAgenticAwaitingStatus = hasActiveGitHubScan
+    ? 'Scan in progress'
+    : hasUnknownGitHubScanHistory
+      ? 'Scan history incomplete'
+      : hasGitHubScanWithoutCompletedEvidence
+        ? 'Scan incomplete'
+        : 'No scan yet';
+  const githubAgenticAwaitingMetric = hasUnknownGitHubScanHistory
+    ? 'Review scan history'
+    : hasGitHubScanWithoutCompletedEvidence
+      ? 'Awaiting scan completion'
+      : 'Awaiting first scan';
+  const scanActionPath = hasGitHubConnectorEvidence ? githubPath : connectSourcesPath;
   const highPriorityCount = highPriorityFindings.length;
   const activeEnvironmentCount = activeProjects.length;
   const githubState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
     ? 'shell'
     : failedScanCount > 0 && succeededScanCount === 0
       ? 'degraded'
-      : succeededScanCount > 0 || hasGitHubFindingEvidence
+      : hasAnySuccessfulScan || hasGitHubFindingEvidence
         ? 'connected'
         : hasGitHubConnectorEvidence
         ? 'no_data'
@@ -33498,6 +33560,7 @@ export function ProductOverviewPage() {
     label: string;
     provider: SourceProvider;
     state: OverviewDomainState;
+    statusLabel: string;
     metric: string;
     to: string;
   }> = [
@@ -33506,6 +33569,7 @@ export function ProductOverviewPage() {
       label: 'AWS',
       provider: 'aws',
       state: awsState,
+      statusLabel: OVERVIEW_DOMAIN_STATE_LABELS[awsState],
       metric: awsState === 'shell' ? 'Connector off' : overviewConnectionMetric(awsRollup, 'account'),
       to: awsState === 'not_connected' ? awsConnectPath : awsPath
     },
@@ -33514,6 +33578,7 @@ export function ProductOverviewPage() {
       label: 'GitHub',
       provider: 'github',
       state: githubState,
+      statusLabel: OVERVIEW_DOMAIN_STATE_LABELS[githubState],
       metric:
         githubState === 'shell'
           ? 'Connector off'
@@ -33521,7 +33586,9 @@ export function ProductOverviewPage() {
           ? formatCountLabel(repoScans.length, 'scan')
           : hasGitHubFindingEvidence
             ? formatCountLabel(repoFindings.length, 'finding')
-            : 'No scans',
+            : hasGitHubConnectorEvidence
+              ? 'Awaiting first scan'
+              : 'Connect GitHub',
       to: highPriorityCount > 0 ? findingsPath : githubPath
     },
     {
@@ -33529,6 +33596,7 @@ export function ProductOverviewPage() {
       label: 'Kubernetes',
       provider: 'kubernetes',
       state: kubernetesState,
+      statusLabel: OVERVIEW_DOMAIN_STATE_LABELS[kubernetesState],
       metric: kubernetesState === 'shell' ? 'Connector off' : overviewConnectionMetric(kubernetesRollup, 'cluster'),
       to: kubernetesState === 'not_connected' ? kubernetesConnectPath : kubernetesPath
     },
@@ -33537,12 +33605,24 @@ export function ProductOverviewPage() {
       label: 'AI / Agentic Risk',
       provider: 'github',
       state: agenticRiskState,
+      statusLabel:
+        agenticRiskState === 'no_data' && hasGitHubCompletedEvidence
+          ? hasMoreGitHubFindings ? 'More findings' : 'No findings'
+          : agenticRiskState === 'no_data' && hasGitHubConnectorEvidence
+            ? githubAgenticAwaitingStatus
+            : OVERVIEW_DOMAIN_STATE_LABELS[agenticRiskState],
       metric:
         agenticRiskState === 'shell'
           ? 'Connector off'
           : agenticRiskFindings.length > 0
             ? formatCountLabel(agenticRiskFindings.length, 'signal')
-            : 'No signals',
+            : hasGitHubCompletedEvidence && hasMoreGitHubFindings
+              ? 'More findings to review'
+            : hasGitHubCompletedEvidence
+              ? 'No signals detected'
+              : hasGitHubConnectorEvidence
+                ? githubAgenticAwaitingMetric
+                : 'Connect a source first',
       to: agenticRiskState === 'not_connected' ? githubPath : githubAgenticRiskPath
     }
   ];
@@ -33550,31 +33630,60 @@ export function ProductOverviewPage() {
     item.state === 'connected' || item.state === 'degraded' || item.state === 'no_data'
   ).length;
   const hasDomainDegradation = domainPosture.some((item) => item.state === 'degraded');
-  const postureLabel = highPriorityCount > 0 || failedScanCount > 0 || hasDomainDegradation ? 'Action needed' : 'Stable';
-  const coverageLabel = `${activeDomainCount}/${domainPosture.length}`;
+  const hasDomainSetupGap = domainPosture.some((item) => item.state === 'not_connected' || item.state === 'shell');
+  const postureTone: 'danger' | 'warning' | 'neutral' = highPriorityCount > 0
+    ? 'danger'
+    : failedScanCount > 0 || hasDomainDegradation || hasDomainSetupGap
+      ? 'warning'
+      : 'neutral';
+  const postureLabel = highPriorityCount > 0
+    ? 'High-priority risk'
+    : failedScanCount > 0
+      ? 'Scan needs review'
+      : hasDomainDegradation
+        ? 'Coverage needs review'
+        : hasDomainSetupGap
+          ? 'Coverage incomplete'
+          : 'Stable';
+  const activeDomainsLabel = `${activeDomainCount} of ${domainPosture.length}`;
   const evidenceLabel = repoScans.length > 0 ? formatCountLabel(repoScans.length, 'scan') : 'No scans';
-  const nextActions: Array<{ id: string; label: string; to: string; tone?: 'danger' | 'warning' | 'neutral' }> = [];
+  const firstSourceGap = domainPosture.find((item) => item.state === 'not_connected' || item.state === 'shell');
+  const nextActions: Array<{
+    id: string;
+    label: string;
+    description: string;
+    to: string;
+    tone?: 'danger' | 'warning' | 'neutral';
+  }> = [];
   if (highPriorityCount > 0) {
     nextActions.push({
       id: 'priority',
-      label: 'Review priority findings',
+      label: `Review ${formatCountLabel(highPriorityCount, 'high-priority finding')}`,
+      description: 'Critical and high findings need triage.',
       to: findingsPath,
       tone: 'danger'
-    });
-  }
-  if (!hasConnectedSource) {
-    nextActions.push({
-      id: 'connect',
-      label: connectSourcesLabel,
-      to: connectSourcesPath,
-      tone: 'warning'
     });
   }
   if (failedScanCount > 0) {
     nextActions.push({
       id: 'scan',
-      label: 'Review scan health',
-      to: findingsPath,
+      label: `Review ${formatCountLabel(failedScanCount, 'failed scan')}`,
+      description: 'Check the reported error, then run the scan again.',
+      to: githubPath,
+      tone: 'warning'
+    });
+  }
+  if (firstSourceGap) {
+    const sourceGapLabel = firstSourceGap.state === 'not_connected'
+      ? `Connect ${firstSourceGap.label}`
+      : `Review ${firstSourceGap.label} availability`;
+    nextActions.push({
+      id: 'connect',
+      label: sourceGapLabel,
+      description: firstSourceGap.state === 'not_connected'
+        ? `${firstSourceGap.label} is not connected to this workspace.`
+        : `${firstSourceGap.label} is unavailable in this workspace.`,
+      to: firstSourceGap.to,
       tone: 'warning'
     });
   }
@@ -33582,24 +33691,37 @@ export function ProductOverviewPage() {
     nextActions.push({
       id: 'agentic',
       label: 'Open agentic risk',
+      description: `${formatCountLabel(agenticRiskFindings.length, 'open signal')} need review.`,
       to: githubAgenticRiskPath,
       tone: 'danger'
     });
   }
-  nextActions.push(
-    {
-      id: 'remediation',
-      label: 'Open remediation',
-      to: githubRemediationPath,
-      tone: highPriorityCount > 0 ? 'warning' : 'neutral'
-    },
-    {
+  if (nextActions.length < 3) {
+    nextActions.push({
+      id: hasAnySuccessfulScan || hasUnknownGitHubScanHistory ? 'scans' : 'scan-start',
+      label: hasAnySuccessfulScan
+        ? 'Review scan results'
+        : hasUnknownGitHubScanHistory
+          ? 'Review scan history'
+          : 'Run a scan',
+      description: hasAnySuccessfulScan
+        ? 'Check recent evidence and repository coverage.'
+        : hasUnknownGitHubScanHistory
+          ? 'Confirm whether earlier scans completed successfully.'
+          : 'Complete a scan to produce current evidence.',
+      to: hasAnySuccessfulScan || hasUnknownGitHubScanHistory ? githubPath : scanActionPath,
+      tone: 'neutral'
+    });
+  }
+  if (nextActions.length < 3) {
+    nextActions.push({
       id: 'governance',
-      label: 'Check governance',
+      label: 'Review governance',
+      description: 'Check connector and policy coverage.',
       to: awsGovernancePath,
       tone: 'neutral'
-    }
-  );
+    });
+  }
   const visibleActions = nextActions.slice(0, 3);
   const onboardingChecklist: Array<{
     id: string;
@@ -33718,7 +33840,7 @@ export function ProductOverviewPage() {
         ) : null}
 
         <div className="idt-overview-metrics" aria-label="Command center summary">
-          <article className={`idt-overview-metric-card${postureLabel === 'Action needed' ? ' is-attention' : ''}`}>
+          <article className={`idt-overview-metric-card${postureTone === 'danger' ? ' is-attention' : postureTone === 'warning' ? ' is-warning' : ''}`}>
             <span className="idt-overview-metric-label">Posture</span>
             <strong>{postureLabel}</strong>
           </article>
@@ -33727,11 +33849,11 @@ export function ProductOverviewPage() {
             <strong>{highPriorityCount}</strong>
           </article>
           <article className="idt-overview-metric-card">
-            <span className="idt-overview-metric-label">Coverage</span>
-            <strong>{coverageLabel}</strong>
+            <span className="idt-overview-metric-label">Active domains</span>
+            <strong>{activeDomainsLabel}</strong>
           </article>
           <article className="idt-overview-metric-card">
-            <span className="idt-overview-metric-label">Evidence</span>
+            <span className="idt-overview-metric-label">Scan evidence</span>
             <strong>{evidenceLabel}</strong>
           </article>
         </div>
@@ -33741,7 +33863,7 @@ export function ProductOverviewPage() {
             <Link key={item.id} to={item.to} className={`idt-overview-domain-card is-${item.state}`}>
               <div className="idt-overview-domain-card-top">
                 <SourceLogoMark provider={item.provider} className="is-row" decorative />
-                <span className={`idt-overview-state-pill is-${item.state}`}>{OVERVIEW_DOMAIN_STATE_LABELS[item.state]}</span>
+                <span className={`idt-overview-state-pill is-${item.state}`}>{item.statusLabel}</span>
               </div>
               <strong>{item.label}</strong>
               <span>{item.metric}</span>
@@ -33777,23 +33899,35 @@ export function ProductOverviewPage() {
               </div>
             ) : (
               <AppShellEmptyState
-                title="No priority findings"
-                body="Critical and high findings appear here."
-                action={hasAnySuccessfulScan ? undefined : { label: 'Run a scan', to: connectSourcesPath }}
+                title={hasAnySuccessfulScan
+                  ? 'No high-priority findings'
+                  : hasUnknownGitHubScanHistory
+                    ? 'Scan history incomplete'
+                    : 'No completed scan'}
+                body={hasAnySuccessfulScan
+                  ? 'Completed scans have no open critical or high findings.'
+                  : hasUnknownGitHubScanHistory
+                    ? 'Recent scans do not show whether earlier evidence completed successfully.'
+                    : 'Complete a scan to check for critical and high findings.'}
+                action={hasAnySuccessfulScan
+                  ? undefined
+                  : hasUnknownGitHubScanHistory
+                    ? { label: 'Review scan history', to: githubPath }
+                    : { label: 'Run a scan', to: scanActionPath }}
               />
             )}
           </section>
 
-          <section className="idt-overview-card">
+          <section className="idt-overview-card" aria-label="Recommended next actions">
             <div className="idt-overview-card-header">
               <h3>Next actions</h3>
-              <Link className="idt-premium-text-link" to={githubRemediationPath}>Open remediation</Link>
             </div>
             <div className="idt-overview-action-list">
               {visibleActions.map((item) => (
                 <Link key={item.id} to={item.to} className={`idt-overview-action-row is-${item.tone ?? 'neutral'}`}>
                   <span>
                     <strong>{item.label}</strong>
+                    <small>{item.description}</small>
                   </span>
                   <ChevronRight size={16} aria-hidden="true" />
                 </Link>

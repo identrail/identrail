@@ -3664,6 +3664,7 @@ type Store interface {
 	ExpandRepoFindingDeleteTargets(ctx context.Context, targets []RepoFindingDeleteTarget) ([]RepoFindingDeleteTarget, error)
 	DeleteRepoFindingTargets(ctx context.Context, targets []RepoFindingDeleteTarget) ([]RepoFindingDeleteTarget, error)
 	ListRepoScans(ctx context.Context, limit int) ([]RepoScanRecord, error)
+	HasSuccessfulRepoScan(ctx context.Context) (bool, error)
 	ListRepoFindings(ctx context.Context, filter RepoFindingFilter, limit int) ([]domain.Finding, error)
 	ListRepoFindingClusters(ctx context.Context, filter RepoFindingClusterListFilter) ([]domain.RepoFindingCluster, error)
 	Close() error

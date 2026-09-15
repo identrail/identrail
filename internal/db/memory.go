@@ -2663,6 +2663,28 @@ func (m *MemoryStore) ListRepoScans(ctx context.Context, limit int) ([]RepoScanR
 	return result, nil
 }
 
+// HasSuccessfulRepoScan reports whether the scoped workspace has completed
+// repository scan evidence without loading the scan history into memory.
+func (m *MemoryStore) HasSuccessfulRepoScan(ctx context.Context) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, record := range m.repoScans {
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		status := strings.ToLower(strings.TrimSpace(record.Status))
+		if status == "succeeded" || status == "completed" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // ListRepoFindings returns repository findings using optional filters.
 func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFilter, limit int) ([]domain.Finding, error) {
 	m.mu.RLock()
