@@ -10502,7 +10502,7 @@ html[data-theme='light'] .idt-tour-report {
   }
 
   .idt-home-compare .idt-compare-table td:nth-of-type(2)::before {
-    content: 'Typical alternative';
+    content: 'Conventional workflows';
   }
 
   .idt-home-compare .idt-compare-table td::before {
@@ -14174,7 +14174,7 @@ html[data-theme='light'] .idt-hero,
   width: min(100% - 3rem, 1760px);
   grid-template-columns: minmax(340px, 0.6fr) minmax(760px, 1.4fr);
   gap: clamp(3rem, 4.8vw, 5.6rem);
-  min-height: 800px;
+  min-height: 860px;
 }
 
 .idt-hero-copy {
@@ -14206,7 +14206,7 @@ html[data-theme='light'] .idt-hero,
   --idt-preview-dashboard-left: clamp(14.75rem, 25%, 18rem);
   --idt-preview-phone-overlap: clamp(2.7rem, 4.4vw, 3.85rem);
   --idt-preview-phone-left: calc(var(--idt-preview-dashboard-left) - var(--idt-preview-phone-width) + var(--idt-preview-phone-overlap));
-  min-height: 800px;
+  min-height: 860px;
   margin-top: 0;
   overflow: hidden;
   transform: translateX(clamp(-0.75rem, calc(1.4vw - 0.8rem), 1.15rem));
@@ -18386,10 +18386,13 @@ html[data-theme='light'] .idt-home-after-stack .idt-workflow-section .idt-sectio
   border-radius: 0;
   background: #050505;
   color: #ffffff;
+  display: flex;
+  flex-direction: column;
 }
 
 .idt-home-after-stack .idt-workflow-track h3 {
-  margin-top: 5rem;
+  margin-top: 3.25rem;
+  margin-bottom: 0.9rem;
   color: #ffffff;
   font-size: 1.45rem;
   line-height: 1.08;
@@ -18397,6 +18400,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-workflow-section .idt-sectio
 
 .idt-home-after-stack .idt-workflow-track li > p {
   color: #a1a1aa;
+  line-height: 1.55;
 }
 
 .idt-home-after-stack .idt-workflow-stage,
@@ -18445,7 +18449,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-deployment-copy > p:not(.idt
 }
 
 .idt-home-after-stack .idt-deployment-panel h2 {
-  max-width: 9.5ch;
+  max-width: 12.5ch;
   color: #09090b;
 }
 
@@ -18455,10 +18459,11 @@ html[data-theme='light'] .idt-home-after-stack .idt-deployment-summary {
   background: #09090b;
   color: #ffffff;
   padding: clamp(1.35rem, 2.2vw, 2rem);
-  min-height: 260px;
+  min-height: 0;
   align-self: center;
   display: grid;
-  align-content: space-between;
+  align-content: start;
+  gap: 0.75rem;
   box-shadow: none;
 }
 
@@ -18474,22 +18479,12 @@ html[data-theme='light'] .idt-home-after-stack .idt-deployment-summary span {
 
 .idt-home-after-stack .idt-deployment-summary strong,
 html[data-theme='light'] .idt-home-after-stack .idt-deployment-summary strong {
-  max-width: 18ch;
+  max-width: 24ch;
   color: #ffffff;
   font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
-  font-size: clamp(2.15rem, 4vw, 4.25rem);
-  line-height: 0.93;
+  font-size: clamp(1.85rem, 3.2vw, 3.4rem);
+  line-height: 0.98;
   text-transform: uppercase;
-}
-
-.idt-home-after-stack .idt-deployment-summary p,
-html[data-theme='light'] .idt-home-after-stack .idt-deployment-summary p {
-  max-width: 38rem;
-  margin: 0;
-  color: #d8d8df;
-  font-size: 1rem;
-  line-height: 1.6;
-  font-weight: 650;
 }
 
 .idt-home-after-stack .idt-adoption-grid {
@@ -18500,7 +18495,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-deployment-summary p {
 
 .idt-home-after-stack .idt-adoption-card,
 html[data-theme='light'] .idt-home-after-stack .idt-adoption-card {
-  min-height: 460px;
+  min-height: 390px;
   border: 1px solid #17171b;
   border-radius: 7px;
   background: #fbfaf5;
@@ -18531,7 +18526,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-adoption-card.is-featured {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: clamp(1.2rem, 2.4vw, 2.25rem);
+  margin-bottom: clamp(1rem, 1.8vw, 1.5rem);
 }
 
 .idt-home-after-stack .idt-adoption-index,
@@ -18584,9 +18579,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-adoption-card.is-featured h3
   color: #ffffff;
 }
 
-.idt-home-after-stack .idt-adoption-card p,
 .idt-home-after-stack .idt-adoption-card dd,
-html[data-theme='light'] .idt-home-after-stack .idt-adoption-card p,
 html[data-theme='light'] .idt-home-after-stack .idt-adoption-card dd {
   color: #202027;
   font-size: clamp(0.98rem, 1.05vw, 1.08rem);
@@ -18594,9 +18587,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-adoption-card dd {
   font-weight: 650;
 }
 
-.idt-home-after-stack .idt-adoption-card.is-featured p,
 .idt-home-after-stack .idt-adoption-card.is-featured dd,
-html[data-theme='light'] .idt-home-after-stack .idt-adoption-card.is-featured p,
 html[data-theme='light'] .idt-home-after-stack .idt-adoption-card.is-featured dd {
   color: #f3f3f1;
 }
@@ -18637,24 +18628,6 @@ html[data-theme='light'] .idt-home-after-stack .idt-adoption-card.is-featured .i
   color: #ffffff;
 }
 
-.idt-home-after-stack .idt-adoption-note,
-html[data-theme='light'] .idt-home-after-stack .idt-adoption-note {
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.09);
-  padding: 0.72rem 0.82rem;
-  color: #ffffff;
-  font-size: 1rem;
-  font-weight: 800;
-}
-
-.idt-home-after-stack .idt-adoption-actions .idt-btn-ghost,
-html[data-theme='light'] .idt-home-after-stack .idt-adoption-actions .idt-btn-ghost {
-  border-color: #09090b;
-  background: transparent;
-  color: #09090b;
-}
-
 .idt-home-after-stack .idt-adoption-actions,
 html[data-theme='light'] .idt-home-after-stack .idt-adoption-actions {
   margin-top: clamp(1.25rem, 2.5vw, 2rem);
@@ -18667,6 +18640,13 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-compare-section {
   color: #09090b;
 }
 
+.idt-home-after-stack .idt-home-compare-section .idt-section-title h2,
+html[data-theme='light'] .idt-home-after-stack .idt-home-compare-section .idt-section-title h2 {
+  max-width: 23ch;
+  font-size: clamp(2.7rem, 4.8vw, 4.25rem);
+  line-height: 0.99;
+}
+
 .idt-home-after-stack .idt-home-compare-section .idt-section-title p,
 html[data-theme='light'] .idt-home-after-stack .idt-home-compare-section .idt-section-title p {
   color: #52525b;
@@ -18674,7 +18654,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-compare-section .idt-se
 
 .idt-home-after-stack .idt-home-compare,
 html[data-theme='light'] .idt-home-after-stack .idt-home-compare {
-  margin-top: 3rem;
+  margin-top: 2rem;
   border: 1px solid #18181b;
   border-radius: 0;
   background: #18181b;
@@ -18709,10 +18689,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-compare .idt-compare-ta
 
 .idt-home-after-stack .idt-home-final-cta,
 html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2rem;
-  align-items: end;
+  display: block;
   border-top: 1px solid #1f1f1f;
   background: #000000;
   color: #ffffff;
@@ -18724,8 +18701,8 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta .idt-section-
 }
 
 .idt-home-after-stack .idt-home-final-cta .idt-inline-actions {
-  margin: 0;
-  justify-content: flex-end;
+  margin-top: 1.5rem;
+  justify-content: flex-start;
 }
 
 .idt-home-after-stack .idt-home-final-cta .idt-final-cta-link,
@@ -18941,6 +18918,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-workflow-output {
   border-radius: 8px;
   background: #111111;
   color: #ffffff;
+  margin-top: auto;
 }
 
 .idt-product-graph-band .idt-demo-surface,
@@ -19158,7 +19136,8 @@ html[data-theme='light'] .idt-social-link {
 .idt-home-after-stack .idt-home-final-cta,
 html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta {
   border-bottom: 0;
-  padding-bottom: clamp(5rem, 8vw, 7rem);
+  padding-top: clamp(3.5rem, 6vw, 5rem);
+  padding-bottom: clamp(3.5rem, 6vw, 5rem);
 }
 
 .idt-home-after-stack .idt-home-final-cta .idt-btn-primary,

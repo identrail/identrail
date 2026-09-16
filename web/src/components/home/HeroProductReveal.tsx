@@ -1,31 +1,24 @@
 import { useEffect, useEffectEvent, useState } from 'react';
 
-const AWS_PATH_SEGMENTS = [
-  'GitHub Actions OIDC',
-  'AWS IAM IdP',
-  'billing-prod role',
-  'PostgreSQL ledger'
-] as const;
-
 const AWS_ACTIVITY = [
   {
-    title: 'GitHub Actions OIDC token verified',
-    detail: 'repo: payments-api / deploy-production.yml',
-    state: 'Verified'
+    title: 'GitHub Actions OIDC signal linked',
+    detail: 'Example repository / deployment workflow',
+    state: 'Linked'
   },
   {
-    title: 'AssumeRole path detected',
-    detail: 'sts:AssumeRole reaches billing-prod in 4 hops',
-    state: 'Active'
-  },
-  {
-    title: 'Privilege boundary inherited',
-    detail: 'aws:PrincipalTag condition allows broad namespace reuse',
+    title: 'Role trust path identified',
+    detail: 'OIDC federation reaches billing-prod',
     state: 'Review'
   },
   {
-    title: 'Evidence packet assembled',
-    detail: 'JWT claims, trust policy, and API call proof attached',
+    title: 'Privilege boundary needs review',
+    detail: 'Namespace-scoped access can reduce exposure',
+    state: 'Review'
+  },
+  {
+    title: 'Evidence references collected',
+    detail: 'Trust, workflow, and resource signals linked',
     state: 'Ready'
   }
 ] as const;
@@ -33,7 +26,7 @@ const AWS_ACTIVITY = [
 const KUBERNETES_STEPS = [
   {
     title: 'Cluster signal received',
-    detail: 'prod-eu-1 / payments namespace'
+    detail: 'Example cluster / payments namespace'
   },
   {
     title: 'Service account discovered',
@@ -44,11 +37,10 @@ const KUBERNETES_STEPS = [
     detail: 'OIDC federation routes into billing-prod'
   },
   {
-    title: 'Evidence ready',
+    title: 'Evidence references linked',
     detail: 'Owner note drafted with first safe fix'
   }
 ] as const;
-const MOBILE_REVIEW_STEPS = KUBERNETES_STEPS.slice(0, 3);
 
 const LOOP_INTERVAL_MS = 1800;
 
@@ -110,19 +102,13 @@ export function HeroProductReveal() {
         <span className="idt-hero-backdrop-trace is-secondary" />
       </div>
 
-      <section className="idt-hero-admin-window" aria-label="AWS IAM trust path analysis preview">
+      <section className="idt-hero-admin-window" aria-label="Illustrative AWS IAM trust path preview">
         <div className="idt-window-bar">
           <span />
           <span />
           <span />
           <div className="idt-window-status">
-            <span className="idt-window-pill is-live">AWS IAM live</span>
-            <span className="idt-window-pill is-ready">
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M6.7 10.7 3.9 7.9l-.9.9 3.7 3.7 6.3-7.1-1-.9-5.3 6.2Z" />
-              </svg>
-              Evidence ready
-            </span>
+<span className="idt-window-pill">Example workspace</span>
           </div>
         </div>
 
@@ -140,41 +126,33 @@ export function HeroProductReveal() {
                 <img src="/brand-logos/aws.svg" alt="" aria-hidden="true" />
               </div>
               <div>
-                <p>Production workspace / AWS IAM</p>
+                <p>Example workspace / AWS IAM</p>
                 <strong>{awsHeadline.title}</strong>
               </div>
-              <span className="idt-admin-severity">Critical path</span>
+              <span className="idt-admin-severity">High severity</span>
             </div>
 
             <div className="idt-admin-field-grid">
               <div>
                 Source identity
                 <span>GitHub Actions OIDC</span>
-                <small>payments-api / deploy-production.yml</small>
+                <small>Example repository / deployment workflow</small>
               </div>
               <div>
                 Privilege boundary
                 <span>AWS IAM role: billing-prod</span>
-                <small>Boundary allows shared namespace assumption</small>
+                <small>Review namespace-scoped trust</small>
               </div>
               <div>
                 Target resource
-                <span>PostgreSQL billing ledger</span>
-                <small>prod-billing / read-write eligible path</small>
+                <span>RDS billing-ledger</span>
+                <small>Production resource path</small>
               </div>
               <div>
                 Owner-ready fix
-                <span>Restrict `sub` and namespace tags</span>
-                <small>Simulation reports no workload breakage</small>
+                <span>Scope subject and namespace claims</span>
+                <small>No critical workload impact predicted</small>
               </div>
-            </div>
-
-            <div className="idt-admin-path-strip" aria-label="Detected AWS IAM trust path">
-              {AWS_PATH_SEGMENTS.map((segment, index) => (
-                <span key={segment} className={index <= awsActiveIndex ? 'is-active' : ''}>
-                  {segment}
-                </span>
-              ))}
             </div>
 
             <ol className="idt-admin-activity" aria-label="AWS IAM activity timeline">
@@ -198,10 +176,10 @@ export function HeroProductReveal() {
         </div>
       </section>
 
-      <aside className="idt-hero-login-card" aria-label="Kubernetes identity activity preview">
+      <aside className="idt-hero-login-card" aria-label="Illustrative Kubernetes identity activity preview">
         <div className="idt-mobile-live-row">
           <span className="idt-mobile-live-dot" aria-hidden="true" />
-          Kubernetes scan live
+          Example Kubernetes signal
           <strong>{completedKubernetesSteps}/4</strong>
         </div>
 
@@ -211,7 +189,7 @@ export function HeroProductReveal() {
           </div>
           <div>
             <h3>Namespace trust review</h3>
-            <p>prod-eu-1 / payments-api workload identity</p>
+            <p>Example cluster / payments-api workload identity</p>
           </div>
         </div>
 
@@ -222,21 +200,21 @@ export function HeroProductReveal() {
           </div>
           <div>
             <span>Status</span>
-            <strong>{kubernetesActiveIndex >= 3 ? 'Evidence ready' : 'Scan active'}</strong>
+            <strong>{kubernetesActiveIndex >= KUBERNETES_STEPS.length - 1 ? 'Ready' : 'Reviewing'}</strong>
           </div>
         </div>
 
-        <div className="idt-path-input" aria-label="Detected service account">
+        <div className="idt-path-input" aria-label="Illustrative service account">
           <span>SA</span>
           payments-api service account
         </div>
-        <div className="idt-path-input" aria-label="Detected workload identity">
+        <div className="idt-path-input" aria-label="Illustrative workload identity">
           <span>OIDC</span>
-          Workload identity reaches billing-prod
+          Federation signal linked
         </div>
 
         <ol className="idt-mini-path" aria-label="Kubernetes review steps">
-          {MOBILE_REVIEW_STEPS.map((step, index) => {
+          {KUBERNETES_STEPS.map((step, index) => {
             const stateClass =
               index < kubernetesActiveIndex ? 'is-complete' : index === kubernetesActiveIndex ? 'is-active' : 'is-pending';
 

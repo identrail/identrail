@@ -3,25 +3,25 @@ const WORKFLOW_STEPS = [
     stage: 'Discover',
     title: 'Build the trust graph',
     description: 'Collect AWS IAM, Kubernetes, GitHub, and OIDC identity metadata in read-only mode.',
-    output: 'Output: identity graph snapshot with source evidence links'
+    output: 'Identity graph snapshot with source evidence links'
   },
   {
     stage: 'Prioritize',
     title: 'Rank reachable risk paths',
-    description: 'Score findings by severity, privilege depth, and production blast-radius potential.',
-    output: 'Output: ranked findings queue with owner-ready context'
+    description: 'Score findings by severity, confidence, and production blast radius.',
+    output: 'Ranked findings queue with owner-ready context'
   },
   {
     stage: 'Simulate',
     title: 'Preview hardening safely',
-    description: 'Preview trust-policy changes and estimate affected workloads before enforcement.',
-    output: 'Output: remediation plan with expected impact summary'
+    description: 'Preview trust-policy changes and estimate affected workloads before approval.',
+    output: 'Remediation plan with expected impact summary'
   },
   {
     stage: 'Operate',
     title: 'Roll out with controls',
-    description: 'Deploy in stages with rollback options and track resolution outcomes.',
-    output: 'Output: audit-ready remediation timeline and status history'
+    description: 'Stage approved changes with rollback options and track resolution outcomes.',
+    output: 'Audit-ready remediation timeline and status history'
   }
 ] as const;
 
@@ -30,8 +30,8 @@ export function HowItWorksSection() {
     <section className="idt-section idt-workflow-section" aria-labelledby="workflow-title">
       <div className="idt-section-title">
         <p className="idt-eyebrow">Operational Workflow</p>
-        <h2 id="workflow-title">From read-only discovery to safe enforcement</h2>
-        <p>Each stage produces a concrete artifact security and platform teams can review before taking action.</p>
+        <h2 id="workflow-title">From evidence to the first safe fix</h2>
+        <p>Each stage produces a reviewable artifact before any change is approved.</p>
       </div>
 
       <ol className="idt-steps idt-workflow-track">
