@@ -354,6 +354,9 @@ type OverviewConnectionRollups = {
 
 type OverviewGitHubConnectionRollup = OverviewConnectionRollup & {
   connectorCount: number;
+  configuredConnectorCount: number;
+  pendingCount: number;
+  statusChecksIncomplete: boolean;
   defaultConnection?: GitHubConnectionStatus;
 };
 
@@ -1164,7 +1167,10 @@ async function listOverviewScans(auth: RequestAuthContext): Promise<OverviewScan
 function emptyOverviewGitHubConnectionRollup(): OverviewGitHubConnectionRollup {
   return {
     ...emptyOverviewConnectionRollup(),
-    connectorCount: 0
+    connectorCount: 0,
+    configuredConnectorCount: 0,
+    pendingCount: 0,
+    statusChecksIncomplete: false
   };
 }
 
@@ -1182,6 +1188,10 @@ function githubConnectionNeedsReview(connection: GitHubConnectionStatus): boolea
     connection.status === 'disconnected' ||
     connection.health_status === 'warning' ||
     connection.health_status === 'error';
+}
+
+function githubConnectionIsPending(connection: GitHubConnectionStatus): boolean {
+  return !connection.connected && connection.status === 'pending';
 }
 
 function summarizeOverviewGitHubConnections(
@@ -1204,6 +1214,11 @@ function summarizeOverviewGitHubConnections(
       return;
     }
     rollup.connectorCount += 1;
+    if (githubConnectionIsPending(connection)) {
+      rollup.pendingCount += 1;
+    } else {
+      rollup.configuredConnectorCount += 1;
+    }
     if (connection.connected) {
       rollup.connectedCount += 1;
     }
@@ -1211,6 +1226,7 @@ function summarizeOverviewGitHubConnections(
       rollup.degradedCount += 1;
     }
   });
+  rollup.statusChecksIncomplete = rollup.checkedCount < projects.length;
 
   return rollup;
 }
@@ -33602,13 +33618,15 @@ export function ProductOverviewPage() {
   const hasAnySuccessfulScan = succeededScanCount > 0 || hasHistoricalSuccessfulScan;
   const awsRollup = sourceConnectionRollups.aws;
   const kubernetesRollup = sourceConnectionRollups.kubernetes;
-  // A source counts as connected when either (a) onboarding records a connector
-  // configuration on the workspace, (b) any scan has run (you can't scan
-  // without a connector), or (c) AWS/Kubernetes report an active environment
-  // connector. This keeps non-GitHub customers out of duplicate setup prompts.
+  // A source counts as configured when either (a) onboarding records a
+  // connector configuration on the workspace, (b) any scan has run (you can't
+  // scan without a connector), (c) GitHub reports an existing non-pending
+  // connector, or (d) AWS/Kubernetes report an active environment connector.
+  // Pending GitHub OAuth must remain incomplete so it cannot invite a scan
+  // before installation finishes.
   const hasConnectedSource =
     connectorConfiguredFromOnboarding ||
-    githubConnectionRollup.connectorCount > 0 ||
+    githubConnectionRollup.configuredConnectorCount > 0 ||
     repoScans.length > 0 ||
     awsRollup.connectedCount > 0 ||
     kubernetesRollup.connectedCount > 0;
@@ -33617,8 +33635,15 @@ export function ProductOverviewPage() {
   const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
   const hasGitHubCompletedEvidence = hasAnySuccessfulScan || hasGitHubFindingEvidence;
   const hasGitHubConnectorEvidence =
-    hasGitHubEvidence || onboardingConnectorProvider === 'github' || githubConnectionRollup.connectorCount > 0;
+    hasGitHubEvidence ||
+    onboardingConnectorProvider === 'github' ||
+    githubConnectionRollup.connectorCount > 0 ||
+    githubConnectionRollup.statusChecksIncomplete;
   const hasGitHubConnectorNeedsReview = githubConnectionRollup.degradedCount > 0;
+  const hasGitHubConnectorPending = githubConnectionRollup.pendingCount > 0;
+  const hasGitHubConnectionStatusIncomplete = githubConnectionRollup.statusChecksIncomplete;
+  const hasGitHubConnectorAttention =
+    hasGitHubConnectorNeedsReview || hasGitHubConnectorPending || hasGitHubConnectionStatusIncomplete;
   const hasActiveGitHubScan = repoScans.some((scan) => isActiveScanStatus(scan.status));
   const hasGitHubScanWithoutCompletedEvidence = repoScans.length > 0 && !hasGitHubCompletedEvidence;
   const hasUnknownGitHubScanHistory = hasGitHubScanWithoutCompletedEvidence && !scanHistoryComplete;
@@ -33639,7 +33664,7 @@ export function ProductOverviewPage() {
   const activeEnvironmentCount = activeProjects.length;
   const githubState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
     ? 'shell'
-    : hasGitHubConnectorNeedsReview || (failedScanCount > 0 && succeededScanCount === 0)
+    : hasGitHubConnectorAttention || (failedScanCount > 0 && succeededScanCount === 0)
       ? 'degraded'
       : hasAnySuccessfulScan || hasGitHubFindingEvidence
         ? 'connected'
@@ -33650,7 +33675,7 @@ export function ProductOverviewPage() {
   const kubernetesState = overviewStateFromConnectionRollup(sourceAvailability.kubernetes, kubernetesRollup);
   const agenticRiskState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
     ? 'shell'
-    : hasGitHubConnectorNeedsReview || agenticRiskFindings.length > 0
+    : hasGitHubConnectorAttention || agenticRiskFindings.length > 0
       ? 'degraded'
       : hasGitHubConnectorEvidence
         ? 'no_data'
@@ -33682,15 +33707,19 @@ export function ProductOverviewPage() {
       metric:
         githubState === 'shell'
           ? 'Connector off'
-          : hasGitHubConnectorNeedsReview
-            ? 'Review connector'
-          : repoScans.length > 0
-          ? formatCountLabel(repoScans.length, 'scan')
-          : hasGitHubFindingEvidence
-            ? formatCountLabel(repoFindings.length, 'finding')
-            : hasGitHubConnectorEvidence
-              ? 'Awaiting first scan'
-              : 'Connect GitHub',
+          : hasGitHubConnectorPending
+            ? 'Finish connection'
+            : hasGitHubConnectorNeedsReview
+              ? 'Review connector'
+              : hasGitHubConnectionStatusIncomplete
+                ? 'Review connector status'
+                : repoScans.length > 0
+                  ? formatCountLabel(repoScans.length, 'scan')
+                  : hasGitHubFindingEvidence
+                    ? formatCountLabel(repoFindings.length, 'finding')
+                    : hasGitHubConnectorEvidence
+                      ? 'Awaiting first scan'
+                      : 'Connect GitHub',
       to: highPriorityCount > 0 ? findingsPath : githubPath
     },
     {
@@ -33716,17 +33745,21 @@ export function ProductOverviewPage() {
       metric:
         agenticRiskState === 'shell'
           ? 'Connector off'
-          : hasGitHubConnectorNeedsReview
-            ? 'Review connector'
-          : agenticRiskFindings.length > 0
-            ? formatCountLabel(agenticRiskFindings.length, 'signal')
-            : hasGitHubCompletedEvidence && hasMoreGitHubFindings
-              ? 'More findings to review'
-            : hasGitHubCompletedEvidence
-              ? 'No signals detected'
-              : hasGitHubConnectorEvidence
-                ? githubAgenticAwaitingMetric
-                : 'Connect a source first',
+          : hasGitHubConnectorPending
+            ? 'Finish connection'
+            : hasGitHubConnectorNeedsReview
+              ? 'Review connector'
+              : hasGitHubConnectionStatusIncomplete
+                ? 'Review connector status'
+                : agenticRiskFindings.length > 0
+                  ? formatCountLabel(agenticRiskFindings.length, 'signal')
+                  : hasGitHubCompletedEvidence && hasMoreGitHubFindings
+                    ? 'More findings to review'
+                    : hasGitHubCompletedEvidence
+                      ? 'No signals detected'
+                      : hasGitHubConnectorEvidence
+                        ? githubAgenticAwaitingMetric
+                        : 'Connect a source first',
       to: agenticRiskState === 'not_connected' ? githubPath : githubAgenticRiskPath
     }
   ];
@@ -33777,11 +33810,15 @@ export function ProductOverviewPage() {
       tone: 'warning'
     });
   }
-  if (hasGitHubConnectorNeedsReview) {
+  if (hasGitHubConnectorAttention) {
     nextActions.push({
       id: 'github-connection',
-      label: 'Review GitHub connection',
-      description: 'The GitHub connector is present but needs attention before scanning.',
+      label: hasGitHubConnectorPending ? 'Finish GitHub connection' : 'Review GitHub connection',
+      description: hasGitHubConnectorPending
+        ? 'The GitHub installation is still pending; finish connecting it before scanning.'
+        : hasGitHubConnectionStatusIncomplete
+          ? 'GitHub connector status could not be confirmed for every active project.'
+          : 'The GitHub connector is present but needs attention before scanning.',
       to: githubPath,
       tone: 'warning'
     });

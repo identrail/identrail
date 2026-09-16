@@ -2080,6 +2080,14 @@ const connectedGitHub: GitHubConnectionStatus = {
   updated_at: '2026-05-17T10:00:00Z'
 };
 
+const disconnectedGitHub: GitHubConnectionStatus = {
+  ...connectedGitHub,
+  connected: false,
+  connector_id: undefined,
+  status: 'pending',
+  health_status: 'unknown'
+};
+
 const queuedRepoScan: RepoScanRecord = {
   id: 'repo-scan-queued',
   repository: 'identrail/identrail',
@@ -3369,7 +3377,7 @@ describe('ProductOverviewPage', () => {
       .mockImplementation(async (_workspaceID, projectID) => ({
         connection: projectID === 'github-project'
           ? connectedGitHub
-          : { ...connectedGitHub, connected: false, connector_id: undefined, status: 'pending', health_status: 'unknown' }
+          : disconnectedGitHub
       }));
     vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [], has_successful_scan: false });
     vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
@@ -3457,6 +3465,126 @@ describe('ProductOverviewPage', () => {
     expect(within(nextActions).getByText('The GitHub connector is present but needs attention before scanning.')).toBeInTheDocument();
   });
 
+  it('keeps a pending GitHub installation incomplete', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'pending-project',
+        name: 'Pending project',
+        slug: 'pending-project',
+        description: '',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({
+      connection: {
+        ...connectedGitHub,
+        connected: false,
+        status: 'pending',
+        health_status: 'unknown'
+      }
+    });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [], has_successful_scan: false });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: disconnectedKubernetes });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const domainPosture = await screen.findByRole('region', { name: 'Domain posture' });
+    const githubCard = within(domainPosture).getByRole('link', { name: /GitHub/i });
+    expect(within(githubCard).getByText('Needs review')).toBeInTheDocument();
+    expect(within(githubCard).getByText('Finish connection')).toBeInTheDocument();
+    expect(within(githubCard).queryByText('Not connected')).not.toBeInTheDocument();
+
+    const nextActions = screen.getByRole('region', { name: 'Recommended next actions' });
+    expect(within(nextActions).getByRole('link', { name: /Finish GitHub connection/ })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/github'
+    );
+    expect(within(nextActions).getByText('The GitHub installation is still pending; finish connecting it before scanning.')).toBeInTheDocument();
+  });
+
+  it('keeps the GitHub overview uncertain when a project status check fails', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'default-project',
+          name: 'Default project',
+          slug: 'default-project',
+          description: '',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'other-project',
+          name: 'Other project',
+          slug: 'other-project',
+          description: '',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockImplementation(async (_workspaceID, projectID) => {
+      if (projectID === 'default-project') {
+        throw new Error('temporary connector status failure');
+      }
+      return {
+        connection: disconnectedGitHub
+      };
+    });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [], has_successful_scan: false });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: disconnectedKubernetes });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const domainPosture = await screen.findByRole('region', { name: 'Domain posture' });
+    const githubCard = within(domainPosture).getByRole('link', { name: /GitHub/i });
+    expect(within(githubCard).getByText('Needs review')).toBeInTheDocument();
+    expect(within(githubCard).getByText('Review connector status')).toBeInTheDocument();
+    expect(within(githubCard).queryByText('Not connected')).not.toBeInTheDocument();
+
+    const nextActions = screen.getByRole('region', { name: 'Recommended next actions' });
+    expect(within(nextActions).getByRole('link', { name: /Review GitHub connection/ })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/github'
+    );
+    expect(within(nextActions).getByText('GitHub connector status could not be confirmed for every active project.')).toBeInTheDocument();
+  });
+
   it('does not use AWS onboarding as GitHub domain evidence', async () => {
     vi.resetModules();
     vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
@@ -3541,6 +3669,7 @@ describe('ProductOverviewPage', () => {
         error_message: 'Scan timed out'
       }]
     });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: disconnectedGitHub });
     vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
 
     const { ProductOverviewPage } = await import('./productShell');
