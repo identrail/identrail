@@ -352,6 +352,11 @@ type OverviewConnectionRollups = {
   kubernetes: OverviewConnectionRollup;
 };
 
+type OverviewGitHubConnectionRollup = OverviewConnectionRollup & {
+  connectorCount: number;
+  defaultConnection?: GitHubConnectionStatus;
+};
+
 function normalizeValue(value: unknown): string {
   if (typeof value === 'string') {
     return value.trim();
@@ -1156,24 +1161,78 @@ async function listOverviewScans(auth: RequestAuthContext): Promise<OverviewScan
   };
 }
 
-async function loadOverviewGitHubConnectionStatus(
+function emptyOverviewGitHubConnectionRollup(): OverviewGitHubConnectionRollup {
+  return {
+    ...emptyOverviewConnectionRollup(),
+    connectorCount: 0
+  };
+}
+
+function githubConnectionHasEvidence(connection: GitHubConnectionStatus): boolean {
+  return Boolean(normalizeValue(connection.connector_id)) ||
+    connection.status === 'active' ||
+    connection.status === 'degraded' ||
+    connection.status === 'disconnected' ||
+    connection.health_status === 'warning' ||
+    connection.health_status === 'error';
+}
+
+function githubConnectionNeedsReview(connection: GitHubConnectionStatus): boolean {
+  return connection.status === 'degraded' ||
+    connection.status === 'disconnected' ||
+    connection.health_status === 'warning' ||
+    connection.health_status === 'error';
+}
+
+function summarizeOverviewGitHubConnections(
+  projects: ProjectRecord[],
+  results: Array<PromiseSettledResult<{ connection: GitHubConnectionStatus }>>
+): OverviewGitHubConnectionRollup {
+  const rollup = emptyOverviewGitHubConnectionRollup();
+  const defaultProjectID = projects.find((project) => !isProjectArchived(project))?.project_id;
+
+  results.forEach((result, index) => {
+    if (result.status !== 'fulfilled' || !result.value.connection) {
+      return;
+    }
+    const connection = result.value.connection;
+    rollup.checkedCount += 1;
+    if (projects[index]?.project_id === defaultProjectID) {
+      rollup.defaultConnection = connection;
+    }
+    if (!githubConnectionHasEvidence(connection)) {
+      return;
+    }
+    rollup.connectorCount += 1;
+    if (connection.connected) {
+      rollup.connectedCount += 1;
+    }
+    if (githubConnectionNeedsReview(connection)) {
+      rollup.degradedCount += 1;
+    }
+  });
+
+  return rollup;
+}
+
+async function loadOverviewGitHubConnectionRollup(
   scope: ProductSession,
   projects: ProjectRecord[],
   availability: SourceAvailability,
   auth: RequestAuthContext
-): Promise<GitHubConnectionStatus | undefined> {
+): Promise<OverviewGitHubConnectionRollup> {
+  const rollup = emptyOverviewGitHubConnectionRollup();
   if (!availability.available) {
-    return undefined;
+    return rollup;
   }
-  const defaultProject = projects.find((project) => !isProjectArchived(project));
-  if (!defaultProject) {
-    return undefined;
+  const activeProjects = projects.filter((project) => !isProjectArchived(project) && project.project_id);
+  if (activeProjects.length === 0) {
+    return rollup;
   }
-  try {
-    return (await apiClient.getGitHubConnectorStatus(scope.workspaceID, defaultProject.project_id, auth)).connection ?? undefined;
-  } catch {
-    return undefined;
-  }
+  const results = await Promise.allSettled(
+    activeProjects.map((project) => apiClient.getGitHubConnectorStatus(scope.workspaceID, project.project_id, auth))
+  );
+  return summarizeOverviewGitHubConnections(activeProjects, results);
 }
 
 function emptyOverviewConnectionRollup(): OverviewConnectionRollup {
@@ -33346,7 +33405,9 @@ export function ProductOverviewPage() {
   const [hasHistoricalSuccessfulScan, setHasHistoricalSuccessfulScan] = useState(false);
   const [scanHistoryComplete, setScanHistoryComplete] = useState(true);
   const [findingsHistoryComplete, setFindingsHistoryComplete] = useState(true);
-  const [githubConnectionStatus, setGithubConnectionStatus] = useState<GitHubConnectionStatus | null>(null);
+  const [githubConnectionRollup, setGithubConnectionRollup] = useState<OverviewGitHubConnectionRollup>(
+    emptyOverviewGitHubConnectionRollup()
+  );
   const [, setInviteSkipTick] = useState(0);
   const [connectorConfiguredFromOnboarding, setConnectorConfiguredFromOnboarding] = useState(false);
   const [onboardingConnectorProvider, setOnboardingConnectorProvider] = useState<SourceProvider | null>(null);
@@ -33412,7 +33473,7 @@ export function ProductOverviewPage() {
       setHasHistoricalSuccessfulScan(false);
       setScanHistoryComplete(true);
       setFindingsHistoryComplete(true);
-      setGithubConnectionStatus(null);
+      setGithubConnectionRollup(emptyOverviewGitHubConnectionRollup());
       return;
     }
 
@@ -33424,7 +33485,7 @@ export function ProductOverviewPage() {
       setHasHistoricalSuccessfulScan(false);
       setScanHistoryComplete(true);
       setFindingsHistoryComplete(true);
-      setGithubConnectionStatus(null);
+      setGithubConnectionRollup(emptyOverviewGitHubConnectionRollup());
       try {
         const auth = buildProductAuthContext(scope);
         const activeProjectItems = await listOverviewProjects(scope.workspaceID, { include_archived: false }, auth);
@@ -33432,7 +33493,7 @@ export function ProductOverviewPage() {
           return;
         }
         primeEnvironmentScopeCache(scope, activeProjectItems);
-        const [scanResponse, findingResponse, connectionRollups, githubConnection] = await Promise.all([
+        const [scanResponse, findingResponse, connectionRollups, githubConnectionRollup] = await Promise.all([
           listOverviewScans(auth),
           apiClient.listRepoFindings(
             {
@@ -33444,7 +33505,7 @@ export function ProductOverviewPage() {
             auth
           ),
           loadOverviewConnectionRollups(scope, activeProjectItems, sourceAvailability, auth),
-          loadOverviewGitHubConnectionStatus(scope, activeProjectItems, sourceAvailability.github, auth)
+          loadOverviewGitHubConnectionRollup(scope, activeProjectItems, sourceAvailability.github, auth)
         ]);
         if (!mounted || !isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           return;
@@ -33463,9 +33524,15 @@ export function ProductOverviewPage() {
             .sort((left, right) => severityRank(right.severity) - severityRank(left.severity))
         );
         setFindingsHistoryComplete(!findingResponse.next_cursor?.trim());
-        setGithubConnectionStatus(githubConnection ?? null);
+        setGithubConnectionRollup(githubConnectionRollup);
         setSourceConnectionRollups(connectionRollups);
-        primeGitHubControlCenterDataCache(scope, activeProjectItems, sourceAvailability.github, auth, githubConnection);
+        primeGitHubControlCenterDataCache(
+          scope,
+          activeProjectItems,
+          sourceAvailability.github,
+          auth,
+          githubConnectionRollup.defaultConnection
+        );
       } catch (err) {
         if (!mounted || !isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           return;
@@ -33475,7 +33542,7 @@ export function ProductOverviewPage() {
         setHasHistoricalSuccessfulScan(false);
         setScanHistoryComplete(true);
         setFindingsHistoryComplete(true);
-        setGithubConnectionStatus(null);
+        setGithubConnectionRollup(emptyOverviewGitHubConnectionRollup());
       } finally {
         if (mounted && isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           setLoading(false);
@@ -33541,7 +33608,7 @@ export function ProductOverviewPage() {
   // connector. This keeps non-GitHub customers out of duplicate setup prompts.
   const hasConnectedSource =
     connectorConfiguredFromOnboarding ||
-    githubConnectionStatus?.connected === true ||
+    githubConnectionRollup.connectorCount > 0 ||
     repoScans.length > 0 ||
     awsRollup.connectedCount > 0 ||
     kubernetesRollup.connectedCount > 0;
@@ -33550,7 +33617,8 @@ export function ProductOverviewPage() {
   const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
   const hasGitHubCompletedEvidence = hasAnySuccessfulScan || hasGitHubFindingEvidence;
   const hasGitHubConnectorEvidence =
-    hasGitHubEvidence || onboardingConnectorProvider === 'github' || githubConnectionStatus?.connected === true;
+    hasGitHubEvidence || onboardingConnectorProvider === 'github' || githubConnectionRollup.connectorCount > 0;
+  const hasGitHubConnectorNeedsReview = githubConnectionRollup.degradedCount > 0;
   const hasActiveGitHubScan = repoScans.some((scan) => isActiveScanStatus(scan.status));
   const hasGitHubScanWithoutCompletedEvidence = repoScans.length > 0 && !hasGitHubCompletedEvidence;
   const hasUnknownGitHubScanHistory = hasGitHubScanWithoutCompletedEvidence && !scanHistoryComplete;
@@ -33571,7 +33639,7 @@ export function ProductOverviewPage() {
   const activeEnvironmentCount = activeProjects.length;
   const githubState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
     ? 'shell'
-    : failedScanCount > 0 && succeededScanCount === 0
+    : hasGitHubConnectorNeedsReview || (failedScanCount > 0 && succeededScanCount === 0)
       ? 'degraded'
       : hasAnySuccessfulScan || hasGitHubFindingEvidence
         ? 'connected'
@@ -33582,7 +33650,7 @@ export function ProductOverviewPage() {
   const kubernetesState = overviewStateFromConnectionRollup(sourceAvailability.kubernetes, kubernetesRollup);
   const agenticRiskState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
     ? 'shell'
-    : agenticRiskFindings.length > 0
+    : hasGitHubConnectorNeedsReview || agenticRiskFindings.length > 0
       ? 'degraded'
       : hasGitHubConnectorEvidence
         ? 'no_data'
@@ -33614,6 +33682,8 @@ export function ProductOverviewPage() {
       metric:
         githubState === 'shell'
           ? 'Connector off'
+          : hasGitHubConnectorNeedsReview
+            ? 'Review connector'
           : repoScans.length > 0
           ? formatCountLabel(repoScans.length, 'scan')
           : hasGitHubFindingEvidence
@@ -33646,6 +33716,8 @@ export function ProductOverviewPage() {
       metric:
         agenticRiskState === 'shell'
           ? 'Connector off'
+          : hasGitHubConnectorNeedsReview
+            ? 'Review connector'
           : agenticRiskFindings.length > 0
             ? formatCountLabel(agenticRiskFindings.length, 'signal')
             : hasGitHubCompletedEvidence && hasMoreGitHubFindings
@@ -33701,6 +33773,15 @@ export function ProductOverviewPage() {
       id: 'scan',
       label: `Review ${formatCountLabel(failedScanCount, 'failed scan')}`,
       description: 'Check the reported error, then run the scan again.',
+      to: githubPath,
+      tone: 'warning'
+    });
+  }
+  if (hasGitHubConnectorNeedsReview) {
+    nextActions.push({
+      id: 'github-connection',
+      label: 'Review GitHub connection',
+      description: 'The GitHub connector is present but needs attention before scanning.',
       to: githubPath,
       tone: 'warning'
     });
