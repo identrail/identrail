@@ -357,6 +357,8 @@ type OverviewGitHubConnectionRollup = OverviewConnectionRollup & {
   configuredConnectorCount: number;
   pendingCount: number;
   statusChecksIncomplete: boolean;
+  connectorProjectID?: string;
+  connectedProjectID?: string;
   defaultConnection?: GitHubConnectionStatus;
 };
 
@@ -1138,8 +1140,14 @@ async function listOverviewProjects(
 type OverviewScanLoadResult = {
   items: RepoScanRecord[];
   hasSuccessfulScan: boolean;
+  failedScanCount: number;
   historyComplete: boolean;
 };
+
+function isOverviewFailedScanStatus(status: unknown): boolean {
+  const normalized = normalizeValue(status).toLowerCase();
+  return normalized === 'failed' || normalized === 'canceled';
+}
 
 async function listOverviewScans(auth: RequestAuthContext): Promise<OverviewScanLoadResult> {
   const response = await apiClient.listRepoScans(
@@ -1154,10 +1162,12 @@ async function listOverviewScans(auth: RequestAuthContext): Promise<OverviewScan
   const hasSuccessfulScan = hasServerSummary
     ? response.has_successful_scan === true
     : response.items.some((scan) => repoScanStatusTone(scan.status) === 'success');
+  const failedScanCount = response.items.filter((scan) => isOverviewFailedScanStatus(scan.status)).length;
 
   return {
     items: response.items.slice(0, OVERVIEW_SCAN_LIMIT),
     hasSuccessfulScan,
+    failedScanCount,
     // Older API deployments may not include the summary. In that case, a
     // cursor means the visible page cannot establish the full history.
     historyComplete: hasServerSummary || !response.next_cursor?.trim()
@@ -1213,7 +1223,11 @@ function summarizeOverviewGitHubConnections(
     if (!githubConnectionHasEvidence(connection)) {
       return;
     }
+    const projectID = projects[index]?.project_id;
     rollup.connectorCount += 1;
+    if (projectID && !rollup.connectorProjectID) {
+      rollup.connectorProjectID = projectID;
+    }
     if (githubConnectionIsPending(connection)) {
       rollup.pendingCount += 1;
     } else {
@@ -1221,6 +1235,9 @@ function summarizeOverviewGitHubConnections(
     }
     if (connection.connected) {
       rollup.connectedCount += 1;
+      if (projectID && !rollup.connectedProjectID) {
+        rollup.connectedProjectID = projectID;
+      }
     }
     if (githubConnectionNeedsReview(connection)) {
       rollup.degradedCount += 1;
@@ -33414,6 +33431,7 @@ export function ProductOverviewPage() {
   const [error, setError] = useState('');
   const [activeProjects, setActiveProjects] = useState<ProjectRecord[]>([]);
   const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
+  const [failedScanCount, setFailedScanCount] = useState(0);
   const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
   const [sourceConnectionRollups, setSourceConnectionRollups] = useState<OverviewConnectionRollups>(
     emptyOverviewConnectionRollups()
@@ -33487,6 +33505,7 @@ export function ProductOverviewPage() {
       setLoading(false);
       setSourceConnectionRollups(emptyOverviewConnectionRollups());
       setHasHistoricalSuccessfulScan(false);
+      setFailedScanCount(0);
       setScanHistoryComplete(true);
       setFindingsHistoryComplete(true);
       setGithubConnectionRollup(emptyOverviewGitHubConnectionRollup());
@@ -33499,6 +33518,7 @@ export function ProductOverviewPage() {
       setLoading(true);
       setError('');
       setHasHistoricalSuccessfulScan(false);
+      setFailedScanCount(0);
       setScanHistoryComplete(true);
       setFindingsHistoryComplete(true);
       setGithubConnectionRollup(emptyOverviewGitHubConnectionRollup());
@@ -33533,6 +33553,7 @@ export function ProductOverviewPage() {
         );
         setRepoScans(scanResponse.items);
         setHasHistoricalSuccessfulScan(scanResponse.hasSuccessfulScan);
+        setFailedScanCount(scanResponse.failedScanCount);
         setScanHistoryComplete(scanResponse.historyComplete);
         setRepoFindings(
           findingResponse.items
@@ -33556,6 +33577,7 @@ export function ProductOverviewPage() {
         setError(formatAPIError(err, 'Unable to load workspace overview'));
         setSourceConnectionRollups(emptyOverviewConnectionRollups());
         setHasHistoricalSuccessfulScan(false);
+        setFailedScanCount(0);
         setScanHistoryComplete(true);
         setFindingsHistoryComplete(true);
         setGithubConnectionRollup(emptyOverviewGitHubConnectionRollup());
@@ -33599,14 +33621,13 @@ export function ProductOverviewPage() {
     const normalized = normalizeValue(scan.status).toLowerCase();
     return normalized === 'succeeded' || normalized === 'completed';
   }).length;
-  const failedScanCount = repoScans.filter((scan) => {
-    const normalized = normalizeValue(scan.status).toLowerCase();
-    return normalized === 'failed' || normalized === 'canceled';
-  }).length;
   const awsPath = scope ? buildScopedPath(scope, 'aws') : '/app';
   const awsConnectPath = scope ? buildScopedPath(scope, 'aws/connect') : '/app';
   const awsGovernancePath = scope ? buildScopedPath(scope, 'aws/governance') : '/app';
   const githubPath = scope ? buildScopedPath(scope, 'github') : '/app';
+  const githubActionProjectID =
+    githubConnectionRollup.connectedProjectID ?? githubConnectionRollup.connectorProjectID;
+  const githubActionPath = appendEnvironmentQuery(githubPath, githubActionProjectID);
   const findingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
   const githubRemediationPath = scope ? buildScopedPath(scope, 'github/remediation') : '/app';
   const githubAgenticRiskPath = scope ? buildScopedPath(scope, 'github/agentic-risk') : '/app';
@@ -33659,7 +33680,7 @@ export function ProductOverviewPage() {
     : hasGitHubScanWithoutCompletedEvidence
       ? 'Awaiting scan completion'
       : 'Awaiting first scan';
-  const scanActionPath = hasGitHubConnectorEvidence ? githubPath : connectSourcesPath;
+  const scanActionPath = hasGitHubConnectorEvidence ? githubActionPath : connectSourcesPath;
   const highPriorityCount = highPriorityFindings.length;
   const activeEnvironmentCount = activeProjects.length;
   const githubState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
@@ -33806,7 +33827,7 @@ export function ProductOverviewPage() {
       id: 'scan',
       label: `Review ${formatCountLabel(failedScanCount, 'failed scan')}`,
       description: 'Check the reported error, then run the scan again.',
-      to: githubPath,
+      to: githubActionPath,
       tone: 'warning'
     });
   }
@@ -33819,7 +33840,7 @@ export function ProductOverviewPage() {
         : hasGitHubConnectionStatusIncomplete
           ? 'GitHub connector status could not be confirmed for every active project.'
           : 'The GitHub connector is present but needs attention before scanning.',
-      to: githubPath,
+      to: githubActionPath,
       tone: 'warning'
     });
   }
@@ -33900,7 +33921,7 @@ export function ProductOverviewPage() {
       label: 'Run your first scan',
       complete: hasAnySuccessfulScan,
       actionLabel: hasAnySuccessfulScan ? undefined : 'Run scan',
-      to: connectSourcesPath
+      to: scanActionPath
     },
     {
       id: 'invite',

@@ -3339,7 +3339,10 @@ describe('ProductOverviewPage', () => {
 
     const nextActions = await screen.findByRole('region', { name: 'Recommended next actions' });
     const runScanAction = within(nextActions).getByRole('link', { name: /Run a scan/i });
-    expect(runScanAction).toHaveAttribute('href', '/app/tenant-a/workspace-a/github');
+    expect(runScanAction).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/github?environment=production-platform'
+    );
   });
 
   it('checks every active project when determining GitHub connector evidence', async () => {
@@ -3396,7 +3399,7 @@ describe('ProductOverviewPage', () => {
     const nextActions = await screen.findByRole('region', { name: 'Recommended next actions' });
     expect(within(nextActions).getByRole('link', { name: /Run a scan/i })).toHaveAttribute(
       'href',
-      '/app/tenant-a/workspace-a/github'
+      '/app/tenant-a/workspace-a/github?environment=github-project'
     );
     expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
       'workspace-a',
@@ -3460,7 +3463,7 @@ describe('ProductOverviewPage', () => {
     const nextActions = screen.getByRole('region', { name: 'Recommended next actions' });
     expect(within(nextActions).getByRole('link', { name: /Review GitHub connection/ })).toHaveAttribute(
       'href',
-      '/app/tenant-a/workspace-a/github'
+      '/app/tenant-a/workspace-a/github?environment=degraded-project'
     );
     expect(within(nextActions).getByText('The GitHub connector is present but needs attention before scanning.')).toBeInTheDocument();
   });
@@ -3514,7 +3517,7 @@ describe('ProductOverviewPage', () => {
     const nextActions = screen.getByRole('region', { name: 'Recommended next actions' });
     expect(within(nextActions).getByRole('link', { name: /Finish GitHub connection/ })).toHaveAttribute(
       'href',
-      '/app/tenant-a/workspace-a/github'
+      '/app/tenant-a/workspace-a/github?environment=pending-project'
     );
     expect(within(nextActions).getByText('The GitHub installation is still pending; finish connecting it before scanning.')).toBeInTheDocument();
   });
@@ -3742,6 +3745,42 @@ describe('ProductOverviewPage', () => {
     expect(within(agenticRiskCard).getByText('No findings')).toBeInTheDocument();
     expect(within(agenticRiskCard).getByText('No signals detected')).toBeInTheDocument();
     await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(1));
+  });
+
+  it('counts failures across the fetched scan page while limiting recent activity', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    const failedScans = Array.from({ length: 6 }, (_, index) => ({
+      ...queuedRepoScan,
+      id: `repo-scan-failed-${index}`,
+      repository: `owner/repo-${index}`,
+      status: 'failed',
+      started_at: `2026-05-${17 - index}T11:00:00Z`,
+      finished_at: `2026-05-${17 - index}T11:01:00Z`,
+      error_message: 'Scan timed out'
+    }));
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({
+      items: failedScans,
+      has_successful_scan: false
+    });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const nextActions = await screen.findByRole('region', { name: 'Recommended next actions' });
+    expect(within(nextActions).getByRole('link', { name: /Review 6 failed scans/ })).toBeInTheDocument();
+    expect(screen.getByText('owner/repo-0 +4 more')).toBeInTheDocument();
   });
 
   it('withholds no-signals messaging when open findings are truncated', async () => {
