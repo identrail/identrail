@@ -1156,6 +1156,26 @@ async function listOverviewScans(auth: RequestAuthContext): Promise<OverviewScan
   };
 }
 
+async function loadOverviewGitHubConnectionStatus(
+  scope: ProductSession,
+  projects: ProjectRecord[],
+  availability: SourceAvailability,
+  auth: RequestAuthContext
+): Promise<GitHubConnectionStatus | undefined> {
+  if (!availability.available) {
+    return undefined;
+  }
+  const defaultProject = projects.find((project) => !isProjectArchived(project));
+  if (!defaultProject) {
+    return undefined;
+  }
+  try {
+    return (await apiClient.getGitHubConnectorStatus(scope.workspaceID, defaultProject.project_id, auth)).connection ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function emptyOverviewConnectionRollup(): OverviewConnectionRollup {
   return { checkedCount: 0, connectedCount: 0, degradedCount: 0 };
 }
@@ -27732,6 +27752,7 @@ type GitHubDomainDataCacheWriteOptions = {
 
 type GitHubDomainDataFetchOptions = {
   bypassInFlight?: boolean;
+  connection?: GitHubConnectionStatus | null;
 };
 
 const gitHubDomainDataCache = new Map<string, GitHubDomainDataSnapshot>();
@@ -27905,8 +27926,9 @@ function fetchGitHubDomainDataSnapshot(
   }
 
   const request = (async () => {
-    const statusResult = await apiClient.getGitHubConnectorStatus(scope.workspaceID, projectID, auth);
-    const connection = statusResult.connection ?? null;
+    const connection = options.connection !== undefined
+      ? options.connection
+      : (await apiClient.getGitHubConnectorStatus(scope.workspaceID, projectID, auth)).connection ?? null;
     let scans: RepoScanRecord[] = [];
     let error = '';
 
@@ -27934,7 +27956,8 @@ function primeGitHubControlCenterDataCache(
   scope: ProductSession,
   projects: ProjectRecord[],
   availability: SourceAvailability,
-  auth: RequestAuthContext
+  auth: RequestAuthContext,
+  connection?: GitHubConnectionStatus | null
 ) {
   if (!availability.available) {
     return;
@@ -27959,7 +27982,8 @@ function primeGitHubControlCenterDataCache(
     GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT,
     GITHUB_CONTROL_CENTER_SCAN_FETCH_LIMIT,
     GITHUB_MAX_SCAN_PAGE_FETCHES,
-    auth
+    auth,
+    { connection }
   )
     .then((snapshot) => {
       if (!snapshot.error) {
@@ -33322,6 +33346,7 @@ export function ProductOverviewPage() {
   const [hasHistoricalSuccessfulScan, setHasHistoricalSuccessfulScan] = useState(false);
   const [scanHistoryComplete, setScanHistoryComplete] = useState(true);
   const [findingsHistoryComplete, setFindingsHistoryComplete] = useState(true);
+  const [githubConnectionStatus, setGithubConnectionStatus] = useState<GitHubConnectionStatus | null>(null);
   const [, setInviteSkipTick] = useState(0);
   const [connectorConfiguredFromOnboarding, setConnectorConfiguredFromOnboarding] = useState(false);
   const [onboardingConnectorProvider, setOnboardingConnectorProvider] = useState<SourceProvider | null>(null);
@@ -33387,6 +33412,7 @@ export function ProductOverviewPage() {
       setHasHistoricalSuccessfulScan(false);
       setScanHistoryComplete(true);
       setFindingsHistoryComplete(true);
+      setGithubConnectionStatus(null);
       return;
     }
 
@@ -33398,6 +33424,7 @@ export function ProductOverviewPage() {
       setHasHistoricalSuccessfulScan(false);
       setScanHistoryComplete(true);
       setFindingsHistoryComplete(true);
+      setGithubConnectionStatus(null);
       try {
         const auth = buildProductAuthContext(scope);
         const activeProjectItems = await listOverviewProjects(scope.workspaceID, { include_archived: false }, auth);
@@ -33405,8 +33432,7 @@ export function ProductOverviewPage() {
           return;
         }
         primeEnvironmentScopeCache(scope, activeProjectItems);
-        primeGitHubControlCenterDataCache(scope, activeProjectItems, sourceAvailability.github, auth);
-        const [scanResponse, findingResponse, connectionRollups] = await Promise.all([
+        const [scanResponse, findingResponse, connectionRollups, githubConnection] = await Promise.all([
           listOverviewScans(auth),
           apiClient.listRepoFindings(
             {
@@ -33417,7 +33443,8 @@ export function ProductOverviewPage() {
             },
             auth
           ),
-          loadOverviewConnectionRollups(scope, activeProjectItems, sourceAvailability, auth)
+          loadOverviewConnectionRollups(scope, activeProjectItems, sourceAvailability, auth),
+          loadOverviewGitHubConnectionStatus(scope, activeProjectItems, sourceAvailability.github, auth)
         ]);
         if (!mounted || !isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           return;
@@ -33436,7 +33463,9 @@ export function ProductOverviewPage() {
             .sort((left, right) => severityRank(right.severity) - severityRank(left.severity))
         );
         setFindingsHistoryComplete(!findingResponse.next_cursor?.trim());
+        setGithubConnectionStatus(githubConnection ?? null);
         setSourceConnectionRollups(connectionRollups);
+        primeGitHubControlCenterDataCache(scope, activeProjectItems, sourceAvailability.github, auth, githubConnection);
       } catch (err) {
         if (!mounted || !isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           return;
@@ -33446,6 +33475,7 @@ export function ProductOverviewPage() {
         setHasHistoricalSuccessfulScan(false);
         setScanHistoryComplete(true);
         setFindingsHistoryComplete(true);
+        setGithubConnectionStatus(null);
       } finally {
         if (mounted && isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           setLoading(false);
@@ -33511,6 +33541,7 @@ export function ProductOverviewPage() {
   // connector. This keeps non-GitHub customers out of duplicate setup prompts.
   const hasConnectedSource =
     connectorConfiguredFromOnboarding ||
+    githubConnectionStatus?.connected === true ||
     repoScans.length > 0 ||
     awsRollup.connectedCount > 0 ||
     kubernetesRollup.connectedCount > 0;
@@ -33518,7 +33549,8 @@ export function ProductOverviewPage() {
   const hasMoreGitHubFindings = !findingsHistoryComplete;
   const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
   const hasGitHubCompletedEvidence = hasAnySuccessfulScan || hasGitHubFindingEvidence;
-  const hasGitHubConnectorEvidence = hasGitHubEvidence || onboardingConnectorProvider === 'github';
+  const hasGitHubConnectorEvidence =
+    hasGitHubEvidence || onboardingConnectorProvider === 'github' || githubConnectionStatus?.connected === true;
   const hasActiveGitHubScan = repoScans.some((scan) => isActiveScanStatus(scan.status));
   const hasGitHubScanWithoutCompletedEvidence = repoScans.length > 0 && !hasGitHubCompletedEvidence;
   const hasUnknownGitHubScanHistory = hasGitHubScanWithoutCompletedEvidence && !scanHistoryComplete;

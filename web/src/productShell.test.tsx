@@ -3296,6 +3296,44 @@ describe('ProductOverviewPage', () => {
     expect(screen.queryByRole('link', { name: 'Connect GitHub' })).not.toBeInTheDocument();
   });
 
+  it('routes a connected GitHub workspace to GitHub controls before its first scan', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'production-platform',
+        name: 'Production Platform',
+        slug: 'production-platform',
+        description: '',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [], has_successful_scan: false });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: disconnectedKubernetes });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const nextActions = await screen.findByRole('region', { name: 'Recommended next actions' });
+    const runScanAction = within(nextActions).getByRole('link', { name: /Run a scan/i });
+    expect(runScanAction).toHaveAttribute('href', '/app/tenant-a/workspace-a/github');
+  });
+
   it('does not use AWS onboarding as GitHub domain evidence', async () => {
     vi.resetModules();
     vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
