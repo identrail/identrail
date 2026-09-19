@@ -79,6 +79,28 @@ describe('apiClient', () => {
     expect(url).toContain('/v1/scans?sort_by=started_at&sort_order=desc');
   });
 
+  it('deletes an environment with scoped auth headers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      text: async () => ''
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.deleteProject(
+      'workspace with space',
+      'production/platform',
+      { tenantID: 'tenant-a', workspaceID: 'workspace with space' }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/workspaces/workspace%20with%20space/projects/production%2Fplatform');
+    expect(options.method).toBe('DELETE');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace with space');
+  });
+
   it('passes the scan event cursor for paging', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

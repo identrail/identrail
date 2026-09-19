@@ -7253,6 +7253,16 @@ html[data-theme='light'] .idt-auth-mfa-form input {
   color: #c9d8ee;
 }
 
+.idt-projects-header .idt-projects-header-note {
+  max-width: 62ch;
+  margin-top: 0.65rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid rgba(255, 153, 0, 0.65);
+  color: #f4cf96;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
 .idt-projects-summary {
   display: grid;
   gap: 0.7rem;
@@ -23609,6 +23619,7 @@ html[data-theme='light'] .idt-app-shell-screen select {
 
 .idt-aws-repair-card.is-blocking {
   border-color: rgba(255, 90, 90, 0.42);
+  background: linear-gradient(145deg, rgba(83, 18, 26, 0.35), #050505 65%);
 }
 
 .idt-aws-repair-card.is-warning {
@@ -23631,6 +23642,11 @@ html[data-theme='light'] .idt-app-shell-screen select {
   font-size: 0.72rem;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.idt-aws-repair-card.is-blocking header span,
+.idt-aws-repair-card.is-blocking header strong {
+  color: #ffc1c1;
 }
 
 .idt-aws-repair-card p {

@@ -3840,6 +3840,45 @@ function awsStatusVariant(connection: AWSConnectionStatus | null): 'connected' |
   return connection.connected ? 'connected' : 'disconnected';
 }
 
+function awsDiagnosticLabel(code: string): string | null {
+  switch (code.trim().toLowerCase()) {
+    case 'assume_role_failed':
+      return 'Assume role failed';
+    case 'external_id_mismatch':
+      return 'Trust policy mismatch';
+    case 'role_arn_malformed':
+      return 'Invalid role ARN';
+    case 'missing_read_only_permission_tier':
+      return 'Missing permissions';
+    default:
+      return null;
+  }
+}
+
+function awsStatusLabel(connection: AWSConnectionStatus | null): string {
+  if (!connection) {
+    return 'Disconnected';
+  }
+  const diagnosticLabel = connection.diagnostics.map((diagnostic) => awsDiagnosticLabel(diagnostic.code)).find(Boolean);
+  if (diagnosticLabel) {
+    return diagnosticLabel;
+  }
+  const failedChecks = connection.permission_checks.filter((check) => !check.passed);
+  if (failedChecks.some((check) => /assume\s*role/i.test(check.name))) {
+    return 'Assume role failed';
+  }
+  if (failedChecks.length > 0) {
+    return 'Missing permissions';
+  }
+  if (connection.health_status === 'error') {
+    return 'Needs attention';
+  }
+  if (connection.health_status === 'warning' || connection.status === 'degraded') {
+    return 'Degraded';
+  }
+  return connection.connected ? 'Connected' : 'Disconnected';
+}
+
 function awsPermissionSummary(connection: AWSConnectionStatus | null): string {
   if (!connection || connection.permission_checks.length === 0) {
     return 'Not validated';
@@ -3851,6 +3890,10 @@ function awsPermissionSummary(connection: AWSConnectionStatus | null): string {
 function awsDiagnosticSummary(connection: AWSConnectionStatus | null): string {
   if (!connection || connection.diagnostics.length === 0) {
     return connection?.connected ? 'Clear' : 'No diagnostics';
+  }
+  const diagnosticLabel = connection.diagnostics.map((diagnostic) => awsDiagnosticLabel(diagnostic.code)).find(Boolean);
+  if (diagnosticLabel && connection.diagnostics.length === 1) {
+    return diagnosticLabel;
   }
   return formatCountLabel(connection.diagnostics.length, 'item');
 }
@@ -4144,9 +4187,22 @@ function AWSConnectionDiagnostics({
     );
   }
 
-  const checks = connection.permission_checks;
   const diagnostics = connection.diagnostics;
-
+  const checks = connection.permission_checks.filter((check) => {
+    if (check.passed) {
+      return true;
+    }
+    const normalizedName = check.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return !diagnostics.some((diagnostic) => {
+      if (diagnostic.code === 'assume_role_failed') {
+        return normalizedName.includes('assumerole');
+      }
+      if (diagnostic.code === 'missing_read_only_permission_tier') {
+        return !normalizedName.includes('assumerole');
+      }
+      return diagnostic.evidence_ref === `aws-permission-check:${check.name}`;
+    });
+  });
   if (checks.length === 0 && diagnostics.length === 0) {
     return (
       <article>
@@ -4512,7 +4568,11 @@ function AWSConnectedSuccessPanel({
             </p>
           </div>
         </div>
-        <DomainStatusBadge variant={awsStatusVariant(connection)} detail={connection.health_status} />
+        <DomainStatusBadge
+          variant={awsStatusVariant(connection)}
+          label={awsStatusLabel(connection)}
+          detail={connection.health_status}
+        />
       </div>
 
       <dl className="idt-aws-connected-facts">
@@ -4572,9 +4632,11 @@ function AWSConnectedSuccessPanel({
         <button className="idt-btn idt-btn-ghost" type="button" onClick={onRefresh} disabled={refreshing}>
           {refreshing ? 'Refreshing...' : 'Refresh status'}
         </button>
-        <button className="idt-btn idt-btn-ghost" type="button" onClick={onRunBaseline} disabled={baselineLoading || !connectorConnected}>
-          {baselineLoading ? 'Running...' : 'Run baseline'}
-        </button>
+        {connectorConnected ? (
+          <button className="idt-btn idt-btn-ghost" type="button" onClick={onRunBaseline} disabled={baselineLoading}>
+            {baselineLoading ? 'Running...' : 'Run baseline'}
+          </button>
+        ) : null}
         <button className="idt-btn idt-btn-ghost" type="button" onClick={onManageConnection}>
           Manage connection
         </button>
@@ -26240,7 +26302,7 @@ export function ProductAWSConnectPage() {
                   </div>
                   <DomainStatusBadge
                     variant={onboardingInProgress ? 'running-scan' : awsStatusVariant(connection)}
-                    label={onboardingInProgress ? 'Connecting' : undefined}
+                    label={onboardingInProgress ? 'Connecting' : awsStatusLabel(connection)}
                     detail={onboardingInProgress ? setupSummaryTitle : wizardHealth && wizardHealth !== 'unknown' ? wizardHealth : undefined}
                   />
                 </div>
@@ -35158,6 +35220,9 @@ export function ProductProjectsPage() {
   const [error, setError] = useState('');
   const [draftName, setDraftName] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<ProjectRecord | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     if (!scope) {
@@ -35273,6 +35338,42 @@ export function ProductProjectsPage() {
     }
   };
 
+  const handleOpenDeleteProject = (project: ProjectRecord) => {
+    setDeleteError('');
+    setDeleteTarget(project);
+  };
+
+  const handleCancelDeleteProject = () => {
+    if (deletePending) {
+      return;
+    }
+    setDeleteTarget(null);
+    setDeleteError('');
+  };
+
+  const handleDeleteProject = async () => {
+    if (!scope || !deleteTarget || deletePending) {
+      return;
+    }
+    setDeletePending(true);
+    setDeleteError('');
+    try {
+      await apiClient.deleteProject(
+        scope.workspaceID,
+        deleteTarget.project_id,
+        buildProductAuthContext(scope)
+      );
+      setProjects((current) => current.filter((project) => project.project_id !== deleteTarget.project_id));
+      setDeleteTarget(null);
+    } catch (deleteProjectError) {
+      setDeleteError(
+        deleteProjectError instanceof Error ? deleteProjectError.message : 'Unable to delete this environment. Please retry.'
+      );
+    } finally {
+      setDeletePending(false);
+    }
+  };
+
   return (
     <section className="idt-app-panel idt-projects-page">
       <div className="idt-projects-header">
@@ -35280,6 +35381,9 @@ export function ProductProjectsPage() {
           <p className="idt-app-kicker">Workspace scope</p>
           <h2>Environments</h2>
           <p>Choose the operating boundary for repository, workflow, cloud, and cluster identity signals.</p>
+          <p className="idt-projects-header-note">
+            Delete an environment to remove its connectors, scans, findings, and setup state while keeping this workspace intact.
+          </p>
         </div>
         <div className="idt-inline-actions">
           <Link className="idt-btn idt-btn-ghost" to={buildScopedPath(scope)}>
@@ -35374,6 +35478,14 @@ export function ProductProjectsPage() {
                       >
                         Open environment
                       </Link>
+                      <button
+                        className="idt-btn idt-btn-danger"
+                        type="button"
+                        onClick={() => handleOpenDeleteProject(project)}
+                        disabled={deletePending}
+                      >
+                        Delete environment
+                      </button>
                     </div>
                   </article>
                 );
@@ -35414,6 +35526,36 @@ export function ProductProjectsPage() {
           </form>
         </article>
       </div>
+
+      <ConfirmDestructiveModal
+        body={
+          <>
+            <p>
+              This permanently removes the environment, its connectors, scans, findings, baselines, and setup state.
+            </p>
+            <p>
+              It does not remove IAM roles, CloudFormation stacks, or other resources in your AWS account. Remove those separately in AWS if you are starting over there too.
+            </p>
+          </>
+        }
+        confirmation={{
+          kind: 'type-to-confirm',
+          expectedValue: deleteTarget?.project_id ?? '',
+          inputLabel: 'Confirm environment key',
+          helpText: deleteTarget ? (
+            <>
+              Enter <em className="idt-danger-confirm-value">{deleteTarget.project_id}</em> exactly.
+            </>
+          ) : undefined
+        }}
+        continueLabel="Delete environment"
+        errorMessage={deleteError || undefined}
+        onCancel={handleCancelDeleteProject}
+        onConfirm={handleDeleteProject}
+        open={deleteTarget !== null}
+        pending={deletePending}
+        title={deleteTarget ? `Delete ${deleteTarget.name}` : 'Delete environment'}
+      />
     </section>
   );
 }

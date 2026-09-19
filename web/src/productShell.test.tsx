@@ -15674,6 +15674,49 @@ describe('Domain-first app routes', () => {
     expect(payload.project_id).not.toBe('default-environment');
   });
 
+  it('requires the environment key before deleting an environment', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    const project = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'production-platform',
+      name: 'Production Platform',
+      slug: 'production-platform',
+      description: 'Production boundary.',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z'
+    };
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [project] });
+    const deleteProject = vi.spyOn(api.apiClient, 'deleteProject').mockResolvedValue(undefined);
+
+    const { ProductProjectsPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/projects']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/projects" element={<ProductProjectsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Environments' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete environment' }));
+
+    const modal = screen.getByRole('dialog', { name: 'Delete Production Platform' });
+    const continueButton = within(modal).getByTestId('idt-danger-modal-continue');
+    expect(continueButton).toBeDisabled();
+    fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), { target: { value: project.project_id } });
+    expect(continueButton).toBeEnabled();
+    fireEvent.click(continueButton);
+
+    await waitFor(() => expect(deleteProject).toHaveBeenCalledWith(
+      'workspace-a',
+      'production-platform',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    ));
+    await waitFor(() => expect(screen.queryByText('Production Platform')).not.toBeInTheDocument());
+  });
+
   it('opens nested GitHub AI risk routes from the sidebar domain flyout', async () => {
     mockConnectorFeatureFlags({ github: true, kubernetes: true });
     mockBackendFeatures({ github: true, kubernetes: true });

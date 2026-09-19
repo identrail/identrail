@@ -1433,7 +1433,10 @@ func (p *PostgresStore) ListProjects(ctx context.Context, workspaceID string, in
 	return projects, rows.Err()
 }
 
-// DeleteProject removes one scoped project.
+// DeleteProject permanently removes one scoped project and every project-bound
+// artifact. Most project data is removed by foreign-key cascades from
+// tenancy_projects, but scan history and repository scan history predate that
+// relationship and must be purged explicitly.
 func (p *PostgresStore) DeleteProject(ctx context.Context, workspaceID string, projectID string) error {
 	scope, err := RequireScope(ctx)
 	if err != nil {
@@ -1443,15 +1446,74 @@ func (p *PostgresStore) DeleteProject(ctx context.Context, workspaceID string, p
 	if err != nil {
 		return err
 	}
-	result, err := p.execContext(
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	args := []any{scope.TenantID, resolvedWorkspaceID, projectID}
+	cleanupStatements := []struct {
+		name  string
+		query string
+	}{
+		{
+			name: "sessions",
+			query: `UPDATE sessions
+				SET current_project_id = NULL
+				WHERE current_org_id = $1
+				  AND current_workspace_id = $2
+				  AND current_project_id = $3`,
+		},
+		{
+			name: "onboarding_state",
+			query: `UPDATE onboarding_state
+				SET project_id = NULL,
+				    connector_id = NULL
+				WHERE org_id = $1
+				  AND workspace_id = $2
+				  AND project_id = $3`,
+		},
+		{
+			name: "scans",
+			query: `DELETE FROM scans
+				WHERE tenant_id = $1
+				  AND workspace_id = $2
+				  AND source_project_id = $3`,
+		},
+		{
+			name: "repo_scans",
+			query: `DELETE FROM repo_scans
+				WHERE tenant_id = $1
+				  AND workspace_id = $2
+				  AND source_project_id = $3`,
+		},
+		{
+			name: "repo_scan_cursors",
+			query: `DELETE FROM repo_scan_cursors
+				WHERE tenant_id = $1
+				  AND workspace_id = $2
+				  AND source_project_id = $3`,
+		},
+	}
+	for _, statement := range cleanupStatements {
+		if _, err := tx.ExecContext(ctx, statement.query, args...); err != nil {
+			return fmt.Errorf("delete project %s %s: %w", projectID, statement.name, err)
+		}
+	}
+
+	result, err := tx.ExecContext(
 		ctx,
 		`DELETE FROM tenancy_projects
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND project_id = $3`,
-		scope.TenantID,
-		resolvedWorkspaceID,
-		projectID,
+		args...,
 	)
 	if err != nil {
 		return err
@@ -1463,6 +1525,10 @@ func (p *PostgresStore) DeleteProject(ctx context.Context, workspaceID string, p
 	if affected == 0 {
 		return ErrNotFound
 	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
 	audit.WriteAction(ctx, audit.AuditEvent{
 		Action:       "tenancy.project.delete",
 		TenantID:     scope.TenantID,

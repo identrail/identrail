@@ -10484,6 +10484,15 @@ export const apiClient = {
       auth
     );
   },
+  deleteProject(workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<void>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}`,
+      auth,
+      {
+        method: 'DELETE'
+      }
+    );
+  },
   upsertProject(workspaceID: string, payload: ProjectUpsertRequest, auth?: RequestAuthContext) {
     return request<{ project: ProjectRecord }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects`,

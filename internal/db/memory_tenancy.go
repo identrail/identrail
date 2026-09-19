@@ -1199,7 +1199,120 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 			delete(m.awsCoverages, coverageKey)
 		}
 	}
+	for attemptKey, attempt := range m.awsOnboardingAttempts {
+		if attempt.TenantID == scope.TenantID && attempt.WorkspaceID == resolvedWorkspaceID && attempt.ProjectID == projectID {
+			delete(m.awsOnboardingAttempts, attemptKey)
+		}
+	}
+	for rolloutKey, rollout := range m.awsOrgRollouts {
+		if rollout.TenantID == scope.TenantID && rollout.WorkspaceID == resolvedWorkspaceID && rollout.ProjectID == projectID {
+			delete(m.awsOrgRollouts, rolloutKey)
+		}
+	}
+	for targetKey, target := range m.awsOrgRolloutTargets {
+		if target.TenantID == scope.TenantID && target.WorkspaceID == resolvedWorkspaceID && target.ProjectID == projectID {
+			delete(m.awsOrgRolloutTargets, targetKey)
+		}
+	}
 	m.deleteAWSPlatformBaselineResultsLocked(scope.TenantID, resolvedWorkspaceID, projectID)
+
+	// Scans and repository scans are intentionally not foreign-keyed to the
+	// project, so mirror the Postgres purge explicitly. Their child artifacts
+	// are keyed by scan id and otherwise would remain queryable after reset.
+	scanIDs := make([]string, 0)
+	findingIDs := make(map[string]struct{})
+	for scanID, record := range m.scans {
+		if record.TenantID != scope.TenantID || record.WorkspaceID != resolvedWorkspaceID || record.ProjectID != projectID {
+			continue
+		}
+		scanIDs = append(scanIDs, scanID)
+		delete(m.scans, scanID)
+		for _, findingKey := range m.scanFindings[scanID] {
+			delete(m.findings, findingKey)
+			parts := strings.SplitN(findingKey, "|", 2)
+			if len(parts) == 2 {
+				findingIDs[parts[1]] = struct{}{}
+			}
+		}
+		delete(m.scanFindings, scanID)
+		delete(m.events, scanID)
+		prefix := scanID + "|"
+		for key := range m.rawAssets {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.rawAssets, key)
+			}
+		}
+		for key := range m.identities {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.identities, key)
+			}
+		}
+		for key := range m.policies {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.policies, key)
+			}
+		}
+		for key := range m.relationships {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.relationships, key)
+			}
+		}
+		for key := range m.permissions {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.permissions, key)
+			}
+		}
+	}
+	for repoScanID, record := range m.repoScans {
+		if record.TenantID != scope.TenantID || record.WorkspaceID != resolvedWorkspaceID || record.Source.ProjectID != projectID {
+			continue
+		}
+		delete(m.repoScans, repoScanID)
+		for _, findingKey := range m.repoFindingIDs[repoScanID] {
+			delete(m.repoFindings, findingKey)
+		}
+		delete(m.repoFindingIDs, repoScanID)
+	}
+	for cursorKey, cursor := range m.repoCursors {
+		if cursor.TenantID == scope.TenantID && cursor.WorkspaceID == resolvedWorkspaceID && cursor.Source.ProjectID == projectID {
+			delete(m.repoCursors, cursorKey)
+		}
+	}
+	if len(scanIDs) > 0 {
+		remaining := m.scanIDs[:0]
+		for _, scanID := range m.scanIDs {
+			if _, removed := m.scans[scanID]; !removed {
+				continue
+			}
+			remaining = append(remaining, scanID)
+		}
+		m.scanIDs = remaining
+	}
+	remainingRepoScanIDs := m.repoScanIDs[:0]
+	for _, repoScanID := range m.repoScanIDs {
+		if _, exists := m.repoScans[repoScanID]; exists {
+			remainingRepoScanIDs = append(remainingRepoScanIDs, repoScanID)
+		}
+	}
+	m.repoScanIDs = remainingRepoScanIDs
+	for findingID := range findingIDs {
+		key := findingScopeKey(Scope{TenantID: scope.TenantID, WorkspaceID: resolvedWorkspaceID}, findingID)
+		delete(m.triageStates, key)
+		delete(m.triageEvents, key)
+	}
+	for sessionKey, session := range m.sessions {
+		if session.CurrentOrgID == scope.TenantID && session.CurrentWorkspaceID == resolvedWorkspaceID && session.CurrentProjectID == projectID {
+			session.CurrentProjectID = ""
+			m.sessions[sessionKey] = session
+		}
+	}
+	for userID, state := range m.onboardingStates {
+		if state.OrgID == scope.TenantID && state.WorkspaceID == resolvedWorkspaceID && state.ProjectID == projectID {
+			state.ProjectID = ""
+			state.ConnectorID = ""
+			m.onboardingStates[userID] = state
+		}
+	}
 	m.mu.Unlock()
 
 	audit.WriteAction(ctx, audit.AuditEvent{

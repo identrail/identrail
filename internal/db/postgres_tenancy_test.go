@@ -1069,23 +1069,57 @@ func TestPostgresStoreDeleteProjectScoped(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE sessions").
+		WithArgs("tenant-a", "workspace-a", "project-1").
+		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectExec("UPDATE onboarding_state").
+		WithArgs("tenant-a", "workspace-a", "project-1").
+		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectExec("DELETE FROM scans").
+		WithArgs("tenant-a", "workspace-a", "project-1").
+		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectExec("DELETE FROM repo_scans").
+		WithArgs("tenant-a", "workspace-a", "project-1").
+		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectExec("DELETE FROM repo_scan_cursors").
+		WithArgs("tenant-a", "workspace-a", "project-1").
+		WillReturnResult(sqlmock.NewResult(1, 0))
 	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM tenancy_projects
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND project_id = $3`)).
 		WithArgs("tenant-a", "workspace-a", "project-1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
 	if err := store.DeleteProject(ctx, "workspace-a", "project-1"); err != nil {
 		t.Fatalf("delete project: %v", err)
 	}
 
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE sessions").
+		WithArgs("tenant-a", "workspace-a", "project-missing").
+		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectExec("UPDATE onboarding_state").
+		WithArgs("tenant-a", "workspace-a", "project-missing").
+		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectExec("DELETE FROM scans").
+		WithArgs("tenant-a", "workspace-a", "project-missing").
+		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectExec("DELETE FROM repo_scans").
+		WithArgs("tenant-a", "workspace-a", "project-missing").
+		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectExec("DELETE FROM repo_scan_cursors").
+		WithArgs("tenant-a", "workspace-a", "project-missing").
+		WillReturnResult(sqlmock.NewResult(1, 0))
 	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM tenancy_projects
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND project_id = $3`)).
 		WithArgs("tenant-a", "workspace-a", "project-missing").
 		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectRollback()
 
 	if err := store.DeleteProject(ctx, "workspace-a", "project-missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for missing project delete, got %v", err)
