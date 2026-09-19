@@ -2353,14 +2353,19 @@ func TestMemoryStoreDeleteProjectPurgesProjectScopedScanHistory(t *testing.T) {
 		Source: RepoScanSource{ProjectID: "project-a"},
 	}
 	store.repoScanIDs = append(store.repoScanIDs, "repo-a")
-	store.repoFindingIDs["repo-a"] = []string{"repo-a|finding-a"}
-	store.repoFindings["repo-a|finding-a"] = domain.Finding{ID: "finding-a", ScanID: "repo-a"}
+	store.repoFindingIDs["repo-a"] = []string{"repo-a|finding-repo-a"}
+	store.repoFindings["repo-a|finding-repo-a"] = domain.Finding{ID: "finding-repo-a", ScanID: "repo-a"}
+	repoOnlyTriageKey := findingScopeKey(Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"}, "finding-repo-a")
+	store.triageStates[repoOnlyTriageKey] = FindingTriageState{FindingID: "finding-repo-a"}
+	store.triageEvents[repoOnlyTriageKey] = []FindingTriageEvent{{FindingID: "finding-repo-a"}}
 	store.repoCursors["cursor-a"] = RepoScanCursor{
 		TenantID: "tenant-a", WorkspaceID: "ws-1", Source: RepoScanSource{ProjectID: "project-a"},
 	}
 
 	store.scans["scan-b"] = ScanRecord{ID: "scan-b", TenantID: "tenant-a", WorkspaceID: "ws-1", ProjectID: "project-b"}
 	store.scanIDs = append(store.scanIDs, "scan-b")
+	store.scanFindings["scan-b"] = []string{"scan-b|finding-a"}
+	store.findings["scan-b|finding-a"] = domain.Finding{ID: "finding-a", ScanID: "scan-b"}
 	store.repoScans["repo-b"] = RepoScanRecord{
 		ID: "repo-b", TenantID: "tenant-a", WorkspaceID: "ws-1",
 		Source: RepoScanSource{ProjectID: "project-b"},
@@ -2376,14 +2381,20 @@ func TestMemoryStoreDeleteProjectPurgesProjectScopedScanHistory(t *testing.T) {
 	if _, exists := store.findings["scan-a|finding-a"]; exists {
 		t.Fatal("expected project findings to be purged")
 	}
-	if _, exists := store.triageStates[findingScopeKey(Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"}, "finding-a")]; exists {
-		t.Fatal("expected project triage state to be purged")
+	if _, exists := store.triageStates[findingScopeKey(Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"}, "finding-a")]; !exists {
+		t.Fatal("expected shared triage state to remain for the surviving finding")
 	}
 	if _, exists := store.repoScans["repo-a"]; exists {
 		t.Fatal("expected project repository scan history to be purged")
 	}
-	if _, exists := store.repoFindings["repo-a|finding-a"]; exists {
+	if _, exists := store.repoFindings["repo-a|finding-repo-a"]; exists {
 		t.Fatal("expected project repository findings to be purged")
+	}
+	if _, exists := store.triageStates[repoOnlyTriageKey]; exists {
+		t.Fatal("expected repository-only triage state to be purged")
+	}
+	if _, exists := store.triageEvents[repoOnlyTriageKey]; exists {
+		t.Fatal("expected repository-only triage history to be purged")
 	}
 	if _, exists := store.repoCursors["cursor-a"]; exists {
 		t.Fatal("expected project repository cursor to be purged")
@@ -2393,6 +2404,20 @@ func TestMemoryStoreDeleteProjectPurgesProjectScopedScanHistory(t *testing.T) {
 	}
 	if _, exists := store.repoScans["repo-b"]; !exists {
 		t.Fatal("expected another project repository scan to remain")
+	}
+	hasID := func(ids []string, want string) bool {
+		for _, id := range ids {
+			if id == want {
+				return true
+			}
+		}
+		return false
+	}
+	if hasID(store.scanIDs, "scan-a") || !hasID(store.scanIDs, "scan-b") {
+		t.Fatalf("unexpected scan index after project purge: %v", store.scanIDs)
+	}
+	if hasID(store.repoScanIDs, "repo-a") || !hasID(store.repoScanIDs, "repo-b") {
+		t.Fatalf("unexpected repository scan index after project purge: %v", store.repoScanIDs)
 	}
 }
 

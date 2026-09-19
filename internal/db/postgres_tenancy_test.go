@@ -1070,10 +1070,19 @@ func TestPostgresStoreDeleteProjectScoped(t *testing.T) {
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 
 	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT project_id").
+		WithArgs("tenant-a", "workspace-a", "project-1").
+		WillReturnRows(sqlmock.NewRows([]string{"project_id"}).AddRow("project-1"))
 	mock.ExpectExec("UPDATE sessions").
 		WithArgs("tenant-a", "workspace-a", "project-1").
 		WillReturnResult(sqlmock.NewResult(1, 0))
 	mock.ExpectExec("UPDATE onboarding_state").
+		WithArgs("tenant-a", "workspace-a", "project-1").
+		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectExec("DELETE FROM finding_triage_events").
+		WithArgs("tenant-a", "workspace-a", "project-1").
+		WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectExec("DELETE FROM finding_triage_states").
 		WithArgs("tenant-a", "workspace-a", "project-1").
 		WillReturnResult(sqlmock.NewResult(1, 0))
 	mock.ExpectExec("DELETE FROM scans").
@@ -1098,27 +1107,9 @@ func TestPostgresStoreDeleteProjectScoped(t *testing.T) {
 	}
 
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE sessions").
+	mock.ExpectQuery("SELECT project_id").
 		WithArgs("tenant-a", "workspace-a", "project-missing").
-		WillReturnResult(sqlmock.NewResult(1, 0))
-	mock.ExpectExec("UPDATE onboarding_state").
-		WithArgs("tenant-a", "workspace-a", "project-missing").
-		WillReturnResult(sqlmock.NewResult(1, 0))
-	mock.ExpectExec("DELETE FROM scans").
-		WithArgs("tenant-a", "workspace-a", "project-missing").
-		WillReturnResult(sqlmock.NewResult(1, 0))
-	mock.ExpectExec("DELETE FROM repo_scans").
-		WithArgs("tenant-a", "workspace-a", "project-missing").
-		WillReturnResult(sqlmock.NewResult(1, 0))
-	mock.ExpectExec("DELETE FROM repo_scan_cursors").
-		WithArgs("tenant-a", "workspace-a", "project-missing").
-		WillReturnResult(sqlmock.NewResult(1, 0))
-	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM tenancy_projects
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		   AND project_id = $3`)).
-		WithArgs("tenant-a", "workspace-a", "project-missing").
-		WillReturnResult(sqlmock.NewResult(1, 0))
+		WillReturnError(sql.ErrNoRows)
 	mock.ExpectRollback()
 
 	if err := store.DeleteProject(ctx, "workspace-a", "project-missing"); !errors.Is(err, ErrNotFound) {

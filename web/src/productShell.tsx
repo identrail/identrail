@@ -35223,6 +35223,17 @@ export function ProductProjectsPage() {
   const [deleteTarget, setDeleteTarget] = useState<ProjectRecord | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const scopeKey = scope ? `${scope.tenantID}:${scope.workspaceID}` : '';
+  const deleteScopeKeyRef = useRef(scopeKey);
+  const deleteRequestVersionRef = useRef(0);
+
+  useEffect(() => {
+    deleteScopeKeyRef.current = scopeKey;
+    deleteRequestVersionRef.current += 1;
+    setDeleteTarget(null);
+    setDeleteError('');
+    setDeletePending(false);
+  }, [scopeKey]);
 
   useEffect(() => {
     if (!scope) {
@@ -35355,22 +35366,39 @@ export function ProductProjectsPage() {
     if (!scope || !deleteTarget || deletePending) {
       return;
     }
+    if (deleteTarget.tenant_id !== scope.tenantID || deleteTarget.workspace_id !== scope.workspaceID) {
+      setDeleteTarget(null);
+      setDeleteError('');
+      return;
+    }
+    const target = deleteTarget;
+    const initiatingScopeKey = scopeKey;
+    const requestVersion = deleteRequestVersionRef.current + 1;
+    deleteRequestVersionRef.current = requestVersion;
     setDeletePending(true);
     setDeleteError('');
     try {
       await apiClient.deleteProject(
         scope.workspaceID,
-        deleteTarget.project_id,
+        target.project_id,
         buildProductAuthContext(scope)
       );
-      setProjects((current) => current.filter((project) => project.project_id !== deleteTarget.project_id));
+      if (deleteScopeKeyRef.current !== initiatingScopeKey || deleteRequestVersionRef.current !== requestVersion) {
+        return;
+      }
+      setProjects((current) => current.filter((project) => project.project_id !== target.project_id));
       setDeleteTarget(null);
     } catch (deleteProjectError) {
+      if (deleteScopeKeyRef.current !== initiatingScopeKey || deleteRequestVersionRef.current !== requestVersion) {
+        return;
+      }
       setDeleteError(
         deleteProjectError instanceof Error ? deleteProjectError.message : 'Unable to delete this environment. Please retry.'
       );
     } finally {
-      setDeletePending(false);
+      if (deleteScopeKeyRef.current === initiatingScopeKey && deleteRequestVersionRef.current === requestVersion) {
+        setDeletePending(false);
+      }
     }
   };
 

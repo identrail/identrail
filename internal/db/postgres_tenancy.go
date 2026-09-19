@@ -1458,6 +1458,22 @@ func (p *PostgresStore) DeleteProject(ctx context.Context, workspaceID string, p
 	}()
 
 	args := []any{scope.TenantID, resolvedWorkspaceID, projectID}
+	var lockedProjectID string
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT project_id
+		 FROM tenancy_projects
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		 FOR UPDATE`,
+		args...,
+	).Scan(&lockedProjectID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("lock project for deletion: %w", err)
+	}
 	cleanupStatements := []struct {
 		name  string
 		query string
@@ -1478,6 +1494,84 @@ func (p *PostgresStore) DeleteProject(ctx context.Context, workspaceID string, p
 				WHERE org_id = $1
 				  AND workspace_id = $2
 				  AND project_id = $3`,
+		},
+		{
+			name: "finding_triage_events",
+			query: `DELETE FROM finding_triage_events AS t
+				WHERE t.tenant_id = $1
+				  AND t.workspace_id = $2
+				  AND t.finding_id IN (
+					SELECT f.finding_id
+					FROM findings f
+					JOIN scans s ON s.id = f.scan_id
+					WHERE s.tenant_id = $1
+					  AND s.workspace_id = $2
+					  AND s.source_project_id = $3
+					UNION
+					SELECT rf.finding_id
+					FROM repo_findings rf
+					JOIN repo_scans rs ON rs.id = rf.repo_scan_id
+					WHERE rs.tenant_id = $1
+					  AND rs.workspace_id = $2
+					  AND rs.source_project_id = $3
+				  )
+				  AND NOT EXISTS (
+					SELECT 1
+					FROM findings remaining_f
+					JOIN scans remaining_s ON remaining_s.id = remaining_f.scan_id
+					WHERE remaining_f.finding_id = t.finding_id
+					  AND remaining_s.tenant_id = $1
+					  AND remaining_s.workspace_id = $2
+					  AND COALESCE(remaining_s.source_project_id, '') <> $3
+				  )
+				  AND NOT EXISTS (
+					SELECT 1
+					FROM repo_findings remaining_rf
+					JOIN repo_scans remaining_rs ON remaining_rs.id = remaining_rf.repo_scan_id
+					WHERE remaining_rf.finding_id = t.finding_id
+					  AND remaining_rs.tenant_id = $1
+					  AND remaining_rs.workspace_id = $2
+					  AND COALESCE(remaining_rs.source_project_id, '') <> $3
+				  )`,
+		},
+		{
+			name: "finding_triage_states",
+			query: `DELETE FROM finding_triage_states AS t
+				WHERE t.tenant_id = $1
+				  AND t.workspace_id = $2
+				  AND t.finding_id IN (
+					SELECT f.finding_id
+					FROM findings f
+					JOIN scans s ON s.id = f.scan_id
+					WHERE s.tenant_id = $1
+					  AND s.workspace_id = $2
+					  AND s.source_project_id = $3
+					UNION
+					SELECT rf.finding_id
+					FROM repo_findings rf
+					JOIN repo_scans rs ON rs.id = rf.repo_scan_id
+					WHERE rs.tenant_id = $1
+					  AND rs.workspace_id = $2
+					  AND rs.source_project_id = $3
+				  )
+				  AND NOT EXISTS (
+					SELECT 1
+					FROM findings remaining_f
+					JOIN scans remaining_s ON remaining_s.id = remaining_f.scan_id
+					WHERE remaining_f.finding_id = t.finding_id
+					  AND remaining_s.tenant_id = $1
+					  AND remaining_s.workspace_id = $2
+					  AND COALESCE(remaining_s.source_project_id, '') <> $3
+				  )
+				  AND NOT EXISTS (
+					SELECT 1
+					FROM repo_findings remaining_rf
+					JOIN repo_scans remaining_rs ON remaining_rs.id = remaining_rf.repo_scan_id
+					WHERE remaining_rf.finding_id = t.finding_id
+					  AND remaining_rs.tenant_id = $1
+					  AND remaining_rs.workspace_id = $2
+					  AND COALESCE(remaining_rs.source_project_id, '') <> $3
+				  )`,
 		},
 		{
 			name: "scans",

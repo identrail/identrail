@@ -2146,6 +2146,10 @@ func TestPostgresStoreRepoScanCursorLifecycle(t *testing.T) {
 		InstallationID: 77,
 	}
 
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT project_id").
+		WithArgs("default", "default", "project-1").
+		WillReturnRows(sqlmock.NewRows([]string{"project_id"}).AddRow("project-1"))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scan_cursors (tenant_id, workspace_id, repository, source_provider, source_project_id, source_connector_id, source_installation_id, last_scanned_revision, last_deep_scanned_at, last_scan_id, last_scan_mode, last_scan_completed_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10::uuid, $11, $12, $13)
 		 ON CONFLICT (tenant_id, workspace_id, (lower(repository)), source_provider, source_project_id, source_connector_id, source_installation_id)
@@ -2159,6 +2163,7 @@ func TestPostgresStoreRepoScanCursorLifecycle(t *testing.T) {
 		    updated_at = EXCLUDED.updated_at`)).
 		WithArgs("default", "default", "owner/repo", "github_app", "project-1", "github", int64(77), "2222222222222222222222222222222222222222", nil, lastScanID, "delta", completedAt, completedAt).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
 	if err := store.UpsertRepoScanCursor(defaultScopeContext(), RepoScanCursor{
 		Repository:          "owner/repo",

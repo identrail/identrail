@@ -1270,6 +1270,10 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 		delete(m.repoScans, repoScanID)
 		for _, findingKey := range m.repoFindingIDs[repoScanID] {
 			delete(m.repoFindings, findingKey)
+			parts := strings.SplitN(findingKey, "|", 2)
+			if len(parts) == 2 {
+				findingIDs[parts[1]] = struct{}{}
+			}
 		}
 		delete(m.repoFindingIDs, repoScanID)
 	}
@@ -1296,6 +1300,9 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 	}
 	m.repoScanIDs = remainingRepoScanIDs
 	for findingID := range findingIDs {
+		if m.findingExistsInScopeLocked(scope, resolvedWorkspaceID, findingID) {
+			continue
+		}
 		key := findingScopeKey(Scope{TenantID: scope.TenantID, WorkspaceID: resolvedWorkspaceID}, findingID)
 		delete(m.triageStates, key)
 		delete(m.triageEvents, key)

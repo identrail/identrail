@@ -390,6 +390,38 @@ func (p *PostgresStore) beginTx(ctx context.Context) (*sql.Tx, error) {
 	return tx, nil
 }
 
+// lockProjectForSourceTx serializes source-bound writes with project deletion.
+// The scan and repository scan tables predate project tenancy and therefore do
+// not have a foreign key to tenancy_projects. A key-share lock on the project
+// row gives those writers the same coordination point as DeleteProject's
+// update lock while also rejecting writes for an already-deleted project.
+func lockProjectForSourceTx(ctx context.Context, tx *sql.Tx, scope Scope, projectID string) error {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return nil
+	}
+	var lockedProjectID string
+	err := tx.QueryRowContext(
+		ctx,
+		`SELECT project_id
+		 FROM tenancy_projects
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		 FOR KEY SHARE`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		projectID,
+	).Scan(&lockedProjectID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("lock project for source write: %w", err)
+	}
+	return nil
+}
+
 // CreateScan inserts a new scan row.
 func (p *PostgresStore) CreateScan(ctx context.Context, provider string, startedAt time.Time) (ScanRecord, error) {
 	return p.createScanWithStatus(ctx, provider, "running", startedAt)
@@ -431,6 +463,9 @@ func (p *PostgresStore) CreateQueuedScanWithinLimitWithSource(ctx context.Contex
 
 	normalizedProvider := strings.TrimSpace(provider)
 	normalizedSource := source.Normalize()
+	if err := lockProjectForSourceTx(ctx, tx, scope, normalizedSource.ProjectID); err != nil {
+		return ScanRecord{}, err
+	}
 	lockKey := fmt.Sprintf("scan-queue:%s:%s:%s:%s:%s", scope.TenantID, scope.WorkspaceID, normalizedProvider, normalizedSource.ProjectID, normalizedSource.ConnectorID)
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
 		return ScanRecord{}, fmt.Errorf("lock queued scan capacity: %w", err)
@@ -506,6 +541,9 @@ func (p *PostgresStore) CreateQueuedScanIfNoPendingWithSource(ctx context.Contex
 
 	normalizedProvider := strings.TrimSpace(provider)
 	normalizedSource := source.Normalize()
+	if err := lockProjectForSourceTx(ctx, tx, scope, normalizedSource.ProjectID); err != nil {
+		return ScanRecord{}, err
+	}
 	lockKey := fmt.Sprintf("scan-queue:%s:%s:%s:%s:%s", scope.TenantID, scope.WorkspaceID, normalizedProvider, normalizedSource.ProjectID, normalizedSource.ConnectorID)
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
 		return ScanRecord{}, fmt.Errorf("lock scan queue: %w", err)
@@ -767,7 +805,15 @@ func (p *PostgresStore) BindScanSource(ctx context.Context, scanID string, sourc
 	if normalizedSource.Empty() {
 		return ScanRecord{}, ErrNotFound
 	}
-	row := p.queryRowContextAnyScope(
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return ScanRecord{}, fmt.Errorf("begin bind scan source transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if err := lockProjectForSourceTx(ctx, tx, scope, normalizedSource.ProjectID); err != nil {
+		return ScanRecord{}, err
+	}
+	row := tx.QueryRowContext(
 		ctx,
 		`UPDATE scans
 		 SET tenant_id=$2, workspace_id=$3, source_project_id=$4, source_connector_id=$5
@@ -787,6 +833,9 @@ func (p *PostgresStore) BindScanSource(ctx context.Context, scanID string, sourc
 			return ScanRecord{}, ErrNotFound
 		}
 		return ScanRecord{}, fmt.Errorf("bind scan source: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ScanRecord{}, fmt.Errorf("commit bind scan source transaction: %w", err)
 	}
 	return record, nil
 }
@@ -2808,6 +2857,10 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 	defer tx.Rollback()
 
 	normalizedRepository := strings.TrimSpace(repository)
+	normalizedSource := source.Normalize()
+	if err := lockProjectForSourceTx(ctx, tx, scope, normalizedSource.ProjectID); err != nil {
+		return RepoScanRecord{}, err
+	}
 	queueLockKey := fmt.Sprintf("repo-queue:%s:%s", scope.TenantID, scope.WorkspaceID)
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, queueLockKey); err != nil {
 		return RepoScanRecord{}, fmt.Errorf("lock repo scan queue capacity: %w", err)
@@ -2852,7 +2905,6 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 	if queued >= maxPending {
 		return RepoScanRecord{}, ErrQueueLimitReached
 	}
-	normalizedSource := source.Normalize()
 	normalizedContext := NormalizeRepoScanContext(scanContext)
 	changedPathsJSON, err := json.Marshal(repoScanChangedPathsForJSON(normalizedContext.ChangedPaths))
 	if err != nil {
@@ -3209,6 +3261,46 @@ func (p *PostgresStore) createRepoScanWithStatus(ctx context.Context, repository
 		MaxFindings:  maxFindings,
 		Source:       normalizedSource,
 	}
+	if normalizedSource.ProjectID != "" {
+		tx, txErr := p.beginTx(ctx)
+		if txErr != nil {
+			return RepoScanRecord{}, fmt.Errorf("begin source-bound repo scan transaction: %w", txErr)
+		}
+		defer tx.Rollback()
+		if txErr := lockProjectForSourceTx(ctx, tx, scope, normalizedSource.ProjectID); txErr != nil {
+			return RepoScanRecord{}, txErr
+		}
+		if _, txErr := tx.ExecContext(
+			ctx,
+			`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, source_health, source_health_details, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
+				 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, '[]'::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19)`,
+			record.ID,
+			record.TenantID,
+			record.WorkspaceID,
+			record.Repository,
+			record.Status,
+			record.StartedAt,
+			record.SourceHealth,
+			record.ScanMode,
+			record.BaseRevision,
+			record.HeadRevision,
+			record.CursorBefore,
+			record.CursorAfter,
+			string(changedPathsJSON),
+			record.HistoryLimit,
+			record.MaxFindings,
+			record.Source.Provider,
+			record.Source.ProjectID,
+			record.Source.ConnectorID,
+			record.Source.InstallationID,
+		); txErr != nil {
+			return RepoScanRecord{}, fmt.Errorf("insert source-bound repo scan: %w", txErr)
+		}
+		if txErr := tx.Commit(); txErr != nil {
+			return RepoScanRecord{}, fmt.Errorf("commit source-bound repo scan transaction: %w", txErr)
+		}
+		return record, nil
+	}
 	_, err = p.execContext(
 		ctx,
 		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, source_health, source_health_details, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
@@ -3561,19 +3653,18 @@ func (p *PostgresStore) UpsertRepoScanCursor(ctx context.Context, cursor RepoSca
 	if normalized.LastScanCompletedAt.IsZero() {
 		normalized.LastScanCompletedAt = normalized.UpdatedAt
 	}
-	_, err = p.execContext(
-		ctx,
-		`INSERT INTO repo_scan_cursors (tenant_id, workspace_id, repository, source_provider, source_project_id, source_connector_id, source_installation_id, last_scanned_revision, last_deep_scanned_at, last_scan_id, last_scan_mode, last_scan_completed_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10::uuid, $11, $12, $13)
-		 ON CONFLICT (tenant_id, workspace_id, (lower(repository)), source_provider, source_project_id, source_connector_id, source_installation_id)
-		 DO UPDATE SET
+	query := `INSERT INTO repo_scan_cursors (tenant_id, workspace_id, repository, source_provider, source_project_id, source_connector_id, source_installation_id, last_scanned_revision, last_deep_scanned_at, last_scan_id, last_scan_mode, last_scan_completed_at, updated_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10::uuid, $11, $12, $13)
+			 ON CONFLICT (tenant_id, workspace_id, (lower(repository)), source_provider, source_project_id, source_connector_id, source_installation_id)
+			 DO UPDATE SET
 		    repository = EXCLUDED.repository,
 		    last_scanned_revision = EXCLUDED.last_scanned_revision,
 		    last_deep_scanned_at = COALESCE(EXCLUDED.last_deep_scanned_at, repo_scan_cursors.last_deep_scanned_at),
 		    last_scan_id = EXCLUDED.last_scan_id,
 		    last_scan_mode = EXCLUDED.last_scan_mode,
 		    last_scan_completed_at = EXCLUDED.last_scan_completed_at,
-		    updated_at = EXCLUDED.updated_at`,
+		    updated_at = EXCLUDED.updated_at`
+	args := []any{
 		normalizedScope.TenantID,
 		normalizedScope.WorkspaceID,
 		normalized.Repository,
@@ -3587,7 +3678,23 @@ func (p *PostgresStore) UpsertRepoScanCursor(ctx context.Context, cursor RepoSca
 		normalized.LastScanMode,
 		normalized.LastScanCompletedAt.UTC(),
 		normalized.UpdatedAt.UTC(),
-	)
+	}
+	if normalized.Source.ProjectID != "" {
+		tx, txErr := p.beginTx(ctx)
+		if txErr != nil {
+			return fmt.Errorf("begin source-bound repo scan cursor transaction: %w", txErr)
+		}
+		defer tx.Rollback()
+		if txErr := lockProjectForSourceTx(ctx, tx, normalizedScope, normalized.Source.ProjectID); txErr != nil {
+			return txErr
+		}
+		_, err = tx.ExecContext(ctx, query, args...)
+		if err == nil {
+			err = tx.Commit()
+		}
+	} else {
+		_, err = p.execContext(ctx, query, args...)
+	}
 	if err != nil {
 		return fmt.Errorf("upsert repo scan cursor: %w", err)
 	}
@@ -5111,6 +5218,34 @@ func (p *PostgresStore) createScanWithStatusAndSource(ctx context.Context, provi
 		Status:        strings.TrimSpace(status),
 		StartedAt:     startedAt.UTC(),
 		MaxRetryCount: DefaultScanMaxRetryCount,
+	}
+	if normalizedSource.ProjectID != "" {
+		tx, txErr := p.beginTx(ctx)
+		if txErr != nil {
+			return ScanRecord{}, fmt.Errorf("begin source-bound scan transaction: %w", txErr)
+		}
+		defer tx.Rollback()
+		if txErr := lockProjectForSourceTx(ctx, tx, scope, normalizedSource.ProjectID); txErr != nil {
+			return ScanRecord{}, txErr
+		}
+		if _, txErr := tx.ExecContext(
+			ctx,
+			`INSERT INTO scans (id, tenant_id, workspace_id, source_project_id, source_connector_id, provider, status, started_at, asset_count, finding_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0)`,
+			record.ID,
+			record.TenantID,
+			record.WorkspaceID,
+			record.ProjectID,
+			record.ConnectorID,
+			record.Provider,
+			record.Status,
+			record.StartedAt,
+		); txErr != nil {
+			return ScanRecord{}, fmt.Errorf("insert source-bound scan: %w", txErr)
+		}
+		if txErr := tx.Commit(); txErr != nil {
+			return ScanRecord{}, fmt.Errorf("commit source-bound scan transaction: %w", txErr)
+		}
+		return record, nil
 	}
 	_, err = p.execContext(
 		ctx,

@@ -1924,6 +1924,32 @@ func findingScopeKey(scope Scope, findingID string) string {
 	return normalized.TenantID + "|" + normalized.WorkspaceID + "|" + strings.TrimSpace(findingID)
 }
 
+func (m *MemoryStore) findingExistsInScopeLocked(scope Scope, workspaceID string, findingID string) bool {
+	findingID = strings.TrimSpace(findingID)
+	if findingID == "" {
+		return false
+	}
+	for _, finding := range m.findings {
+		if strings.TrimSpace(finding.ID) != findingID {
+			continue
+		}
+		scan, exists := m.scans[finding.ScanID]
+		if exists && scan.TenantID == scope.TenantID && scan.WorkspaceID == workspaceID {
+			return true
+		}
+	}
+	for _, finding := range m.repoFindings {
+		if strings.TrimSpace(finding.ID) != findingID {
+			continue
+		}
+		repoScan, exists := m.repoScans[finding.ScanID]
+		if exists && repoScan.TenantID == scope.TenantID && repoScan.WorkspaceID == workspaceID {
+			return true
+		}
+	}
+	return false
+}
+
 func authzEntityScopeKey(scope Scope, entityKind string, entityType string, entityID string) string {
 	normalized := scope.Normalize()
 	return normalized.TenantID + "|" + normalized.WorkspaceID + "|" + strings.ToLower(strings.TrimSpace(entityKind)) + "|" + strings.ToLower(strings.TrimSpace(entityType)) + "|" + strings.TrimSpace(entityID)
