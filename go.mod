@@ -5,40 +5,40 @@ go 1.26.8
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/aws/aws-sdk-go-v2 v1.47.0
-	github.com/aws/aws-sdk-go-v2/config v1.33.4
-	github.com/aws/aws-sdk-go-v2/credentials v1.20.4
-	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.56.0
+	github.com/aws/aws-sdk-go-v2/config v1.33.5
+	github.com/aws/aws-sdk-go-v2/credentials v1.20.5
+	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.57.0
 	github.com/aws/aws-sdk-go-v2/service/apprunner v1.48.0
-	github.com/aws/aws-sdk-go-v2/service/batch v1.75.0
-	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.66.0
+	github.com/aws/aws-sdk-go-v2/service/batch v1.77.0
+	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.68.0
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.81.0
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.0
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.78.0
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.55.0
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.68.0
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.332.0
-	github.com/aws/aws-sdk-go-v2/service/ecr v1.65.0
-	github.com/aws/aws-sdk-go-v2/service/ecs v1.97.0
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.69.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.334.0
+	github.com/aws/aws-sdk-go-v2/service/ecr v1.66.0
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.99.0
 	github.com/aws/aws-sdk-go-v2/service/eks v1.99.0
 	github.com/aws/aws-sdk-go-v2/service/emr v1.70.0
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.54.0
-	github.com/aws/aws-sdk-go-v2/service/glue v1.158.0
+	github.com/aws/aws-sdk-go-v2/service/glue v1.159.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.64.0
-	github.com/aws/aws-sdk-go-v2/service/kms v1.60.0
+	github.com/aws/aws-sdk-go-v2/service/kms v1.61.0
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.108.0
 	github.com/aws/aws-sdk-go-v2/service/organizations v1.60.0
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.32.0
 	github.com/aws/aws-sdk-go-v2/service/rds v1.129.0
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.0
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.1
 	github.com/aws/aws-sdk-go-v2/service/s3control v1.79.0
 	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.277.0
 	github.com/aws/aws-sdk-go-v2/service/scheduler v1.25.0
-	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.49.0
-	github.com/aws/aws-sdk-go-v2/service/sfn v1.50.0
-	github.com/aws/aws-sdk-go-v2/service/sns v1.47.0
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.0
+	github.com/aws/aws-sdk-go-v2/service/sfn v1.51.0
+	github.com/aws/aws-sdk-go-v2/service/sns v1.47.1
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.0
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.78.0
-	github.com/aws/aws-sdk-go-v2/service/sts v1.50.0
+	github.com/aws/aws-sdk-go-v2/service/sts v1.51.0
 	github.com/aws/smithy-go v1.28.1
 	github.com/beevik/etree v1.8.0
 	github.com/coreos/go-oidc/v3 v3.21.0
@@ -46,7 +46,7 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
-	github.com/hashicorp/hcl/v2 v2.24.0
+	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/russellhaering/goxmldsig v1.6.1
