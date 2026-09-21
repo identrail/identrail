@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -732,6 +733,16 @@ func TestCurrentUserContextLoadsUserAndHandlesMissingScopeObjects(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("upsert removed member: %v", err)
 	}
+	removedSessionHashValue := sha256.Sum256([]byte("removed-context-session"))
+	removedSessionHash := removedSessionHashValue[:]
+	if _, err := store.CreateSession(context.Background(), db.Session{
+		ID: removedSessionHash, UserID: user.ID, CurrentOrgID: "tenant-a",
+		CurrentWorkspaceID: "workspace-a", CurrentProjectID: "project-a",
+		AuthMethod: "manual", IdleExpiresAt: now.Add(time.Hour),
+		AbsoluteExpiresAt: now.Add(24 * time.Hour), LastSeenAt: now, CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("create removed-member session: %v", err)
+	}
 	removedMemberContext, err := svc.GetCurrentUserContext(context.Background(), sessionauth.CurrentSession{
 		Session: db.Session{
 			UserID:             user.ID,
@@ -739,13 +750,21 @@ func TestCurrentUserContextLoadsUserAndHandlesMissingScopeObjects(t *testing.T) 
 			CurrentOrgID:       "tenant-a",
 			CurrentWorkspaceID: "workspace-a",
 		},
+		IDHash: removedSessionHash,
 	})
 	if err != nil {
 		t.Fatalf("get removed-member context: %v", err)
 	}
 	if removedMemberContext.OrgID != "" || removedMemberContext.WorkspaceID != "" || removedMemberContext.ProjectID != "" ||
 		removedMemberContext.Organization != nil || removedMemberContext.Workspace != nil || removedMemberContext.Project != nil || removedMemberContext.Role != "" {
-		t.Fatalf("expected removed member role to be omitted, got %+v", removedMemberContext)
+		t.Fatalf("expected removed member scope to be cleared, got %+v", removedMemberContext)
+		clearedSession, err := store.TouchSession(context.Background(), removedSessionHash, now)
+		if err != nil {
+			t.Fatalf("load cleared session: %v", err)
+		}
+		if clearedSession.CurrentOrgID != "" || clearedSession.CurrentWorkspaceID != "" || clearedSession.CurrentProjectID != "" {
+			t.Fatalf("expected persisted session scope to be cleared, got %+v", clearedSession)
+		}
 	}
 
 	if _, err := (*Service)(nil).GetCurrentUserContext(context.Background(), sessionauth.CurrentSession{}); err == nil {

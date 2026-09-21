@@ -1525,7 +1525,7 @@ func workspaceMemberCallerSubject(c *gin.Context) string {
 	if authContextString(c, "auth.api_key") != "" {
 		return workspaceMemberAPIKeyCaller
 	}
-	return ""
+	return workspaceMemberUnauthenticatedCaller
 }
 
 func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, featureConnectorAWS bool, featureConnectorGitHubV2 bool) {

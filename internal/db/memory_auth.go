@@ -300,16 +300,17 @@ func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now tim
 	}
 	// A hard-deleted account must not remain as an active-looking workspace
 	// member. The membership map is not backed by a foreign-key cascade in the
-	// memory store, so remove both UUID-bound rows and legacy rows that used the
-	// local user id directly. This also prevents the purged email/role from
-	// surviving in member-management responses after the account is gone.
+	// memory store, so remove UUID-bound rows and legacy rows whose provider
+	// subject was unambiguously mapped to this account. A bare user_id equal to
+	// the local UUID is not authoritative: user_id is a provider subject and
+	// can collide across providers.
 	for key, member := range m.members {
 		_, ambiguousLocalID := ambiguousSubjects[member.UserID]
 		_, targetSubjectMatch := targetSubjects[member.UserID]
 		if ambiguousLocalID {
 			targetSubjectMatch = false
 		}
-		if member.UserUUID == id || (member.UserID == id && !ambiguousLocalID) || targetSubjectMatch {
+		if member.UserUUID == id || targetSubjectMatch {
 			delete(m.members, key)
 		}
 	}
@@ -368,6 +369,39 @@ func (m *MemoryStore) GetUserIdentity(ctx context.Context, provider string, subj
 		return UserIdentity{}, ErrNotFound
 	}
 	return identity, nil
+}
+
+// GetUserIdentityBySubject resolves one subject across providers. Subjects are
+// not globally unique: returning ErrConflict when two local accounts claim the
+// same subject keeps authorization and deletion fail-closed.
+func (m *MemoryStore) GetUserIdentityBySubject(ctx context.Context, subject string) (UserIdentity, error) {
+	normalizedSubject := strings.TrimSpace(subject)
+	if normalizedSubject == "" {
+		return UserIdentity{}, ErrNotFound
+	}
+	m.mu.RLock()
+	items := make([]UserIdentity, 0)
+	for _, identity := range m.userIdentityByID {
+		if strings.TrimSpace(identity.Subject) == normalizedSubject {
+			items = append(items, identity)
+		}
+	}
+	m.mu.RUnlock()
+	if len(items) == 0 {
+		return UserIdentity{}, ErrNotFound
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].UserID != items[j].UserID {
+			return items[i].UserID < items[j].UserID
+		}
+		return items[i].ID < items[j].ID
+	})
+	for _, identity := range items[1:] {
+		if identity.UserID != items[0].UserID {
+			return UserIdentity{}, ErrConflict
+		}
+	}
+	return items[0], nil
 }
 
 // GetUserIdentityByProviderUserID returns one provider identity for a user.

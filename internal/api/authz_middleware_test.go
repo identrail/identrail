@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -422,6 +423,11 @@ func TestPolicyRolesFromAuthUsesScopedMembershipOverStaleClaims(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: user.ID, Provider: "workos", Subject: "subject-a",
+	}); err != nil {
+		t.Fatalf("seed user identity: %v", err)
+	}
 	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
 		WorkspaceID: "workspace-a",
 		MemberID:    "member-a",
@@ -501,6 +507,85 @@ func TestPolicyRolesFromAuthRejectsInactiveLinkedMembershipsByUUIDAndSubject(t *
 		if len(roles) != 1 || roles[0] != "authenticated" {
 			t.Fatalf("expected inactive linked membership to fail closed for subject %q, got %v", subject, roles)
 		}
+	}
+	active, err := store.UpsertUser(context.Background(), db.User{
+		ID: "44444444-4444-4444-4444-444444444444", PrimaryEmail: "active@example.com",
+	})
+	if err != nil {
+		t.Fatalf("seed active user: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "active-member", UserID: "active-subject",
+		UserUUID: active.ID, Role: "viewer", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed active membership: %v", err)
+	}
+	c.Set("auth.subject", active.ID)
+	c.Set("auth.roles", []string{"owner"})
+	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 2 || roles[0] != "authenticated" || roles[1] != "viewer" {
+		t.Fatalf("expected UUID subject to resolve active linked membership, got %v", roles)
+	}
+}
+
+type membershipLookupErrorStore struct {
+	db.Store
+}
+
+func (membershipLookupErrorStore) GetWorkspaceMemberByUserUUID(context.Context, string, string) (db.TenancyWorkspaceMember, error) {
+	return db.TenancyWorkspaceMember{}, errors.New("membership lookup failed")
+}
+
+func (membershipLookupErrorStore) GetWorkspaceMemberByUserID(context.Context, string, string) (db.TenancyWorkspaceMember, error) {
+	return db.TenancyWorkspaceMember{}, errors.New("membership lookup failed")
+}
+
+func TestPolicyRolesFromAuthFailsClosedOnMembershipLookupError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil).WithContext(policyTestScopeContext())
+	c.Set("auth.subject", "11111111-1111-1111-1111-111111111111")
+	c.Set("auth.roles", []string{"owner"})
+	roles := policyRolesFromAuthWithStore(c, nil, nil, membershipLookupErrorStore{Store: db.NewMemoryStore()})
+	if len(roles) != 1 || roles[0] != "authenticated" {
+		t.Fatalf("expected membership lookup error to fail closed, got %v", roles)
+	}
+}
+
+func TestPolicyRolesFromAuthDoesNotTreatUUIDSubjectAsProviderSubject(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	localID := "11111111-1111-1111-1111-111111111111"
+	other, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "other-uuid-subject@example.com"})
+	if err != nil {
+		t.Fatalf("seed other user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: other.ID, Provider: "provider-b", Subject: localID,
+	}); err != nil {
+		t.Fatalf("seed colliding provider identity: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "other-member", UserID: localID,
+		UserUUID: other.ID, Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed other membership: %v", err)
+	}
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil).WithContext(scopedCtx)
+	c.Set("auth.subject", localID)
+	c.Set("auth.roles", []string{"owner"})
+	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 1 || roles[0] != "authenticated" {
+		t.Fatalf("expected UUID-shaped subject not to resolve another account, got %v", roles)
 	}
 }
 

@@ -3726,6 +3726,11 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: userUUID, Provider: "workos", Subject: "user-1",
+	}); err != nil {
+		t.Fatalf("seed user identity: %v", err)
+	}
 	if err := store.UpsertWorkspaceMember(workspaceACtx, db.TenancyWorkspaceMember{
 		TenantID:    "tenant-a",
 		WorkspaceID: "workspace-a",
@@ -3818,6 +3823,11 @@ func TestServiceResolveWhoAmIContextPropagatesUserLookupErrors(t *testing.T) {
 	user, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "member@example.com", Status: "active"})
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: user.ID, Provider: "workos", Subject: "subject-a",
+	}); err != nil {
+		t.Fatalf("seed user identity: %v", err)
 	}
 	if err := store.UpsertWorkspaceMember(scopeCtx, db.TenancyWorkspaceMember{
 		WorkspaceID: "workspace-a",

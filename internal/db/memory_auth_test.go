@@ -715,6 +715,7 @@ func TestMemoryHardDeleteUserPreservesAmbiguousLegacySubjectMembership(t *testin
 	for _, member := range []TenancyWorkspaceMember{
 		{WorkspaceID: "workspace-a", MemberID: "target-member", UserUUID: target.ID, UserID: target.ID, Role: "viewer", Status: "active"},
 		{WorkspaceID: "workspace-a", MemberID: "other-legacy-member", UserID: "shared-subject", Role: "viewer", Status: "active"},
+		{WorkspaceID: "workspace-a", MemberID: "uuid-looking-orphan", UserID: target.ID, Role: "viewer", Status: "active"},
 	} {
 		if err := store.UpsertWorkspaceMember(scopeCtx, member); err != nil {
 			t.Fatalf("seed workspace membership: %v", err)
@@ -729,8 +730,19 @@ func TestMemoryHardDeleteUserPreservesAmbiguousLegacySubjectMembership(t *testin
 	if _, err := store.GetWorkspaceMember(scopeCtx, "workspace-a", "target-member"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected target membership removed, got %v", err)
 	}
+	store.mu.RLock()
+	for _, member := range store.members {
+		if member.UserUUID == target.ID {
+			store.mu.RUnlock()
+			t.Fatalf("expected hard delete to remove target UUID membership, found %+v", member)
+		}
+	}
+	store.mu.RUnlock()
 	if _, err := store.GetWorkspaceMember(scopeCtx, "workspace-a", "other-legacy-member"); err != nil {
 		t.Fatalf("expected ambiguous legacy membership preserved, got %v", err)
+	}
+	if _, err := store.GetWorkspaceMember(scopeCtx, "workspace-a", "uuid-looking-orphan"); err != nil {
+		t.Fatalf("expected unverified UUID-looking subject membership preserved, got %v", err)
 	}
 }
 

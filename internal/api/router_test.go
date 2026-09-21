@@ -4458,6 +4458,14 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed user-2: %v", err)
 	}
+	for _, identity := range []db.UserIdentity{
+		{UserID: userOne.ID, Provider: "workos", Subject: "user-1"},
+		{UserID: userTwo.ID, Provider: "workos", Subject: "user-2"},
+	} {
+		if _, err := store.UpsertUserIdentity(context.Background(), identity); err != nil {
+			t.Fatalf("seed user identity: %v", err)
+		}
+	}
 
 	workspaceACtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	if err := store.UpsertWorkspaceMember(workspaceACtx, db.TenancyWorkspaceMember{
@@ -4914,6 +4922,40 @@ func TestRouterTenancyErrorPaths(t *testing.T) {
 	projectBadArchived := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"p-bad","name":"Bad","slug":"bad","archived_at":"not-a-date"}`)
 	if projectBadArchived.Code != http.StatusBadRequest {
 		t.Fatalf("expected project with bad archived_at 400, got %d body=%s", projectBadArchived.Code, projectBadArchived.Body.String())
+	}
+}
+
+func TestRouterWorkspaceMemberValidationRunsForAuthenticatedOwner(t *testing.T) {
+	store := db.NewMemoryStore()
+	scopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopeCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopeCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	owner, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "owner-validation@example.com"})
+	if err != nil {
+		t.Fatalf("upsert owner: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopeCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "member-owner-validation", UserID: "owner-subject",
+		UserUUID: owner.ID, Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("upsert owner membership: %v", err)
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), NewService(store, routerScanner{}, "aws"), RouterOptions{
+		OIDCTokenVerifier: fakeTokenVerifier{tokens: map[string]VerifiedToken{
+			"owner-token": {Subject: owner.ID, TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		}},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", strings.NewReader(`{"member_id":"","user_id":"","role":"","status":""}`))
+	req.Header.Set("Authorization", "Bearer owner-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected authenticated owner to reach member validation (400), got %d body=%s", resp.Code, resp.Body.String())
 	}
 }
 

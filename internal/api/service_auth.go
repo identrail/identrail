@@ -906,6 +906,24 @@ func (s *Service) GetCurrentUserContext(ctx context.Context, current sessionauth
 	if result.OrgID == "" || result.WorkspaceID == "" {
 		return result, nil
 	}
+	clearStaleScope := func() error {
+		// Unit callers may provide a session snapshot without its lookup hash;
+		// a real authenticated request always has the hash and must persist the
+		// reset so onboarding cannot trust the stale scope on the next request.
+		if len(current.IDHash) == 0 {
+			return nil
+		}
+		_, err := s.Store.UpdateSessionContext(
+			ctx,
+			current.Session.UserID,
+			current.IDHash,
+			"",
+			"",
+			"",
+			s.now(),
+		)
+		return err
+	}
 	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: result.OrgID, WorkspaceID: result.WorkspaceID})
 	if member, err := s.Store.GetWorkspaceMemberByUserUUID(scopedCtx, result.WorkspaceID, result.User.ID); err == nil {
 		active, activeErr := s.workspaceMemberIsActive(scopedCtx, member)
@@ -913,6 +931,9 @@ func (s *Service) GetCurrentUserContext(ctx context.Context, current sessionauth
 			return CurrentUserContext{}, activeErr
 		}
 		if !active {
+			if clearErr := clearStaleScope(); clearErr != nil {
+				return CurrentUserContext{}, clearErr
+			}
 			result.OrgID = ""
 			result.WorkspaceID = ""
 			result.ProjectID = ""
@@ -922,6 +943,9 @@ func (s *Service) GetCurrentUserContext(ctx context.Context, current sessionauth
 	} else if !errors.Is(err, db.ErrNotFound) {
 		return CurrentUserContext{}, err
 	} else {
+		if clearErr := clearStaleScope(); clearErr != nil {
+			return CurrentUserContext{}, clearErr
+		}
 		result.OrgID = ""
 		result.WorkspaceID = ""
 		result.ProjectID = ""

@@ -380,17 +380,8 @@ func (p *PostgresStore) HardDeleteUser(ctx context.Context, userID string, now t
 	// access after permanent purge. Legacy rows store the provider subject in
 	// user_id, so the identity mapping must be read before it is deleted.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM tenancy_workspace_members
-		 WHERE user_uuid = NULLIF($1, '')::uuid
-		    OR (
-			 user_id = $1
-			 AND NOT EXISTS (
-				 SELECT 1
-				 FROM user_identities other_identity
-				 WHERE other_identity.subject = tenancy_workspace_members.user_id
-				   AND other_identity.user_id <> NULLIF($1, '')::uuid
-			 )
-		    )
-		    OR user_id IN (
+			 WHERE user_uuid = NULLIF($1, '')::uuid
+			    OR user_id IN (
 			 SELECT identity.subject
 			 FROM user_identities identity
 			 WHERE identity.user_id = NULLIF($1, '')::uuid
@@ -400,7 +391,7 @@ func (p *PostgresStore) HardDeleteUser(ctx context.Context, userID string, now t
 				 WHERE other_identity.subject = identity.subject
 				   AND other_identity.user_id <> NULLIF($1, '')::uuid
 			   )
-		    )`, id); err != nil {
+			 )`, id); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM user_identities WHERE user_id = NULLIF($1, '')::uuid`, id); err != nil {
@@ -513,6 +504,57 @@ func (p *PostgresStore) GetUserIdentity(ctx context.Context, provider string, su
 		return UserIdentity{}, err
 	}
 	return identity, nil
+}
+
+// GetUserIdentityBySubject resolves one subject across providers. A subject
+// collision between local accounts is ambiguous and must not be used for
+// authorization or destructive cleanup.
+func (p *PostgresStore) GetUserIdentityBySubject(ctx context.Context, subject string) (UserIdentity, error) {
+	rows, err := p.queryContextAnyScope(
+		ctx,
+		`SELECT id::text, user_id::text, provider, subject, COALESCE(email::text, ''), email_verified, raw_claims, last_authenticated_at, created_at
+		 FROM user_identities
+		 WHERE subject = $1
+		 ORDER BY user_id::text, provider, id::text`,
+		strings.TrimSpace(subject),
+	)
+	if err != nil {
+		return UserIdentity{}, err
+	}
+	defer rows.Close()
+	var match UserIdentity
+	found := false
+	for rows.Next() {
+		var identity UserIdentity
+		if err := rows.Scan(
+			&identity.ID,
+			&identity.UserID,
+			&identity.Provider,
+			&identity.Subject,
+			&identity.Email,
+			&identity.EmailVerified,
+			&identity.RawClaims,
+			&identity.LastAuthenticatedAt,
+			&identity.CreatedAt,
+		); err != nil {
+			return UserIdentity{}, err
+		}
+		if !found {
+			match = identity
+			found = true
+			continue
+		}
+		if identity.UserID != match.UserID {
+			return UserIdentity{}, ErrConflict
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return UserIdentity{}, err
+	}
+	if !found {
+		return UserIdentity{}, ErrNotFound
+	}
+	return match, nil
 }
 
 // GetUserIdentityByProviderUserID returns one provider identity for a user.

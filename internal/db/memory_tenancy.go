@@ -426,7 +426,8 @@ func (m *MemoryStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, wo
 			continue
 		}
 		if member.UserUUID != "" {
-			if user, ok := m.users[member.UserUUID]; ok && user.Status != "active" {
+			user, ok := m.users[member.UserUUID]
+			if !ok || user.Status != "active" {
 				continue
 			}
 		}
@@ -437,7 +438,10 @@ func (m *MemoryStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, wo
 			continue
 		}
 		if member.Role == "owner" {
-			if owner, ok := m.users[member.UserUUID]; ok && owner.Status != "active" {
+			if member.UserUUID == "" {
+				continue
+			}
+			if owner, ok := m.users[member.UserUUID]; !ok || owner.Status != "active" {
 				continue
 			}
 			otherLiveOwners++
@@ -892,9 +896,9 @@ func (m *MemoryStore) GetWorkspaceMemberByUserID(ctx context.Context, workspaceI
 			member.WorkspaceID == resolvedWorkspaceID &&
 			member.UserID == normalizedUserID {
 			if member.UserUUID != "" {
-				if user, ok := m.users[member.UserUUID]; ok && user.Status != "active" {
-					return TenancyWorkspaceMember{}, ErrNotFound
-				}
+				// A provider-subject lookup is only a legacy path. Never let it
+				// override the authoritative UUID binding for another account.
+				continue
 			}
 			return member, nil
 		}

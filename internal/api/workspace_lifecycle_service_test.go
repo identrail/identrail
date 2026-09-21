@@ -215,6 +215,71 @@ func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) 
 	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, suspendedOwner.ID); !errors.Is(err, ErrWorkspaceAdminRequired) {
 		t.Fatalf("expected suspended owner member write to be denied, got %v", err)
 	}
+
+	deactivatedOwner, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "deactivated-owner@example.com", DisplayName: "Deactivated Owner",
+	})
+	if err != nil {
+		t.Fatalf("upsert deactivated owner: %v", err)
+	}
+	if _, err := store.SetUserStatus(context.Background(), deactivatedOwner.ID, "deactivated", svc.Now()); err != nil {
+		t.Fatalf("deactivate owner: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "member-deactivated-owner",
+		UserID: "subj-deactivated-owner", UserUUID: deactivatedOwner.ID,
+		Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed deactivated owner membership: %v", err)
+	}
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, deactivatedOwner.ID); !errors.Is(err, ErrWorkspaceAdminRequired) {
+		t.Fatalf("expected deactivated owner write to be denied, got %v", err)
+	}
+
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "member-orphan-owner",
+		UserID: "subj-orphan-owner", UserUUID: "00000000-0000-0000-0000-000000000099",
+		Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed orphan owner membership: %v", err)
+	}
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, "00000000-0000-0000-0000-000000000099"); !errors.Is(err, ErrWorkspaceAdminRequired) {
+		t.Fatalf("expected orphan owner write to be denied, got %v", err)
+	}
+}
+
+func TestServiceWorkspaceMemberWriteLinksProviderSubject(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	store := svc.Store.(*db.MemoryStore)
+	target, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "linked@example.com"})
+	if err != nil {
+		t.Fatalf("upsert target: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: target.ID, Provider: "workos", Subject: "linked-subject",
+	}); err != nil {
+		t.Fatalf("upsert target identity: %v", err)
+	}
+	member, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: "member-linked", UserID: "linked-subject", Email: target.PrimaryEmail,
+		Role: "viewer", Status: "active",
+	}, ownerUUID)
+	if err != nil {
+		t.Fatalf("upsert linked member: %v", err)
+	}
+	if member.UserUUID != target.ID {
+		t.Fatalf("expected provider subject to link local user UUID, got %+v", member)
+	}
+	member, err = svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: "member-linked", UserID: "linked-subject", Email: target.PrimaryEmail,
+		Role: "admin", Status: "active",
+	}, ownerUUID)
+	if err != nil {
+		t.Fatalf("update linked member: %v", err)
+	}
+	if member.UserUUID != target.ID || member.Role != "admin" {
+		t.Fatalf("expected update to preserve linked UUID, got %+v", member)
+	}
 }
 
 func TestServiceRequireWorkspaceOwnerRefusesInactiveOwner(t *testing.T) {

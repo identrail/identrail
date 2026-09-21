@@ -1046,13 +1046,26 @@ func trustedWorkspaceMembership(c *gin.Context, store db.Store) (db.TenancyWorks
 		if !errors.Is(err, db.ErrNotFound) {
 			return db.TenancyWorkspaceMember{}, false, err
 		}
+		// UUID-shaped subjects are local account IDs, not a legacy provider
+		// subject. Never fall through to another account's identity mapping.
+		return db.TenancyWorkspaceMember{}, false, nil
 	}
-	member, err := store.GetWorkspaceMemberByUserID(scopedCtx, scope.WorkspaceID, subject)
+	identity, err := store.GetUserIdentityBySubject(scopedCtx, subject)
 	if err == nil {
+		member, memberErr := store.GetWorkspaceMemberByUserUUID(scopedCtx, scope.WorkspaceID, identity.UserID)
+		if errors.Is(memberErr, db.ErrNotFound) {
+			return db.TenancyWorkspaceMember{}, false, nil
+		}
+		if memberErr != nil {
+			return db.TenancyWorkspaceMember{}, false, memberErr
+		}
 		if !trustedMembershipAccountIsActive(scopedCtx, store, member) {
 			member.Status = "suspended"
 		}
 		return member, true, nil
+	}
+	if errors.Is(err, db.ErrConflict) {
+		return db.TenancyWorkspaceMember{}, false, nil
 	}
 	if !errors.Is(err, db.ErrNotFound) {
 		return db.TenancyWorkspaceMember{}, false, err
@@ -1061,20 +1074,8 @@ func trustedWorkspaceMembership(c *gin.Context, store db.Store) (db.TenancyWorks
 }
 
 func trustedMembershipAccountIsActive(ctx context.Context, store db.Store, member db.TenancyWorkspaceMember) bool {
-	if strings.ToLower(strings.TrimSpace(member.Status)) != "active" {
-		return false
-	}
-	if strings.TrimSpace(member.UserUUID) == "" {
-		// A legacy provider-subject row is not sufficient evidence of account
-		// ownership. Without the linked user row, a stale or orphaned subject
-		// must not grant the membership role.
-		return false
-	}
-	user, err := store.GetUser(ctx, member.UserUUID)
-	if err != nil {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(user.Status), "active")
+	active, err := workspaceMemberAccountIsActive(ctx, store, member)
+	return err == nil && active
 }
 
 func hasWorkspaceScope(c *gin.Context) bool {

@@ -1674,6 +1674,11 @@ func setupWorkspaceLifecycleStore(t *testing.T) (*MemoryStore, context.Context, 
 		t.Fatalf("upsert workspace: %v", err)
 	}
 	ownerUUID := "11111111-1111-1111-1111-111111111111"
+	if _, err := store.UpsertUser(context.Background(), User{
+		ID: ownerUUID, PrimaryEmail: "owner@example.com", Status: "active",
+	}); err != nil {
+		t.Fatalf("upsert owner user: %v", err)
+	}
 	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
 		WorkspaceID: "ws-1", MemberID: "m-owner", UserID: "subj-owner", UserUUID: ownerUUID,
 		Role: "owner", Status: "active",
@@ -2729,6 +2734,34 @@ func TestMemoryStoreStrandedMembersExcludesDeletedCoOwner(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreStrandedMembersExcludesOrphanedLinkedCoOwner(t *testing.T) {
+	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
+	if _, err := store.UpsertUser(context.Background(), User{
+		ID: "44444444-4444-4444-4444-444444444444", PrimaryEmail: "analyst-orphan-test@example.com", Status: "active",
+	}); err != nil {
+		t.Fatalf("upsert analyst user: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "ws-1", MemberID: "m-analyst-orphan-test", UserID: "subj-analyst-orphan-test",
+		UserUUID: "44444444-4444-4444-4444-444444444444", Role: "analyst", Status: "active",
+	}); err != nil {
+		t.Fatalf("add analyst: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "ws-1", MemberID: "m-orphan-owner-test", UserID: "subj-orphan-owner-test",
+		UserUUID: "55555555-5555-5555-5555-555555555555", Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("add orphan owner: %v", err)
+	}
+	stranded, err := store.ListWorkspaceStrandedActiveMembers(ctx, "ws-1", ownerUUID)
+	if err != nil {
+		t.Fatalf("strand check: %v", err)
+	}
+	if len(stranded) != 1 || stranded[0].MemberID != "m-analyst-orphan-test" {
+		t.Fatalf("expected only linked active analyst to be stranded, got %+v", stranded)
+	}
+}
+
 func TestMemoryStoreListWorkspaceStrandedActiveMembers(t *testing.T) {
 	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
 	// No other members yet — stranding should be empty so suspend/delete can proceed.
@@ -2741,6 +2774,11 @@ func TestMemoryStoreListWorkspaceStrandedActiveMembers(t *testing.T) {
 	}
 
 	// Add an active analyst. Sole owner with another active member → guard fires.
+	if _, err := store.UpsertUser(context.Background(), User{
+		ID: "22222222-2222-2222-2222-222222222222", PrimaryEmail: "analyst@example.com", Status: "active",
+	}); err != nil {
+		t.Fatalf("upsert analyst user: %v", err)
+	}
 	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
 		WorkspaceID: "ws-1", MemberID: "m-analyst", UserID: "subj-analyst",
 		UserUUID: "22222222-2222-2222-2222-222222222222",
@@ -2757,6 +2795,11 @@ func TestMemoryStoreListWorkspaceStrandedActiveMembers(t *testing.T) {
 	}
 
 	// Add a co-owner. Guard no longer fires — ownership can transfer.
+	if _, err := store.UpsertUser(context.Background(), User{
+		ID: "33333333-3333-3333-3333-333333333333", PrimaryEmail: "coowner@example.com", Status: "active",
+	}); err != nil {
+		t.Fatalf("upsert co-owner user: %v", err)
+	}
 	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
 		WorkspaceID: "ws-1", MemberID: "m-coowner", UserID: "subj-coowner",
 		UserUUID: "33333333-3333-3333-3333-333333333333",
