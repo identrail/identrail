@@ -110,7 +110,8 @@ func TestPostgresIntegrationHardDeletePreservesAmbiguousLegacySubjects(t *testin
 		t.Fatalf("upsert other: %v", err)
 	}
 	for _, identity := range []db.UserIdentity{
-		{UserID: target.ID, Provider: "provider-a", Subject: "shared-hard-delete-subject"},
+		{UserID: target.ID, Provider: "provider-a", Subject: "target-hard-delete-subject"},
+		{UserID: target.ID, Provider: "provider-a-alt", Subject: "shared-hard-delete-subject"},
 		{UserID: other.ID, Provider: "provider-b", Subject: "shared-hard-delete-subject"},
 	} {
 		if _, err := store.UpsertUserIdentity(context.Background(), identity); err != nil {
@@ -118,7 +119,7 @@ func TestPostgresIntegrationHardDeletePreservesAmbiguousLegacySubjects(t *testin
 		}
 	}
 	for _, member := range []db.TenancyWorkspaceMember{
-		{WorkspaceID: workspaceID, MemberID: "target-member", UserID: "shared-hard-delete-subject", UserUUID: target.ID, Role: "viewer", Status: "active"},
+		{WorkspaceID: workspaceID, MemberID: "target-member", UserID: "target-hard-delete-subject", UserUUID: target.ID, Role: "viewer", Status: "active"},
 		{WorkspaceID: workspaceID, MemberID: "other-member", UserID: "shared-hard-delete-subject", Role: "viewer", Status: "active"},
 		{WorkspaceID: workspaceID, MemberID: "uuid-looking-orphan", UserID: target.ID, Role: "viewer", Status: "active"},
 	} {
