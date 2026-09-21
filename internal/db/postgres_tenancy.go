@@ -471,12 +471,10 @@ func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, 
 		       LEFT JOIN users other_u ON other_u.id = other.user_uuid
 		       WHERE other.tenant_id = m.tenant_id
 		         AND other.workspace_id = m.workspace_id
-		         AND other.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
-		         AND other.status = 'active'
-		         AND other.role = 'owner'
-			   AND other.user_uuid IS NOT NULL
-			   AND other_u.id IS NOT NULL
-			   AND other_u.status = 'active'
+			   AND other.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
+			   AND other.status = 'active'
+			   AND other.role = 'owner'
+			   AND (other.user_uuid IS NULL OR (other_u.id IS NOT NULL AND other_u.status = 'active'))
 		   )
 		 ORDER BY m.member_id ASC`,
 		scope.TenantID,

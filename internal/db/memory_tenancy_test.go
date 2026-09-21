@@ -2700,6 +2700,35 @@ func TestMemoryStoreStrandedMembersIncludesNullUserUUID(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreStrandedMembersCountsLegacyOwnerAsCoOwner(t *testing.T) {
+	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "ws-1", MemberID: "m-legacy-owner", UserID: "legacy-owner-subject",
+		Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("add legacy owner: %v", err)
+	}
+	if _, err := store.UpsertUser(context.Background(), User{
+		ID: "66666666-6666-6666-6666-666666666666", PrimaryEmail: "legacy-analyst@example.com", Status: "active",
+	}); err != nil {
+		t.Fatalf("upsert analyst: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "ws-1", MemberID: "m-analyst-with-legacy-owner", UserID: "analyst-with-legacy-owner",
+		UserUUID: "66666666-6666-6666-6666-666666666666", Role: "analyst", Status: "active",
+	}); err != nil {
+		t.Fatalf("add analyst: %v", err)
+	}
+
+	stranded, err := store.ListWorkspaceStrandedActiveMembers(ctx, "ws-1", ownerUUID)
+	if err != nil {
+		t.Fatalf("strand check: %v", err)
+	}
+	if len(stranded) != 0 {
+		t.Fatalf("expected active legacy owner to prevent sole-owner stranding, got %+v", stranded)
+	}
+}
+
 func TestMemoryStoreStrandedMembersExcludesDeletedCoOwner(t *testing.T) {
 	// Codex round-10 cross-store parity pin: a co-owner whose user
 	// account is soft-deleted is not a valid ownership-transfer target

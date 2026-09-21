@@ -2181,6 +2181,43 @@ func TestPostgresStoreListWorkspaceStrandedActiveMembersPinsInactiveOwnerExclusi
 	}
 }
 
+func TestPostgresStoreListWorkspaceStrandedActiveMembersCountsLegacyOwner(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := workspaceLifecycleScope()
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+
+	wsRows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "active", nil, nil, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
+		 FROM tenancy_workspaces
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnRows(wsRows)
+
+	emptyMembers := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"})
+	mock.ExpectQuery(regexp.QuoteMeta(`(other.user_uuid IS NULL OR (other_u.id IS NOT NULL AND other_u.status = 'active'))`)).
+		WithArgs("tenant-a", "workspace-a", "11111111-1111-1111-1111-111111111111").
+		WillReturnRows(emptyMembers)
+
+	stranded, err := store.ListWorkspaceStrandedActiveMembers(ctx, "workspace-a", "11111111-1111-1111-1111-111111111111")
+	if err != nil {
+		t.Fatalf("strand: %v", err)
+	}
+	if len(stranded) != 0 {
+		t.Fatalf("expected legacy owner to prevent sole-owner stranding, got %+v", stranded)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreListWorkspaceStrandedActiveMembersEmptyUUID(t *testing.T) {
 	// Empty caller UUID short-circuits before any SQL is run. Pins the
 	// memory + postgres parity: both stores treat an empty UUID as

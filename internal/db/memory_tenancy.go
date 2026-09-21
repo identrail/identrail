@@ -438,10 +438,16 @@ func (m *MemoryStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, wo
 			continue
 		}
 		if member.Role == "owner" {
-			if member.UserUUID == "" {
-				continue
+			if member.UserUUID != "" {
+				if owner, ok := m.users[member.UserUUID]; !ok || owner.Status != "active" {
+					continue
+				}
 			}
-			if owner, ok := m.users[member.UserUUID]; !ok || owner.Status != "active" {
+			// A legacy owner without user_uuid remains an active co-owner until
+			// the identity backfill resolves it. Failing closed here prevents a
+			// caller from being treated as the sole owner merely because the
+			// migration has not completed.
+			if member.UserUUID != "" && member.UserUUID == normalizedUserUUID {
 				continue
 			}
 			otherLiveOwners++

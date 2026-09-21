@@ -3941,7 +3941,7 @@ func (s *Service) ResolveWhoAmIContext(ctx context.Context, subject string) (Who
 		// an active membership. Returning every tenant workspace (or a removed
 		// membership row) made the switcher present access the caller could not
 		// actually use and made member/admin boundaries look inconsistent.
-		if normalizedSubject != "" && !memberFound {
+		if normalizedSubject != "" && (!memberFound || strings.ToLower(strings.TrimSpace(member.Status)) != "active") {
 			continue
 		}
 		workspaceContext := WorkspaceContext{
@@ -5199,7 +5199,13 @@ func lookupWorkspaceMemberForIdentity(
 		if active {
 			return member, true, nil
 		}
-		return db.TenancyWorkspaceMember{}, false, nil
+		// Keep a known membership visible to policy resolution even when its
+		// membership or linked account is inactive. The policy layer must see
+		// found=true so it strips bearer scopes instead of treating this as an
+		// unknown subject. Callers that require active access still reject the
+		// returned row by status.
+		member.Status = "suspended"
+		return member, true, nil
 	}
 	if !errors.Is(err, db.ErrNotFound) {
 		return db.TenancyWorkspaceMember{}, false, err
@@ -5219,13 +5225,16 @@ func lookupWorkspaceMemberForIdentity(
 	}
 	user, userErr := store.GetUser(ctx, userUUID)
 	if errors.Is(userErr, db.ErrNotFound) {
-		return db.TenancyWorkspaceMember{}, false, nil
+		legacy.Status = "suspended"
+		return legacy, true, nil
 	}
 	if userErr != nil {
 		return db.TenancyWorkspaceMember{}, false, userErr
 	}
 	if !strings.EqualFold(strings.TrimSpace(user.Status), "active") || strings.ToLower(strings.TrimSpace(legacy.Status)) != "active" {
-		return db.TenancyWorkspaceMember{}, false, nil
+		legacy.UserUUID = user.ID
+		legacy.Status = "suspended"
+		return legacy, true, nil
 	}
 	legacy.UserUUID = user.ID
 	return legacy, true, nil
