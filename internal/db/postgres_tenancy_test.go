@@ -2165,7 +2165,7 @@ func TestPostgresStoreListWorkspaceStrandedActiveMembersPinsInactiveOwnerExclusi
 	// substring; if the predicate goes missing, the regex does not
 	// match and the call errors here.
 	emptyMembers := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"})
-	mock.ExpectQuery(regexp.QuoteMeta(`(m.user_uuid IS NULL OR (mu.id IS NOT NULL AND mu.status = 'active'))`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`((m.role <> 'owner' AND m.user_uuid IS NULL) OR (m.user_uuid IS NOT NULL AND mu.id IS NOT NULL AND mu.status = 'active'))`)).
 		WithArgs("tenant-a", "workspace-a", "11111111-1111-1111-1111-111111111111").
 		WillReturnRows(emptyMembers)
 

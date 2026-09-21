@@ -456,7 +456,7 @@ func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, 
 		   AND m.workspace_id = $2
 		   AND m.status = 'active'
 		   AND m.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
-			AND (m.user_uuid IS NULL OR (mu.id IS NOT NULL AND mu.status = 'active'))
+			AND ((m.role <> 'owner' AND m.user_uuid IS NULL) OR (m.user_uuid IS NOT NULL AND mu.id IS NOT NULL AND mu.status = 'active'))
 		   AND EXISTS (
 		       SELECT 1 FROM tenancy_workspace_members caller
 		       WHERE caller.tenant_id = m.tenant_id
@@ -474,7 +474,9 @@ func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, 
 		         AND other.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
 		         AND other.status = 'active'
 		         AND other.role = 'owner'
-			   AND (other.user_uuid IS NULL OR (other_u.id IS NOT NULL AND other_u.status = 'active'))
+			   AND other.user_uuid IS NOT NULL
+			   AND other_u.id IS NOT NULL
+			   AND other_u.status = 'active'
 		   )
 		 ORDER BY m.member_id ASC`,
 		scope.TenantID,
