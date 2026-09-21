@@ -895,7 +895,9 @@ func (p *PostgresStore) GetWorkspaceMember(ctx context.Context, workspaceID stri
 	return member, nil
 }
 
-// GetWorkspaceMemberByUserUUID returns one scoped workspace member by auth user UUID.
+// GetWorkspaceMemberByUserUUID returns one scoped workspace member by auth
+// user UUID. It returns ErrConflict when corrupted or pre-backfill data has
+// multiple memberships for the same local account in one workspace.
 func (p *PostgresStore) GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
@@ -905,7 +907,7 @@ func (p *PostgresStore) GetWorkspaceMemberByUserUUID(ctx context.Context, worksp
 	if err != nil {
 		return TenancyWorkspaceMember{}, err
 	}
-	row := p.queryRowContext(
+	rows, err := p.queryContext(
 		ctx,
 		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
 		 FROM tenancy_workspace_members m
@@ -919,8 +921,18 @@ func (p *PostgresStore) GetWorkspaceMemberByUserUUID(ctx context.Context, worksp
 		resolvedWorkspaceID,
 		strings.TrimSpace(userUUID),
 	)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	defer rows.Close()
 	var member TenancyWorkspaceMember
-	if err := row.Scan(
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return TenancyWorkspaceMember{}, err
+		}
+		return TenancyWorkspaceMember{}, ErrNotFound
+	}
+	if err := rows.Scan(
 		&member.TenantID,
 		&member.WorkspaceID,
 		&member.MemberID,
@@ -932,9 +944,12 @@ func (p *PostgresStore) GetWorkspaceMemberByUserUUID(ctx context.Context, worksp
 		&member.JoinedAt,
 		&member.UpdatedAt,
 	); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return TenancyWorkspaceMember{}, ErrNotFound
-		}
+		return TenancyWorkspaceMember{}, err
+	}
+	if rows.Next() {
+		return TenancyWorkspaceMember{}, ErrConflict
+	}
+	if err := rows.Err(); err != nil {
 		return TenancyWorkspaceMember{}, err
 	}
 	return member, nil

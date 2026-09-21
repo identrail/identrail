@@ -2132,6 +2132,38 @@ func TestPostgresStoreListWorkspaceStrandedActiveMembersReturnsStranded(t *testi
 	}
 }
 
+func TestPostgresStoreGetWorkspaceMemberByUserUUIDRejectsDuplicates(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := workspaceLifecycleScope()
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "member-a", "subject-a", "11111111-1111-1111-1111-111111111111", "a@example.com", "owner", "active", now, now).
+		AddRow("tenant-a", "workspace-a", "member-b", "subject-b", "11111111-1111-1111-1111-111111111111", "b@example.com", "viewer", "active", now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users u ON u.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND u.id IS NOT NULL
+		   AND u.status = 'active'
+		   AND m.user_uuid = NULLIF($3, '')::uuid`)).
+		WithArgs("tenant-a", "workspace-a", "11111111-1111-1111-1111-111111111111").
+		WillReturnRows(rows)
+
+	if _, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", "11111111-1111-1111-1111-111111111111"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected duplicate workspace memberships to return ErrConflict, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreListWorkspaceStrandedActiveMembersPinsInactiveOwnerExclusion(t *testing.T) {
 	// Cross-store parity pin: the SQL must carry the
 	// `(mu.id IS NULL OR mu.status = 'active')` predicate so an inactive

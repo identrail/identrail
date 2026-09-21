@@ -714,6 +714,52 @@ func TestPolicyRolesFromAuthClearsScopesForInactiveMembership(t *testing.T) {
 	}
 }
 
+func TestPolicyRolesFromAuthFailsClosedOnDuplicateLocalMemberships(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	user, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "duplicate-membership@example.com"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	const issuer = "https://issuer.example.com"
+	const subject = "duplicate-membership-subject"
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: user.ID, Provider: "oidc:" + issuer, Subject: subject,
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	for _, member := range []db.TenancyWorkspaceMember{
+		{WorkspaceID: "workspace-a", MemberID: "duplicate-owner", UserID: subject, UserUUID: user.ID, Role: "owner", Status: "active"},
+		{WorkspaceID: "workspace-a", MemberID: "duplicate-viewer", UserID: "another-subject", UserUUID: user.ID, Role: "viewer", Status: "active"},
+	} {
+		if err := store.UpsertWorkspaceMember(scopedCtx, member); err != nil {
+			t.Fatalf("seed duplicate membership: %v", err)
+		}
+	}
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	requestContext := sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC)
+	requestContext = sessionauth.WithSubjectIssuer(requestContext, issuer)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/scans", nil).WithContext(requestContext)
+	c.Set("auth.subject", subject)
+	c.Set("auth.subject_source", sessionauth.SubjectSourceOIDC)
+	c.Set("auth.roles", []string{"owner"})
+	c.Set("auth.scope_set", newScopeSet([]string{scopeRead, scopeWrite}))
+
+	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 1 || roles[0] != "authenticated" {
+		t.Fatalf("expected duplicate local memberships to fail closed, got %v", roles)
+	}
+}
+
 func TestPolicyRolesFromAuthDropsUnassignedProviderRoles(t *testing.T) {
 	store := db.NewMemoryStore()
 	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}

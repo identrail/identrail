@@ -84,6 +84,15 @@ func TestMemoryStoreTenancyCRUD(t *testing.T) {
 	if _, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", "00000000-0000-0000-0000-000000000002"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected missing workspace member by user uuid to return ErrNotFound, got %v", err)
 	}
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "member-duplicate", UserID: "user-1",
+		UserUUID: "00000000-0000-0000-0000-000000000001", Role: "viewer", Status: "active",
+	}); err != nil {
+		t.Fatalf("upsert duplicate workspace membership: %v", err)
+	}
+	if _, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", "00000000-0000-0000-0000-000000000001"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected duplicate workspace memberships to return ErrConflict, got %v", err)
+	}
 
 	if err := store.UpsertProject(ctx, TenancyProject{
 		WorkspaceID: "workspace-a",

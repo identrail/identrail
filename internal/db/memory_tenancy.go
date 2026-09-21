@@ -852,7 +852,9 @@ func (m *MemoryStore) GetWorkspaceMember(ctx context.Context, workspaceID string
 	return member, nil
 }
 
-// GetWorkspaceMemberByUserUUID returns one scoped workspace member by auth user UUID.
+// GetWorkspaceMemberByUserUUID returns one scoped workspace member by auth
+// user UUID. It returns ErrConflict when corrupted or pre-backfill data has
+// multiple memberships for the same local account in one workspace.
 func (m *MemoryStore) GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -866,18 +868,27 @@ func (m *MemoryStore) GetWorkspaceMemberByUserUUID(ctx context.Context, workspac
 		return TenancyWorkspaceMember{}, err
 	}
 	normalizedUserUUID := strings.TrimSpace(userUUID)
+	user, ok := m.users[normalizedUserUUID]
+	if !ok || user.Status != "active" {
+		return TenancyWorkspaceMember{}, ErrNotFound
+	}
+	var matched TenancyWorkspaceMember
+	found := false
 	for _, member := range m.members {
 		if member.TenantID == scope.TenantID &&
 			member.WorkspaceID == resolvedWorkspaceID &&
 			member.UserUUID == normalizedUserUUID {
-			user, ok := m.users[member.UserUUID]
-			if !ok || user.Status != "active" {
-				return TenancyWorkspaceMember{}, ErrNotFound
+			if found {
+				return TenancyWorkspaceMember{}, ErrConflict
 			}
-			return member, nil
+			matched = member
+			found = true
 		}
 	}
-	return TenancyWorkspaceMember{}, ErrNotFound
+	if !found {
+		return TenancyWorkspaceMember{}, ErrNotFound
+	}
+	return matched, nil
 }
 
 // GetWorkspaceMemberByUserID returns one scoped workspace member by its
