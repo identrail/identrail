@@ -4461,6 +4461,9 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 	for _, identity := range []db.UserIdentity{
 		{UserID: userOne.ID, Provider: "workos", Subject: "user-1"},
 		{UserID: userTwo.ID, Provider: "workos", Subject: "user-2"},
+		// OIDC subjects remain provider values even when they happen to be
+		// UUID-shaped; they must not be mistaken for local session IDs.
+		{UserID: userOne.ID, Provider: "provider-b", Subject: "33333333-3333-3333-3333-333333333333"},
 	} {
 		if _, err := store.UpsertUserIdentity(context.Background(), identity); err != nil {
 			t.Fatalf("seed user identity: %v", err)
@@ -4518,6 +4521,13 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 				},
 				"user-2-token": {
 					Subject:     "user-2",
+					TenantID:    "tenant-a",
+					WorkspaceID: "workspace-a",
+					Roles:       []string{"viewer"},
+					Scopes:      []string{"identrail.read"},
+				},
+				"uuid-subject-token": {
+					Subject:     "33333333-3333-3333-3333-333333333333",
 					TenantID:    "tenant-a",
 					WorkspaceID: "workspace-a",
 					Roles:       []string{"viewer"},
@@ -4603,6 +4613,44 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 	}
 	if switchBody.ScopeHeaders[scopeHeaderWorkspaceID] != "workspace-b" {
 		t.Fatalf("expected workspace scope header workspace-b, got %+v", switchBody.ScopeHeaders)
+	}
+
+	// A bearer subject can be UUID-shaped without being a local session UUID.
+	// Exercise both whoami and workspace switching through the real router so
+	// the authentication-source marker is proven to reach the service layer.
+	uuidWhoamiReq := httptest.NewRequest(http.MethodGet, "/v1/whoami", nil)
+	uuidWhoamiReq.Header.Set("Authorization", "Bearer uuid-subject-token")
+	uuidWhoamiResp := httptest.NewRecorder()
+	r.ServeHTTP(uuidWhoamiResp, uuidWhoamiReq)
+	if uuidWhoamiResp.Code != http.StatusOK {
+		t.Fatalf("expected UUID-shaped OIDC whoami 200, got %d body=%s", uuidWhoamiResp.Code, uuidWhoamiResp.Body.String())
+	}
+	var uuidWhoamiBody struct {
+		ActiveWorkspace *WorkspaceContext `json:"active_workspace"`
+	}
+	if err := json.Unmarshal(uuidWhoamiResp.Body.Bytes(), &uuidWhoamiBody); err != nil {
+		t.Fatalf("decode UUID-shaped OIDC whoami response: %v", err)
+	}
+	if uuidWhoamiBody.ActiveWorkspace == nil || uuidWhoamiBody.ActiveWorkspace.Member == nil || uuidWhoamiBody.ActiveWorkspace.Member.Role != "admin" {
+		t.Fatalf("expected UUID-shaped OIDC subject to resolve admin membership, got %+v", uuidWhoamiBody.ActiveWorkspace)
+	}
+
+	uuidSwitchReq := httptest.NewRequest(http.MethodPost, "/v1/workspaces/active", bytes.NewBufferString(`{"workspace_id":"workspace-b"}`))
+	uuidSwitchReq.Header.Set("Authorization", "Bearer uuid-subject-token")
+	uuidSwitchReq.Header.Set("Content-Type", "application/json")
+	uuidSwitchResp := httptest.NewRecorder()
+	r.ServeHTTP(uuidSwitchResp, uuidSwitchReq)
+	if uuidSwitchResp.Code != http.StatusOK {
+		t.Fatalf("expected UUID-shaped OIDC workspace switch 200, got %d body=%s", uuidSwitchResp.Code, uuidSwitchResp.Body.String())
+	}
+	var uuidSwitchBody struct {
+		ActiveWorkspace WorkspaceContext `json:"active_workspace"`
+	}
+	if err := json.Unmarshal(uuidSwitchResp.Body.Bytes(), &uuidSwitchBody); err != nil {
+		t.Fatalf("decode UUID-shaped OIDC switch response: %v", err)
+	}
+	if uuidSwitchBody.ActiveWorkspace.Member == nil || uuidSwitchBody.ActiveWorkspace.Member.Role != "viewer" {
+		t.Fatalf("expected UUID-shaped OIDC subject to resolve viewer membership after switch, got %+v", uuidSwitchBody.ActiveWorkspace)
 	}
 
 	switchBadBodyReq := httptest.NewRequest(http.MethodPost, "/v1/workspaces/active", bytes.NewBufferString(`{"workspace_id":""}`))
@@ -4937,6 +4985,11 @@ func TestRouterWorkspaceMemberValidationRunsForAuthenticatedOwner(t *testing.T) 
 	owner, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "owner-validation@example.com"})
 	if err != nil {
 		t.Fatalf("upsert owner: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: owner.ID, Provider: "oidc-test", Subject: owner.ID,
+	}); err != nil {
+		t.Fatalf("upsert owner identity: %v", err)
 	}
 	if err := store.UpsertWorkspaceMember(scopeCtx, db.TenancyWorkspaceMember{
 		WorkspaceID: "workspace-a", MemberID: "member-owner-validation", UserID: "owner-subject",

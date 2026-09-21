@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/telemetry"
@@ -1035,7 +1035,7 @@ func trustedWorkspaceMembership(c *gin.Context, store db.Store) (db.TenancyWorks
 		return db.TenancyWorkspaceMember{}, false, nil
 	}
 	scopedCtx := db.WithScope(c.Request.Context(), scope)
-	if _, err := uuid.Parse(subject); err == nil {
+	if sessionauth.SubjectSource(scopedCtx) == sessionauth.SubjectSourceSession {
 		member, err := store.GetWorkspaceMemberByUserUUID(scopedCtx, scope.WorkspaceID, subject)
 		if err == nil {
 			if !trustedMembershipAccountIsActive(scopedCtx, store, member) {
@@ -1046,8 +1046,6 @@ func trustedWorkspaceMembership(c *gin.Context, store db.Store) (db.TenancyWorks
 		if !errors.Is(err, db.ErrNotFound) {
 			return db.TenancyWorkspaceMember{}, false, err
 		}
-		// UUID-shaped subjects are local account IDs, not a legacy provider
-		// subject. Never fall through to another account's identity mapping.
 		return db.TenancyWorkspaceMember{}, false, nil
 	}
 	identity, err := store.GetUserIdentityBySubject(scopedCtx, subject)

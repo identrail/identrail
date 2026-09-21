@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/audit"
 	awsconnector "github.com/identrail/identrail/internal/connectors/aws"
@@ -5148,7 +5149,7 @@ func (s *Service) lookupWorkspaceMemberBySubject(
 	if normalizedSubject == "" {
 		return db.TenancyWorkspaceMember{}, false, nil
 	}
-	if _, err := uuid.Parse(normalizedSubject); err == nil {
+	if sessionauth.SubjectSource(ctx) == sessionauth.SubjectSourceSession {
 		member, err := s.Store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, normalizedSubject)
 		if err != nil && !errors.Is(err, db.ErrNotFound) {
 			return db.TenancyWorkspaceMember{}, false, err
@@ -5163,10 +5164,6 @@ func (s *Service) lookupWorkspaceMemberBySubject(
 			}
 			return db.TenancyWorkspaceMember{}, false, nil
 		}
-		// A UUID-shaped bearer subject is already a local account identifier.
-		// Do not reinterpret it as a provider subject after the authoritative
-		// UUID lookup misses; another provider identity could otherwise bind the
-		// request to a different account.
 		return db.TenancyWorkspaceMember{}, false, nil
 	}
 	identity, err := s.Store.GetUserIdentityBySubject(ctx, normalizedSubject)

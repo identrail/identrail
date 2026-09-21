@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/app"
 	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
@@ -3798,7 +3799,8 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 		t.Fatalf("unexpected switched member role: %+v", switched.Member)
 	}
 
-	switchedByUUID, err := svc.ResolveActiveWorkspace(scopeCtx, userUUID, "workspace-b")
+	sessionScopeCtx := sessionauth.WithSubjectSource(scopeCtx, sessionauth.SubjectSourceSession)
+	switchedByUUID, err := svc.ResolveActiveWorkspace(sessionScopeCtx, userUUID, "workspace-b")
 	if err != nil {
 		t.Fatalf("resolve active workspace by user uuid: %v", err)
 	}

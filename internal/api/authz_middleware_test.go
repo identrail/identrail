@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/telemetry"
@@ -503,6 +504,13 @@ func TestPolicyRolesFromAuthRejectsInactiveLinkedMembershipsByUUIDAndSubject(t *
 	c.Set("auth.roles", []string{"owner"})
 	for _, subject := range []string{inactive.ID, "inactive-legacy-subject"} {
 		c.Set("auth.subject", subject)
+		if subject == inactive.ID {
+			c.Set("auth.subject_source", sessionauth.SubjectSourceSession)
+			c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceSession))
+		} else {
+			c.Set("auth.subject_source", sessionauth.SubjectSourceOIDC)
+			c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC))
+		}
 		roles := policyRolesFromAuthWithStore(c, nil, nil, store)
 		if len(roles) != 1 || roles[0] != "authenticated" {
 			t.Fatalf("expected inactive linked membership to fail closed for subject %q, got %v", subject, roles)
@@ -521,6 +529,8 @@ func TestPolicyRolesFromAuthRejectsInactiveLinkedMembershipsByUUIDAndSubject(t *
 		t.Fatalf("seed active membership: %v", err)
 	}
 	c.Set("auth.subject", active.ID)
+	c.Set("auth.subject_source", sessionauth.SubjectSourceSession)
+	c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceSession))
 	c.Set("auth.roles", []string{"owner"})
 	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
 	if len(roles) != 2 || roles[0] != "authenticated" || roles[1] != "viewer" {
@@ -545,6 +555,8 @@ func TestPolicyRolesFromAuthFailsClosedOnMembershipLookupError(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil).WithContext(policyTestScopeContext())
 	c.Set("auth.subject", "11111111-1111-1111-1111-111111111111")
+	c.Set("auth.subject_source", sessionauth.SubjectSourceSession)
+	c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(policyTestScopeContext(), sessionauth.SubjectSourceSession))
 	c.Set("auth.roles", []string{"owner"})
 	roles := policyRolesFromAuthWithStore(c, nil, nil, membershipLookupErrorStore{Store: db.NewMemoryStore()})
 	if len(roles) != 1 || roles[0] != "authenticated" {
@@ -552,7 +564,7 @@ func TestPolicyRolesFromAuthFailsClosedOnMembershipLookupError(t *testing.T) {
 	}
 }
 
-func TestPolicyRolesFromAuthDoesNotTreatUUIDSubjectAsProviderSubject(t *testing.T) {
+func TestPolicyRolesFromAuthDistinguishesUUIDSubjectSource(t *testing.T) {
 	store := db.NewMemoryStore()
 	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
 	scopedCtx := db.WithScope(context.Background(), scope)
@@ -582,10 +594,19 @@ func TestPolicyRolesFromAuthDoesNotTreatUUIDSubjectAsProviderSubject(t *testing.
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil).WithContext(scopedCtx)
 	c.Set("auth.subject", localID)
+	c.Set("auth.subject_source", sessionauth.SubjectSourceOIDC)
+	c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC))
 	c.Set("auth.roles", []string{"owner"})
 	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 2 || roles[0] != "authenticated" || roles[1] != "owner" {
+		t.Fatalf("expected UUID-shaped OIDC subject to resolve its mapped account, got %v", roles)
+	}
+
+	c.Set("auth.subject_source", sessionauth.SubjectSourceSession)
+	c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceSession))
+	roles = policyRolesFromAuthWithStore(c, nil, nil, store)
 	if len(roles) != 1 || roles[0] != "authenticated" {
-		t.Fatalf("expected UUID-shaped subject not to resolve another account, got %v", roles)
+		t.Fatalf("expected the same UUID-shaped session subject to use the local-account namespace, got %v", roles)
 	}
 }
 
@@ -624,6 +645,8 @@ func TestPolicyRolesFromAuthDropsUnassignedProviderRoles(t *testing.T) {
 		t.Fatalf("seed orphan membership: %v", err)
 	}
 	c.Set("auth.subject", missingUserUUID)
+	c.Set("auth.subject_source", sessionauth.SubjectSourceSession)
+	c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceSession))
 	c.Set("auth.roles", []string{"owner"})
 	c.Set("auth.scope_set", newScopeSet(nil))
 	roles = policyRolesFromAuthWithStore(c, nil, nil, store)

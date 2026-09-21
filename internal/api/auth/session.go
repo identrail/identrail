@@ -24,6 +24,37 @@ const (
 
 var ErrInvalidSessionID = errors.New("invalid session id")
 
+// SubjectSource identifies which authentication flow supplied auth.subject.
+// Browser sessions store the local account UUID, while OIDC bearer tokens
+// carry the provider subject verbatim. Callers must not infer this distinction
+// from the subject's shape because an OIDC subject may also be UUID-shaped.
+const (
+	SubjectSourceSession = "session"
+	SubjectSourceOIDC    = "oidc"
+)
+
+type subjectSourceContextKey struct{}
+
+// WithSubjectSource records the authentication flow that supplied a subject
+// so downstream authorization can resolve it against the correct identity
+// namespace.
+func WithSubjectSource(ctx context.Context, source string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, subjectSourceContextKey{}, strings.ToLower(strings.TrimSpace(source)))
+}
+
+// SubjectSource returns the authentication flow that supplied the request's
+// subject, if one was recorded.
+func SubjectSource(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	source, _ := ctx.Value(subjectSourceContextKey{}).(string)
+	return strings.ToLower(strings.TrimSpace(source))
+}
+
 // CurrentSession is the authenticated browser session attached to a request.
 type CurrentSession struct {
 	Session db.Session
@@ -195,7 +226,9 @@ func (m Manager) Middleware() gin.HandlerFunc {
 		}
 		c.Set("auth.session", current)
 		c.Set("auth.subject", current.Session.UserID)
+		c.Set("auth.subject_source", SubjectSourceSession)
 		c.Set("auth.user_id", current.Session.UserID)
+		c.Request = c.Request.WithContext(WithSubjectSource(c.Request.Context(), SubjectSourceSession))
 		roles := []string{"authenticated"}
 		if current.Session.CurrentOrgID != "" {
 			c.Set("auth.tenant_id", current.Session.CurrentOrgID)

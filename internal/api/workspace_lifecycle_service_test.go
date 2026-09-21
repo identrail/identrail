@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/db"
 )
 
@@ -130,6 +131,7 @@ func TestServiceRequireWorkspaceOwnerRefusesNonOwner(t *testing.T) {
 
 func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) {
 	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
 	store := svc.Store.(*db.MemoryStore)
 	viewer, err := store.UpsertUser(context.Background(), db.User{
 		PrimaryEmail: "viewer@example.com",
@@ -250,6 +252,7 @@ func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) 
 
 func TestServiceWorkspaceMemberWriteLinksProviderSubject(t *testing.T) {
 	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
 	store := svc.Store.(*db.MemoryStore)
 	target, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "linked@example.com"})
 	if err != nil {

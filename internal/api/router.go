@@ -6538,6 +6538,8 @@ func apiKeyAuthMiddleware(
 			token, err := tokenVerifier.VerifyToken(c.Request.Context(), rawBearer)
 			if err == nil {
 				c.Set("auth.subject", token.Subject)
+				c.Set("auth.subject_source", sessionauth.SubjectSourceOIDC)
+				c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(c.Request.Context(), sessionauth.SubjectSourceOIDC))
 				c.Set("auth.issuer", token.Issuer)
 				c.Set("auth.audiences", token.Audiences)
 				c.Set("auth.groups", token.Groups)
