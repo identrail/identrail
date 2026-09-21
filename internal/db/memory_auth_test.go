@@ -672,8 +672,43 @@ func TestMemoryHardDeleteUserPurgesPIIAndIdentities(t *testing.T) {
 	if _, err := store.GetUserIdentity(ctx, "workos", "subject-purge"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected identity removed, got %v", err)
 	}
-	if _, err := store.GetWorkspaceMemberByUserID(scopeCtx, "workspace-a", "subject-purge"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected hard-deleted legacy membership removed, got %v", err)
+	if _, err := store.GetWorkspaceMemberByUserID(scopeCtx, "workspace-a", "subject-purge"); err != nil {
+		t.Fatalf("expected unqualified legacy membership preserved, got %v", err)
+	}
+}
+
+func TestMemoryHardDeleteUserPreservesLegacySubjectWithoutProviderNamespace(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	target, err := store.UpsertUser(ctx, User{PrimaryEmail: "target-legacy@example.com", CreatedAt: now})
+	if err != nil {
+		t.Fatalf("seed target user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(ctx, UserIdentity{UserID: target.ID, Provider: "provider-a", Subject: "shared-with-unbackfilled-provider", CreatedAt: now}); err != nil {
+		t.Fatalf("seed target identity: %v", err)
+	}
+	scopeCtx := WithScope(ctx, Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopeCtx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopeCtx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopeCtx, TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "legacy-member", UserID: "shared-with-unbackfilled-provider",
+		Role: "viewer", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed legacy membership: %v", err)
+	}
+	if _, err := store.SoftDeleteUser(ctx, target.ID, now); err != nil {
+		t.Fatalf("soft delete target: %v", err)
+	}
+	if _, err := store.HardDeleteUser(ctx, target.ID, now.Add(UserDeletionGracePeriod+time.Hour)); err != nil {
+		t.Fatalf("hard delete target: %v", err)
+	}
+	if _, err := store.GetWorkspaceMemberByUserID(scopeCtx, "workspace-a", "shared-with-unbackfilled-provider"); err != nil {
+		t.Fatalf("expected unqualified legacy membership to remain for safe reconciliation, got %v", err)
 	}
 }
 

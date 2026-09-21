@@ -3818,7 +3818,12 @@ func resolveWorkspaceMemberUserUUID(
 	if existing.UserUUID != "" && strings.TrimSpace(existing.UserID) == subject {
 		return validateWorkspaceMemberUserUUID(ctx, store, existing.UserUUID, request.Status)
 	}
-	if identity, err := lookupUserIdentityBySubject(ctx, store, subject); err == nil {
+	// The member target is supplied independently of the caller. Do not use
+	// the caller's OIDC issuer here: an administrator from issuer A may manage
+	// a member whose subject belongs to issuer B. The provider-independent lookup
+	// accepts that case when the subject is unique and returns ErrConflict when
+	// it could bind to different local accounts.
+	if identity, err := store.GetUserIdentityBySubject(ctx, subject); err == nil {
 		return validateWorkspaceMemberUserUUID(ctx, store, identity.UserID, request.Status)
 	} else if !errors.Is(err, db.ErrNotFound) {
 		if errors.Is(err, db.ErrConflict) {

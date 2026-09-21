@@ -273,16 +273,7 @@ func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now tim
 	user.Status = "deleted"
 	user.UpdatedAt = when
 	m.users[id] = user
-	targetSubjects := make(map[string]struct{})
-	ambiguousSubjects := make(map[string]struct{})
 	for identityID, identity := range m.userIdentityByID {
-		if subject := strings.TrimSpace(identity.Subject); subject != "" {
-			if identity.UserID == id {
-				targetSubjects[subject] = struct{}{}
-			} else {
-				ambiguousSubjects[subject] = struct{}{}
-			}
-		}
 		if identity.UserID != id {
 			continue
 		}
@@ -300,17 +291,13 @@ func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now tim
 	}
 	// A hard-deleted account must not remain as an active-looking workspace
 	// member. The membership map is not backed by a foreign-key cascade in the
-	// memory store, so remove UUID-bound rows and legacy rows whose provider
-	// subject was unambiguously mapped to this account. A bare user_id equal to
-	// the local UUID is not authoritative: user_id is a provider subject and
-	// can collide across providers.
+	// memory store, so remove only UUID-bound rows. Legacy rows contain a raw
+	// provider subject but no provider namespace; deleting them by subject could
+	// remove another provider's membership when that provider has not yet been
+	// backfilled into user_identities. Such rows are intentionally preserved and
+	// become inaccessible once the identity mapping is removed.
 	for key, member := range m.members {
-		_, ambiguousLocalID := ambiguousSubjects[member.UserID]
-		_, targetSubjectMatch := targetSubjects[member.UserID]
-		if ambiguousLocalID {
-			targetSubjectMatch = false
-		}
-		if member.UserUUID == id || targetSubjectMatch {
+		if member.UserUUID == id {
 			delete(m.members, key)
 		}
 	}

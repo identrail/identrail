@@ -161,18 +161,7 @@ func TestPostgresHardDeleteUserPurgesWorkspaceMemberships(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "primary_email", "display_name", "avatar_url", "status", "created_at", "updated_at", "deleted_at"}).
 			AddRow(userID, HardDeletedTombstoneEmail(userID), "", "", "deleted", now.Add(-time.Hour), now, deletedAt))
 	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM tenancy_workspace_members
-		 WHERE user_uuid = NULLIF($1, '')::uuid
-		    OR user_id IN (
-			 SELECT identity.subject
-			 FROM user_identities identity
-			 WHERE identity.user_id = NULLIF($1, '')::uuid
-			   AND NOT EXISTS (
-				 SELECT 1
-				 FROM user_identities other_identity
-				 WHERE other_identity.subject = identity.subject
-				   AND other_identity.user_id <> NULLIF($1, '')::uuid
-			   )
-		    )`)).
+			 WHERE user_uuid = NULLIF($1, '')::uuid`)).
 		WithArgs(userID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM user_identities WHERE user_id = NULLIF($1, '')::uuid`)).

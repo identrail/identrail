@@ -250,6 +250,61 @@ func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) 
 	}
 }
 
+func TestServiceWorkspaceMemberTargetUsesItsOwnIdentityNamespace(t *testing.T) {
+	svc, scopedCtx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	store := svc.Store.(*db.MemoryStore)
+	const callerIssuer = "https://caller-issuer.example.com"
+	const targetIssuer = "https://target-issuer.example.com"
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: ownerUUID, Provider: "oidc:" + callerIssuer, Subject: "owner-subject",
+	}); err != nil {
+		t.Fatalf("seed caller identity: %v", err)
+	}
+	target, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "target@example.com", Status: "active"})
+	if err != nil {
+		t.Fatalf("seed target user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: target.ID, Provider: "oidc:" + targetIssuer, Subject: "target-subject",
+	}); err != nil {
+		t.Fatalf("seed target identity: %v", err)
+	}
+	requestCtx := sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC)
+	requestCtx = sessionauth.WithSubjectIssuer(requestCtx, callerIssuer)
+	member, err := svc.UpsertWorkspaceMemberAs(requestCtx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: "member-target", UserID: "target-subject", Email: target.PrimaryEmail,
+		Role: "viewer", Status: "active",
+	}, "owner-subject")
+	if err != nil {
+		t.Fatalf("expected cross-issuer target to resolve, got %v", err)
+	}
+	if member.UserUUID != target.ID {
+		t.Fatalf("expected target identity from issuer B, got %+v", member)
+	}
+
+	other, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "other-target@example.com", Status: "active"})
+	if err != nil {
+		t.Fatalf("seed other target user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: other.ID, Provider: "oidc:" + callerIssuer, Subject: "shared-target-subject",
+	}); err != nil {
+		t.Fatalf("seed caller-issuer collision: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: target.ID, Provider: "oidc:" + targetIssuer, Subject: "shared-target-subject",
+	}); err != nil {
+		t.Fatalf("seed target-issuer collision: %v", err)
+	}
+	_, err = svc.UpsertWorkspaceMemberAs(requestCtx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: "member-ambiguous-target", UserID: "shared-target-subject",
+		Role: "viewer", Status: "active",
+	}, "owner-subject")
+	if !errors.Is(err, ErrInvalidTenancyRequest) {
+		t.Fatalf("expected cross-issuer target collision to be rejected, got %v", err)
+	}
+}
+
 func TestServiceWorkspaceMemberWriteLinksProviderSubject(t *testing.T) {
 	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
 	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
