@@ -258,13 +258,14 @@ func TestServiceWorkspaceMemberWriteLinksProviderSubject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert target: %v", err)
 	}
+	linkedSubject := "55555555-5555-5555-5555-555555555555"
 	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
-		UserID: target.ID, Provider: "workos", Subject: "linked-subject",
+		UserID: target.ID, Provider: "provider-b", Subject: linkedSubject,
 	}); err != nil {
 		t.Fatalf("upsert target identity: %v", err)
 	}
 	member, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
-		MemberID: "member-linked", UserID: "linked-subject", Email: target.PrimaryEmail,
+		MemberID: "member-linked", UserID: linkedSubject, Email: target.PrimaryEmail,
 		Role: "viewer", Status: "active",
 	}, ownerUUID)
 	if err != nil {
@@ -274,7 +275,7 @@ func TestServiceWorkspaceMemberWriteLinksProviderSubject(t *testing.T) {
 		t.Fatalf("expected provider subject to link local user UUID, got %+v", member)
 	}
 	member, err = svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
-		MemberID: "member-linked", UserID: "linked-subject", Email: target.PrimaryEmail,
+		MemberID: "member-linked", UserID: linkedSubject, Email: target.PrimaryEmail,
 		Role: "admin", Status: "active",
 	}, ownerUUID)
 	if err != nil {

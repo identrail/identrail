@@ -610,6 +610,66 @@ func TestPolicyRolesFromAuthDistinguishesUUIDSubjectSource(t *testing.T) {
 	}
 }
 
+func TestPolicyRolesFromAuthUsesOIDCIssuerNamespace(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	first, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "first@example.com"})
+	if err != nil {
+		t.Fatalf("seed first user: %v", err)
+	}
+	second, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "second@example.com"})
+	if err != nil {
+		t.Fatalf("seed second user: %v", err)
+	}
+	const subject = "shared-oidc-subject"
+	const firstIssuer = "https://first-issuer.example.com"
+	const secondIssuer = "https://second-issuer.example.com"
+	for _, identity := range []db.UserIdentity{
+		{UserID: first.ID, Provider: "oidc:" + firstIssuer, Subject: subject},
+		{UserID: second.ID, Provider: "oidc:" + secondIssuer, Subject: subject},
+	} {
+		if _, err := store.UpsertUserIdentity(context.Background(), identity); err != nil {
+			t.Fatalf("seed identity: %v", err)
+		}
+	}
+	for _, member := range []db.TenancyWorkspaceMember{
+		{WorkspaceID: "workspace-a", MemberID: "first-member", UserID: subject, UserUUID: first.ID, Role: "owner", Status: "active"},
+		{WorkspaceID: "workspace-a", MemberID: "second-member", UserID: subject, UserUUID: second.ID, Role: "viewer", Status: "active"},
+	} {
+		if err := store.UpsertWorkspaceMember(scopedCtx, member); err != nil {
+			t.Fatalf("seed membership: %v", err)
+		}
+	}
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set("auth.subject", subject)
+	c.Set("auth.subject_source", sessionauth.SubjectSourceOIDC)
+	c.Set("auth.roles", []string{"admin"})
+	for _, testCase := range []struct {
+		issuer string
+		role   string
+	}{
+		{issuer: firstIssuer, role: "owner"},
+		{issuer: secondIssuer, role: "viewer"},
+	} {
+		requestContext := sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC)
+		requestContext = sessionauth.WithSubjectIssuer(requestContext, testCase.issuer)
+		c.Request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil).WithContext(requestContext)
+		roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+		if len(roles) != 2 || roles[0] != "authenticated" || roles[1] != testCase.role {
+			t.Fatalf("expected issuer %s to resolve %s membership, got %v", testCase.issuer, testCase.role, roles)
+		}
+	}
+}
+
 func TestPolicyRolesFromAuthDropsUnassignedProviderRoles(t *testing.T) {
 	store := db.NewMemoryStore()
 	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}

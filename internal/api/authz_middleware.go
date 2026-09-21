@@ -1048,17 +1048,14 @@ func trustedWorkspaceMembership(c *gin.Context, store db.Store) (db.TenancyWorks
 		}
 		return db.TenancyWorkspaceMember{}, false, nil
 	}
-	identity, err := store.GetUserIdentityBySubject(scopedCtx, subject)
+	identity, err := lookupUserIdentityBySubject(scopedCtx, store, subject)
 	if err == nil {
-		member, memberErr := store.GetWorkspaceMemberByUserUUID(scopedCtx, scope.WorkspaceID, identity.UserID)
-		if errors.Is(memberErr, db.ErrNotFound) {
-			return db.TenancyWorkspaceMember{}, false, nil
-		}
+		member, found, memberErr := lookupWorkspaceMemberForIdentity(scopedCtx, store, scope.WorkspaceID, subject, identity.UserID)
 		if memberErr != nil {
 			return db.TenancyWorkspaceMember{}, false, memberErr
 		}
-		if !trustedMembershipAccountIsActive(scopedCtx, store, member) {
-			member.Status = "suspended"
+		if !found {
+			return db.TenancyWorkspaceMember{}, false, nil
 		}
 		return member, true, nil
 	}

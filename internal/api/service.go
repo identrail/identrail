@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/audit"
@@ -3819,10 +3818,7 @@ func resolveWorkspaceMemberUserUUID(
 	if existing.UserUUID != "" && strings.TrimSpace(existing.UserID) == subject {
 		return validateWorkspaceMemberUserUUID(ctx, store, existing.UserUUID, request.Status)
 	}
-	if _, err := uuid.Parse(subject); err == nil {
-		return validateWorkspaceMemberUserUUID(ctx, store, subject, request.Status)
-	}
-	if identity, err := store.GetUserIdentityBySubject(ctx, subject); err == nil {
+	if identity, err := lookupUserIdentityBySubject(ctx, store, subject); err == nil {
 		return validateWorkspaceMemberUserUUID(ctx, store, identity.UserID, request.Status)
 	} else if !errors.Is(err, db.ErrNotFound) {
 		if errors.Is(err, db.ErrConflict) {
@@ -3857,6 +3853,14 @@ func validateWorkspaceMemberUserUUID(ctx context.Context, store db.Store, userUU
 		return "", ErrInvalidTenancyRequest
 	}
 	return user.ID, nil
+}
+
+func lookupUserIdentityBySubject(ctx context.Context, store db.Store, subject string) (db.UserIdentity, error) {
+	issuer := sessionauth.SubjectIssuer(ctx)
+	if issuer != "" {
+		return store.GetUserIdentity(ctx, "oidc:"+issuer, subject)
+	}
+	return store.GetUserIdentityBySubject(ctx, subject)
 }
 
 // ListProjects returns projects for one scoped workspace.
@@ -5166,23 +5170,9 @@ func (s *Service) lookupWorkspaceMemberBySubject(
 		}
 		return db.TenancyWorkspaceMember{}, false, nil
 	}
-	identity, err := s.Store.GetUserIdentityBySubject(ctx, normalizedSubject)
+	identity, err := lookupUserIdentityBySubject(ctx, s.Store, normalizedSubject)
 	if err == nil {
-		member, memberErr := s.Store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, identity.UserID)
-		if errors.Is(memberErr, db.ErrNotFound) {
-			return db.TenancyWorkspaceMember{}, false, nil
-		}
-		if memberErr != nil {
-			return db.TenancyWorkspaceMember{}, false, memberErr
-		}
-		active, activeErr := s.workspaceMemberIsActive(ctx, member)
-		if activeErr != nil {
-			return db.TenancyWorkspaceMember{}, false, activeErr
-		}
-		if active {
-			return member, true, nil
-		}
-		return db.TenancyWorkspaceMember{}, false, nil
+		return lookupWorkspaceMemberForIdentity(ctx, s.Store, workspaceID, normalizedSubject, identity.UserID)
 	}
 	if errors.Is(err, db.ErrConflict) {
 		return db.TenancyWorkspaceMember{}, false, nil
@@ -5191,6 +5181,54 @@ func (s *Service) lookupWorkspaceMemberBySubject(
 		return db.TenancyWorkspaceMember{}, false, err
 	}
 	return db.TenancyWorkspaceMember{}, false, nil
+}
+
+func lookupWorkspaceMemberForIdentity(
+	ctx context.Context,
+	store db.Store,
+	workspaceID string,
+	subject string,
+	userUUID string,
+) (db.TenancyWorkspaceMember, bool, error) {
+	member, err := store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, userUUID)
+	if err == nil {
+		active, activeErr := workspaceMemberAccountIsActive(ctx, store, member)
+		if activeErr != nil {
+			return db.TenancyWorkspaceMember{}, false, activeErr
+		}
+		if active {
+			return member, true, nil
+		}
+		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	if !errors.Is(err, db.ErrNotFound) {
+		return db.TenancyWorkspaceMember{}, false, err
+	}
+
+	// During the strangler migration, existing rows may still carry only the
+	// provider subject in user_id. The identity mapping proves which local
+	// account owns that subject; validate that account before exposing the
+	// legacy membership as active, and populate the UUID in the returned copy
+	// so all downstream lifecycle checks use the same account invariant.
+	legacy, legacyErr := store.GetWorkspaceMemberByUserID(ctx, workspaceID, subject)
+	if errors.Is(legacyErr, db.ErrNotFound) {
+		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	if legacyErr != nil {
+		return db.TenancyWorkspaceMember{}, false, legacyErr
+	}
+	user, userErr := store.GetUser(ctx, userUUID)
+	if errors.Is(userErr, db.ErrNotFound) {
+		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	if userErr != nil {
+		return db.TenancyWorkspaceMember{}, false, userErr
+	}
+	if !strings.EqualFold(strings.TrimSpace(user.Status), "active") || strings.ToLower(strings.TrimSpace(legacy.Status)) != "active" {
+		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	legacy.UserUUID = user.ID
+	return legacy, true, nil
 }
 
 func (s *Service) workspaceMemberIsActive(ctx context.Context, member db.TenancyWorkspaceMember) (bool, error) {

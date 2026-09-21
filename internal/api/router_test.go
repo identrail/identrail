@@ -4459,11 +4459,11 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 		t.Fatalf("seed user-2: %v", err)
 	}
 	for _, identity := range []db.UserIdentity{
-		{UserID: userOne.ID, Provider: "workos", Subject: "user-1"},
-		{UserID: userTwo.ID, Provider: "workos", Subject: "user-2"},
+		{UserID: userOne.ID, Provider: "oidc:https://issuer.example.com", Subject: "user-1"},
+		{UserID: userTwo.ID, Provider: "oidc:https://issuer.example.com", Subject: "user-2"},
 		// OIDC subjects remain provider values even when they happen to be
 		// UUID-shaped; they must not be mistaken for local session IDs.
-		{UserID: userOne.ID, Provider: "provider-b", Subject: "33333333-3333-3333-3333-333333333333"},
+		{UserID: userOne.ID, Provider: "oidc:https://issuer.example.com", Subject: "33333333-3333-3333-3333-333333333333"},
 	} {
 		if _, err := store.UpsertUserIdentity(context.Background(), identity); err != nil {
 			t.Fatalf("seed user identity: %v", err)
@@ -4514,6 +4514,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 			tokens: map[string]VerifiedToken{
 				"user-1-token": {
 					Subject:     "user-1",
+					Issuer:      "https://issuer.example.com",
 					TenantID:    "tenant-a",
 					WorkspaceID: "workspace-a",
 					Roles:       []string{"analyst"},
@@ -4521,6 +4522,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 				},
 				"user-2-token": {
 					Subject:     "user-2",
+					Issuer:      "https://issuer.example.com",
 					TenantID:    "tenant-a",
 					WorkspaceID: "workspace-a",
 					Roles:       []string{"viewer"},
@@ -4528,6 +4530,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 				},
 				"uuid-subject-token": {
 					Subject:     "33333333-3333-3333-3333-333333333333",
+					Issuer:      "https://issuer.example.com",
 					TenantID:    "tenant-a",
 					WorkspaceID: "workspace-a",
 					Roles:       []string{"viewer"},
@@ -4987,7 +4990,7 @@ func TestRouterWorkspaceMemberValidationRunsForAuthenticatedOwner(t *testing.T) 
 		t.Fatalf("upsert owner: %v", err)
 	}
 	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
-		UserID: owner.ID, Provider: "oidc-test", Subject: owner.ID,
+		UserID: owner.ID, Provider: "oidc:https://issuer.example.com", Subject: owner.ID,
 	}); err != nil {
 		t.Fatalf("upsert owner identity: %v", err)
 	}
@@ -4999,7 +5002,7 @@ func TestRouterWorkspaceMemberValidationRunsForAuthenticatedOwner(t *testing.T) 
 	}
 	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), NewService(store, routerScanner{}, "aws"), RouterOptions{
 		OIDCTokenVerifier: fakeTokenVerifier{tokens: map[string]VerifiedToken{
-			"owner-token": {Subject: owner.ID, TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+			"owner-token": {Subject: owner.ID, Issuer: "https://issuer.example.com", TenantID: "tenant-a", WorkspaceID: "workspace-a"},
 		}},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", strings.NewReader(`{"member_id":"","user_id":"","role":"","status":""}`))

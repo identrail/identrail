@@ -3728,7 +3728,7 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 		t.Fatalf("seed user: %v", err)
 	}
 	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
-		UserID: userUUID, Provider: "workos", Subject: "user-1",
+		UserID: userUUID, Provider: "oidc:https://issuer.example.com", Subject: "user-1",
 	}); err != nil {
 		t.Fatalf("seed user identity: %v", err)
 	}
@@ -3766,7 +3766,8 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 		t.Fatalf("seed removed workspace-c member: %v", err)
 	}
 
-	contextSnapshot, err := svc.ResolveWhoAmIContext(scopeCtx, "user-1")
+	oidcScopeCtx := sessionauth.WithSubjectIssuer(scopeCtx, "https://issuer.example.com")
+	contextSnapshot, err := svc.ResolveWhoAmIContext(oidcScopeCtx, "user-1")
 	if err != nil {
 		t.Fatalf("resolve whoami context: %v", err)
 	}
@@ -3788,7 +3789,7 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 		}
 	}
 
-	switched, err := svc.ResolveActiveWorkspace(scopeCtx, "user-1", "workspace-b")
+	switched, err := svc.ResolveActiveWorkspace(oidcScopeCtx, "user-1", "workspace-b")
 	if err != nil {
 		t.Fatalf("resolve active workspace: %v", err)
 	}
@@ -3808,8 +3809,58 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 		t.Fatalf("unexpected uuid switched member: %+v", switchedByUUID.Member)
 	}
 
-	if _, err := svc.ResolveActiveWorkspace(scopeCtx, "user-1", "workspace-c"); !errors.Is(err, ErrWorkspaceAccessDenied) {
+	if _, err := svc.ResolveActiveWorkspace(oidcScopeCtx, "user-1", "workspace-c"); !errors.Is(err, ErrWorkspaceAccessDenied) {
 		t.Fatalf("expected removed workspace membership to deny switching, got %v", err)
+	}
+}
+
+func TestServiceResolveLegacyWorkspaceMemberByOIDCIdentity(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	issuer := "https://issuer.example.com"
+	subject := "legacy-oidc-subject"
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	ctx := sessionauth.WithSubjectIssuer(db.WithScope(context.Background(), scope), issuer)
+
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	user, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "legacy@example.com", Status: "active"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: user.ID, Provider: "oidc:" + issuer, Subject: subject,
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "legacy-member", UserID: subject,
+		Role: "admin", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed legacy membership: %v", err)
+	}
+
+	resolved, err := svc.ResolveWhoAmIContext(ctx, subject)
+	if err != nil {
+		t.Fatalf("resolve legacy whoami context: %v", err)
+	}
+	if resolved.ActiveWorkspace == nil || resolved.ActiveWorkspace.Member == nil {
+		t.Fatalf("expected legacy membership to remain visible: %+v", resolved)
+	}
+	if resolved.ActiveWorkspace.Member.UserUUID != user.ID || resolved.ActiveWorkspace.Member.Role != "admin" {
+		t.Fatalf("expected legacy membership to be bound to mapped active user, got %+v", resolved.ActiveWorkspace.Member)
+	}
+
+	switched, err := svc.ResolveActiveWorkspace(ctx, subject, "workspace-a")
+	if err != nil {
+		t.Fatalf("resolve legacy active workspace: %v", err)
+	}
+	if switched.Member == nil || switched.Member.UserUUID != user.ID {
+		t.Fatalf("expected legacy active workspace membership to retain mapped UUID, got %+v", switched.Member)
 	}
 }
 

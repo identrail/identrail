@@ -34,6 +34,7 @@ const (
 )
 
 type subjectSourceContextKey struct{}
+type subjectIssuerContextKey struct{}
 
 // WithSubjectSource records the authentication flow that supplied a subject
 // so downstream authorization can resolve it against the correct identity
@@ -53,6 +54,26 @@ func SubjectSource(ctx context.Context) string {
 	}
 	source, _ := ctx.Value(subjectSourceContextKey{}).(string)
 	return strings.ToLower(strings.TrimSpace(source))
+}
+
+// WithSubjectIssuer records the issuer that supplied an OIDC subject. OIDC
+// subjects are only unique within an issuer, so downstream identity lookups
+// must retain this namespace instead of resolving by subject alone.
+func WithSubjectIssuer(ctx context.Context, issuer string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, subjectIssuerContextKey{}, strings.TrimSpace(issuer))
+}
+
+// SubjectIssuer returns the issuer that supplied the request's subject, if
+// one was recorded.
+func SubjectIssuer(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	issuer, _ := ctx.Value(subjectIssuerContextKey{}).(string)
+	return strings.TrimSpace(issuer)
 }
 
 // CurrentSession is the authenticated browser session attached to a request.
