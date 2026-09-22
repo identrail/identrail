@@ -844,11 +844,6 @@ func (m *MemoryStore) GetWorkspaceMember(ctx context.Context, workspaceID string
 	if !exists {
 		return TenancyWorkspaceMember{}, ErrNotFound
 	}
-	if member.UserUUID != "" {
-		if user, ok := m.users[member.UserUUID]; ok && user.Status != "active" {
-			return TenancyWorkspaceMember{}, ErrNotFound
-		}
-	}
 	return member, nil
 }
 
@@ -868,8 +863,7 @@ func (m *MemoryStore) GetWorkspaceMemberByUserUUID(ctx context.Context, workspac
 		return TenancyWorkspaceMember{}, err
 	}
 	normalizedUserUUID := strings.TrimSpace(userUUID)
-	user, ok := m.users[normalizedUserUUID]
-	if !ok || user.Status != "active" {
+	if _, ok := m.users[normalizedUserUUID]; !ok {
 		return TenancyWorkspaceMember{}, ErrNotFound
 	}
 	var matched TenancyWorkspaceMember

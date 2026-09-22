@@ -868,7 +868,6 @@ func (p *PostgresStore) GetWorkspaceMember(ctx context.Context, workspaceID stri
 		 LEFT JOIN users u ON u.id = m.user_uuid
 		 WHERE m.tenant_id = $1
 		   AND m.workspace_id = $2
-		   AND (u.id IS NULL OR u.status = 'active')
 		   AND m.member_id = $3`,
 		scope.TenantID,
 		resolvedWorkspaceID,
@@ -915,7 +914,6 @@ func (p *PostgresStore) GetWorkspaceMemberByUserUUID(ctx context.Context, worksp
 		 WHERE m.tenant_id = $1
 		   AND m.workspace_id = $2
 		   AND u.id IS NOT NULL
-		   AND u.status = 'active'
 		   AND m.user_uuid = NULLIF($3, '')::uuid`,
 		scope.TenantID,
 		resolvedWorkspaceID,

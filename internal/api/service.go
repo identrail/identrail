@@ -5215,6 +5215,18 @@ func lookupWorkspaceMemberForIdentity(
 	if !errors.Is(err, db.ErrNotFound) {
 		return db.TenancyWorkspaceMember{}, false, err
 	}
+	// A legacy membership has no provider namespace. If the same subject is
+	// claimed by different local accounts, it cannot be safely attributed to
+	// the issuer-specific identity resolved above. Keep the fallback fail
+	// closed rather than assigning the row to whichever issuer was presented.
+	if _, identityErr := store.GetUserIdentityBySubject(ctx, subject); identityErr != nil {
+		if errors.Is(identityErr, db.ErrConflict) {
+			return db.TenancyWorkspaceMember{}, false, nil
+		}
+		if !errors.Is(identityErr, db.ErrNotFound) {
+			return db.TenancyWorkspaceMember{}, false, identityErr
+		}
+	}
 
 	// During the strangler migration, existing rows may still carry only the
 	// provider subject in user_id. The identity mapping proves which local

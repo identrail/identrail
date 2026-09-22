@@ -1290,7 +1290,6 @@ func TestPostgresStoreWorkspaceMemberCRUD(t *testing.T) {
 		 LEFT JOIN users u ON u.id = m.user_uuid
 		 WHERE m.tenant_id = $1
 		   AND m.workspace_id = $2
-		   AND (u.id IS NULL OR u.status = 'active')
 		   AND m.member_id = $3`)).
 		WithArgs("tenant-a", "workspace-a", "member-1").
 		WillReturnRows(row)
@@ -1330,7 +1329,6 @@ func TestPostgresStoreWorkspaceMemberCRUD(t *testing.T) {
 		 WHERE m.tenant_id = $1
 		   AND m.workspace_id = $2
 		   AND u.id IS NOT NULL
-		   AND u.status = 'active'
 		   AND m.user_uuid = NULLIF($3, '')::uuid`)).
 		WithArgs("tenant-a", "workspace-a", "11111111-1111-1111-1111-111111111111").
 		WillReturnRows(uuidRow)
@@ -2151,7 +2149,6 @@ func TestPostgresStoreGetWorkspaceMemberByUserUUIDRejectsDuplicates(t *testing.T
 		 WHERE m.tenant_id = $1
 		   AND m.workspace_id = $2
 		   AND u.id IS NOT NULL
-		   AND u.status = 'active'
 		   AND m.user_uuid = NULLIF($3, '')::uuid`)).
 		WithArgs("tenant-a", "workspace-a", "11111111-1111-1111-1111-111111111111").
 		WillReturnRows(rows)
