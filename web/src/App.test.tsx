@@ -611,6 +611,13 @@ describe('App', () => {
 
     expect(screen.getByRole('heading', { name: 'Request a trust path review' })).toBeInTheDocument();
     expect(screen.queryByText('Read-only trust review')).not.toBeInTheDocument();
+    expect(screen.getByText(/Step 1 of 4/i)).toHaveClass('idt-visually-hidden');
+    expect(screen.getByText('Review everything before submitting.')).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing is sent until you review/i)).not.toBeInTheDocument();
+    const steps = screen.getByRole('list', { name: 'Scan request steps' });
+    expect(within(steps).getByText('Identity').closest('li')).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByText(/Use a work email and matching website/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Use a company email, not a personal inbox/i)).not.toBeInTheDocument();
   });
 
   it('rejects company domains that do not match the work email domain', () => {

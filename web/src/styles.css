@@ -17574,6 +17574,7 @@ html[data-theme='light'] .idt-scan-form .idt-btn-ghost,
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  min-width: 0;
   overflow: auto;
   border-right: 1px solid #242427;
   background: #090909;
@@ -17650,11 +17651,8 @@ html[data-theme='light'] .idt-scan-form .idt-btn-ghost,
   font-size: 0.9rem;
 }
 
-.idt-scan-guidance-list ul {
+.idt-scan-guidance-list p {
   margin: 0;
-  padding-left: 1rem;
-  display: grid;
-  gap: 0.45rem;
   color: #c9c9cf;
   font-size: 0.9rem;
   line-height: 1.45;
@@ -17664,6 +17662,7 @@ html[data-theme='light'] .idt-scan-form .idt-btn-ghost,
   grid-template-columns: 1fr;
   gap: 1rem;
   align-content: start;
+  min-width: 0;
   overflow: auto;
   max-width: none;
   max-height: min(90vh, 860px);
@@ -17695,16 +17694,19 @@ html[data-theme='light'] .idt-scan-form .idt-btn-ghost,
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
+  min-width: 0;
 }
 
 .idt-scan-modal-form .idt-intake-grid label {
   display: grid;
   gap: 0.4rem;
+  min-width: 0;
 }
 
 .idt-scan-modal-form .idt-intake-grid input,
 .idt-scan-modal-form .idt-intake-grid select {
   min-height: 52px;
+  min-width: 0;
 }
 
 .idt-scan-modal-form .idt-inline-actions,
@@ -17714,7 +17716,12 @@ html[data-theme='light'] .idt-scan-form .idt-btn-ghost,
 
 .idt-scan-modal-form .idt-inline-actions {
   justify-content: flex-end;
-  margin-top: 0;
+  margin-top: 0.1rem;
+}
+
+.idt-scan-modal-form .idt-intake-actions {
+  border-top: 1px solid #242427;
+  padding-top: 0.9rem;
 }
 
 .idt-scan-modal-form .idt-form-error {
@@ -17816,7 +17823,7 @@ html[data-theme='light'] .idt-scan-stepper li.is-active {
   }
 
   .idt-scan-modal-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .idt-scan-modal-guide {
@@ -17900,7 +17907,7 @@ html[data-theme='light'] .idt-scan-stepper li.is-active {
   }
 
   .idt-scan-modal-form .idt-intake-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
