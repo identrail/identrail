@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
+	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/audit"
 	awsconnector "github.com/identrail/identrail/internal/connectors/aws"
@@ -627,6 +627,18 @@ var ErrWorkspaceDeletionGraceExpired = errors.New("workspace deletion grace peri
 // grants the action to "owner"-role memberships, but this service-level check
 // is the authoritative gate so role claims alone cannot bypass membership.
 var ErrWorkspaceOwnerRequired = errors.New("workspace owner role required")
+
+// ErrWorkspaceAdminRequired indicates a membership-management write was
+// attempted by a caller without an active owner or admin membership.
+var ErrWorkspaceAdminRequired = errors.New("workspace admin role required")
+
+// workspaceMemberAPIKeyCaller marks an authenticated API-key request at the
+// service boundary. API keys can carry platform scopes, but they do not map to
+// an active workspace membership and therefore cannot create or delete one.
+const (
+	workspaceMemberAPIKeyCaller          = "\x00identrail-api-key"
+	workspaceMemberUnauthenticatedCaller = "\x00identrail-unauthenticated"
+)
 
 // ErrWorkspaceNotReactivatable indicates a reactivate request hit a
 // workspace that is not in the suspended state. Soft-deleted workspaces
@@ -3605,7 +3617,11 @@ func (s *Service) requireWorkspaceOwner(ctx context.Context, workspaceID string,
 		}
 		return err
 	}
-	if member.Status != "active" || member.Role != "owner" {
+	active, activeErr := s.workspaceMemberIsActive(ctx, member)
+	if activeErr != nil {
+		return activeErr
+	}
+	if !active || member.Role != "owner" {
 		return ErrWorkspaceOwnerRequired
 	}
 	return nil
@@ -3678,6 +3694,19 @@ func (s *Service) UpsertWorkspaceMember(
 	workspaceID string,
 	request WorkspaceMemberUpsertRequest,
 ) (db.TenancyWorkspaceMember, error) {
+	return s.UpsertWorkspaceMemberAs(ctx, workspaceID, request, "")
+}
+
+// UpsertWorkspaceMemberAs creates or updates one scoped workspace member after
+// validating the caller's active owner/admin membership. An empty caller is
+// reserved for trusted internal provisioning; HTTP handlers must pass the
+// authenticated subject so provider claims cannot replace the membership row.
+func (s *Service) UpsertWorkspaceMemberAs(
+	ctx context.Context,
+	workspaceID string,
+	request WorkspaceMemberUpsertRequest,
+	callerSubject string,
+) (db.TenancyWorkspaceMember, error) {
 	ctx = s.scopeContext(ctx)
 	scope, err := db.RequireScope(ctx)
 	if err != nil {
@@ -3687,11 +3716,27 @@ func (s *Service) UpsertWorkspaceMember(
 	if err != nil {
 		return db.TenancyWorkspaceMember{}, err
 	}
+	if err := s.requireWorkspaceAdmin(ctx, normalizedWorkspaceID, callerSubject); err != nil {
+		return db.TenancyWorkspaceMember{}, err
+	}
+	existing, existingErr := s.Store.GetWorkspaceMember(ctx, normalizedWorkspaceID, strings.TrimSpace(request.MemberID))
+	if existingErr != nil && !errors.Is(existingErr, db.ErrNotFound) {
+		return db.TenancyWorkspaceMember{}, existingErr
+	}
+	var existingMember db.TenancyWorkspaceMember
+	if existingErr == nil {
+		existingMember = existing
+	}
+	resolvedUserUUID, resolveErr := resolveWorkspaceMemberUserUUID(ctx, s.Store, request, existingMember)
+	if resolveErr != nil {
+		return db.TenancyWorkspaceMember{}, resolveErr
+	}
 	normalized, err := db.NormalizeTenancyWorkspaceMemberForWrite(db.TenancyWorkspaceMember{
 		TenantID:    scope.TenantID,
 		WorkspaceID: normalizedWorkspaceID,
 		MemberID:    request.MemberID,
 		UserID:      request.UserID,
+		UserUUID:    resolvedUserUUID,
 		Email:       request.Email,
 		Role:        request.Role,
 		Status:      request.Status,
@@ -3713,8 +3758,114 @@ func (s *Service) GetWorkspaceMember(ctx context.Context, workspaceID string, me
 
 // DeleteWorkspaceMember removes one scoped workspace member.
 func (s *Service) DeleteWorkspaceMember(ctx context.Context, workspaceID string, memberID string) error {
+	return s.DeleteWorkspaceMemberAs(ctx, workspaceID, memberID, "")
+}
+
+// DeleteWorkspaceMemberAs removes one member after validating the caller's
+// active owner/admin membership. An empty caller is reserved for trusted
+// internal maintenance; HTTP handlers must pass the authenticated subject.
+func (s *Service) DeleteWorkspaceMemberAs(ctx context.Context, workspaceID string, memberID string, callerSubject string) error {
 	ctx = s.scopeContext(ctx)
-	return s.Store.DeleteWorkspaceMember(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(memberID))
+	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	if err := s.requireWorkspaceAdmin(ctx, normalizedWorkspaceID, callerSubject); err != nil {
+		return err
+	}
+	return s.Store.DeleteWorkspaceMember(ctx, normalizedWorkspaceID, strings.TrimSpace(memberID))
+}
+
+// requireWorkspaceAdmin is the service-level membership gate for workspace
+// administration. Route RBAC is intentionally not enough: bearer-token role
+// claims can be stale or misconfigured, while this lookup is bound to the
+// caller and target workspace. An empty subject is trusted only by internal
+// provisioning callers; HTTP handlers mark API-key callers explicitly so
+// platform scopes cannot be used to assign workspace roles.
+func (s *Service) requireWorkspaceAdmin(ctx context.Context, workspaceID string, callerSubject string) error {
+	if _, err := s.Store.GetWorkspace(ctx, workspaceID); err != nil {
+		return err
+	}
+	trimmedCaller := strings.TrimSpace(callerSubject)
+	if trimmedCaller == workspaceMemberAPIKeyCaller || trimmedCaller == workspaceMemberUnauthenticatedCaller {
+		return ErrWorkspaceAdminRequired
+	}
+	if trimmedCaller == "" {
+		return nil
+	}
+	member, found, err := s.lookupWorkspaceMemberBySubject(ctx, workspaceID, callerSubject)
+	if err != nil {
+		return err
+	}
+	if !found || strings.ToLower(strings.TrimSpace(member.Status)) != "active" {
+		return ErrWorkspaceAdminRequired
+	}
+	switch strings.ToLower(strings.TrimSpace(member.Role)) {
+	case "owner", "admin":
+		return nil
+	default:
+		return ErrWorkspaceAdminRequired
+	}
+}
+
+func resolveWorkspaceMemberUserUUID(
+	ctx context.Context,
+	store db.Store,
+	request WorkspaceMemberUpsertRequest,
+	existing db.TenancyWorkspaceMember,
+) (string, error) {
+	subject := strings.TrimSpace(request.UserID)
+	if subject == "" {
+		return "", ErrInvalidTenancyRequest
+	}
+	if existing.UserUUID != "" && strings.TrimSpace(existing.UserID) == subject {
+		return validateWorkspaceMemberUserUUID(ctx, store, existing.UserUUID, request.Status)
+	}
+	// The member target is supplied independently of the caller. Do not use
+	// the caller's OIDC issuer here: an administrator from issuer A may manage
+	// a member whose subject belongs to issuer B. The provider-independent lookup
+	// accepts that case when the subject is unique and returns ErrConflict when
+	// it could bind to different local accounts.
+	if identity, err := store.GetUserIdentityBySubject(ctx, subject); err == nil {
+		return validateWorkspaceMemberUserUUID(ctx, store, identity.UserID, request.Status)
+	} else if !errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, db.ErrConflict) {
+			return "", ErrInvalidTenancyRequest
+		}
+		return "", err
+	}
+	if email := strings.TrimSpace(request.Email); email != "" {
+		if user, err := store.GetUserByPrimaryEmail(ctx, email); err == nil {
+			return validateWorkspaceMemberUserUUID(ctx, store, user.ID, request.Status)
+		} else if !errors.Is(err, db.ErrNotFound) {
+			return "", err
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(request.Status), "active") {
+		// An active membership must be bound to a local account. Invited rows
+		// may remain unclaimed until the first authenticated login.
+		return "", ErrInvalidTenancyRequest
+	}
+	return "", nil
+}
+
+func validateWorkspaceMemberUserUUID(ctx context.Context, store db.Store, userUUID string, status string) (string, error) {
+	user, err := store.GetUser(ctx, strings.TrimSpace(userUUID))
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return "", ErrInvalidTenancyRequest
+		}
+		return "", err
+	}
+	if strings.EqualFold(strings.TrimSpace(status), "active") && !strings.EqualFold(strings.TrimSpace(user.Status), "active") {
+		return "", ErrInvalidTenancyRequest
+	}
+	return user.ID, nil
+}
+
+func lookupUserIdentityBySubject(ctx context.Context, store db.Store, subject string) (db.UserIdentity, error) {
+	issuer := sessionauth.SubjectIssuer(ctx)
+	if issuer != "" {
+		return store.GetUserIdentity(ctx, "oidc:"+issuer, subject)
+	}
+	return store.GetUserIdentityBySubject(ctx, subject)
 }
 
 // ListProjects returns projects for one scoped workspace.
@@ -3790,6 +3941,13 @@ func (s *Service) ResolveWhoAmIContext(ctx context.Context, subject string) (Who
 		member, memberFound, err := s.lookupWorkspaceMemberBySubject(workspaceScope, workspace.WorkspaceID, normalizedSubject)
 		if err != nil {
 			return WhoAmIContext{}, err
+		}
+		// Browser/OIDC subjects must only receive workspaces where they have
+		// an active membership. Returning every tenant workspace (or a removed
+		// membership row) made the switcher present access the caller could not
+		// actually use and made member/admin boundaries look inconsistent.
+		if normalizedSubject != "" && (!memberFound || strings.ToLower(strings.TrimSpace(member.Status)) != "active") {
+			continue
 		}
 		workspaceContext := WorkspaceContext{
 			Workspace: workspace,
@@ -5000,40 +5158,121 @@ func (s *Service) lookupWorkspaceMemberBySubject(
 	if normalizedSubject == "" {
 		return db.TenancyWorkspaceMember{}, false, nil
 	}
-	if _, err := uuid.Parse(normalizedSubject); err == nil {
+	if sessionauth.SubjectSource(ctx) == sessionauth.SubjectSourceSession {
 		member, err := s.Store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, normalizedSubject)
 		if err != nil && !errors.Is(err, db.ErrNotFound) {
 			return db.TenancyWorkspaceMember{}, false, err
 		}
 		if err == nil {
-			if strings.ToLower(strings.TrimSpace(member.Status)) == "active" {
+			active, activeErr := s.workspaceMemberIsActive(ctx, member)
+			if activeErr != nil {
+				return db.TenancyWorkspaceMember{}, false, activeErr
+			}
+			if active {
 				return member, true, nil
 			}
-			return member, true, nil
+			return db.TenancyWorkspaceMember{}, false, nil
 		}
+		return db.TenancyWorkspaceMember{}, false, nil
 	}
-	members, err := s.ListWorkspaceMembers(ctx, workspaceID, "", "", maxCursorFetchLimit)
-	if err != nil {
+	identity, err := lookupUserIdentityBySubject(ctx, s.Store, normalizedSubject)
+	if err == nil {
+		return lookupWorkspaceMemberForIdentity(ctx, s.Store, workspaceID, normalizedSubject, identity.UserID)
+	}
+	if errors.Is(err, db.ErrConflict) {
+		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	if !errors.Is(err, db.ErrNotFound) {
 		return db.TenancyWorkspaceMember{}, false, err
 	}
-	var fallback db.TenancyWorkspaceMember
-	fallbackSet := false
-	for _, member := range members {
-		if strings.TrimSpace(member.UserID) != normalizedSubject {
-			continue
+	return db.TenancyWorkspaceMember{}, false, nil
+}
+
+func lookupWorkspaceMemberForIdentity(
+	ctx context.Context,
+	store db.Store,
+	workspaceID string,
+	subject string,
+	userUUID string,
+) (db.TenancyWorkspaceMember, bool, error) {
+	member, err := store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, userUUID)
+	if err == nil {
+		active, activeErr := workspaceMemberAccountIsActive(ctx, store, member)
+		if activeErr != nil {
+			return db.TenancyWorkspaceMember{}, false, activeErr
 		}
-		if strings.ToLower(strings.TrimSpace(member.Status)) == "active" {
+		if active {
 			return member, true, nil
 		}
-		if !fallbackSet {
-			fallback = member
-			fallbackSet = true
+		// Keep a known membership visible to policy resolution even when its
+		// membership or linked account is inactive. The policy layer must see
+		// found=true so it strips bearer scopes instead of treating this as an
+		// unknown subject. Callers that require active access still reject the
+		// returned row by status.
+		member.Status = "suspended"
+		return member, true, nil
+	}
+	if !errors.Is(err, db.ErrNotFound) {
+		return db.TenancyWorkspaceMember{}, false, err
+	}
+	// A legacy membership has no provider namespace. If the same subject is
+	// claimed by different local accounts, it cannot be safely attributed to
+	// the issuer-specific identity resolved above. Keep the fallback fail
+	// closed rather than assigning the row to whichever issuer was presented.
+	if _, identityErr := store.GetUserIdentityBySubject(ctx, subject); identityErr != nil {
+		if errors.Is(identityErr, db.ErrConflict) {
+			return db.TenancyWorkspaceMember{}, false, nil
+		}
+		if !errors.Is(identityErr, db.ErrNotFound) {
+			return db.TenancyWorkspaceMember{}, false, identityErr
 		}
 	}
-	if fallbackSet {
-		return fallback, true, nil
+
+	// During the strangler migration, existing rows may still carry only the
+	// provider subject in user_id. The identity mapping proves which local
+	// account owns that subject; validate that account before exposing the
+	// legacy membership as active, and populate the UUID in the returned copy
+	// so all downstream lifecycle checks use the same account invariant.
+	legacy, legacyErr := store.GetWorkspaceMemberByUserID(ctx, workspaceID, subject)
+	if errors.Is(legacyErr, db.ErrNotFound) {
+		return db.TenancyWorkspaceMember{}, false, nil
 	}
-	return db.TenancyWorkspaceMember{}, false, nil
+	if legacyErr != nil {
+		return db.TenancyWorkspaceMember{}, false, legacyErr
+	}
+	user, userErr := store.GetUser(ctx, userUUID)
+	if errors.Is(userErr, db.ErrNotFound) {
+		legacy.Status = "suspended"
+		return legacy, true, nil
+	}
+	if userErr != nil {
+		return db.TenancyWorkspaceMember{}, false, userErr
+	}
+	if !strings.EqualFold(strings.TrimSpace(user.Status), "active") || strings.ToLower(strings.TrimSpace(legacy.Status)) != "active" {
+		legacy.UserUUID = user.ID
+		legacy.Status = "suspended"
+		return legacy, true, nil
+	}
+	legacy.UserUUID = user.ID
+	return legacy, true, nil
+}
+
+func (s *Service) workspaceMemberIsActive(ctx context.Context, member db.TenancyWorkspaceMember) (bool, error) {
+	return workspaceMemberAccountIsActive(ctx, s.Store, member)
+}
+
+func workspaceMemberAccountIsActive(ctx context.Context, store db.Store, member db.TenancyWorkspaceMember) (bool, error) {
+	if strings.ToLower(strings.TrimSpace(member.Status)) != "active" || strings.TrimSpace(member.UserUUID) == "" {
+		return false, nil
+	}
+	user, err := store.GetUser(ctx, member.UserUUID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return strings.EqualFold(strings.TrimSpace(user.Status), "active"), nil
 }
 
 func firstNonEmptyTag(tags map[string]string, keys ...string) string {

@@ -639,6 +639,23 @@ func TestMemoryHardDeleteUserPurgesPIIAndIdentities(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed identity: %v", err)
 	}
+	scopeCtx := WithScope(ctx, Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopeCtx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopeCtx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopeCtx, TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-purge",
+		UserID:      "subject-purge",
+		Email:       user.PrimaryEmail,
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed workspace membership: %v", err)
+	}
 	if _, err := store.SoftDeleteUser(ctx, user.ID, now); err != nil {
 		t.Fatalf("soft delete: %v", err)
 	}
@@ -654,6 +671,113 @@ func TestMemoryHardDeleteUserPurgesPIIAndIdentities(t *testing.T) {
 	}
 	if _, err := store.GetUserIdentity(ctx, "workos", "subject-purge"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected identity removed, got %v", err)
+	}
+	if _, err := store.GetWorkspaceMemberByUserID(scopeCtx, "workspace-a", "subject-purge"); err != nil {
+		t.Fatalf("expected unqualified legacy membership preserved, got %v", err)
+	}
+}
+
+func TestMemoryHardDeleteUserPreservesLegacySubjectWithoutProviderNamespace(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	target, err := store.UpsertUser(ctx, User{PrimaryEmail: "target-legacy@example.com", CreatedAt: now})
+	if err != nil {
+		t.Fatalf("seed target user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(ctx, UserIdentity{UserID: target.ID, Provider: "provider-a", Subject: "shared-with-unbackfilled-provider", CreatedAt: now}); err != nil {
+		t.Fatalf("seed target identity: %v", err)
+	}
+	scopeCtx := WithScope(ctx, Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopeCtx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopeCtx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopeCtx, TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "legacy-member", UserID: "shared-with-unbackfilled-provider",
+		Role: "viewer", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed legacy membership: %v", err)
+	}
+	if _, err := store.SoftDeleteUser(ctx, target.ID, now); err != nil {
+		t.Fatalf("soft delete target: %v", err)
+	}
+	if _, err := store.HardDeleteUser(ctx, target.ID, now.Add(UserDeletionGracePeriod+time.Hour)); err != nil {
+		t.Fatalf("hard delete target: %v", err)
+	}
+	if _, err := store.GetWorkspaceMemberByUserID(scopeCtx, "workspace-a", "shared-with-unbackfilled-provider"); err != nil {
+		t.Fatalf("expected unqualified legacy membership to remain for safe reconciliation, got %v", err)
+	}
+}
+
+func TestMemoryHardDeleteUserPreservesAmbiguousLegacySubjectMembership(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	target, err := store.UpsertUser(ctx, User{
+		ID:           "11111111-1111-1111-1111-111111111111",
+		PrimaryEmail: "target@example.com",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("seed target user: %v", err)
+	}
+	other, err := store.UpsertUser(ctx, User{
+		ID:           "22222222-2222-2222-2222-222222222222",
+		PrimaryEmail: "other@example.com",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("seed other user: %v", err)
+	}
+	for _, identity := range []UserIdentity{
+		{UserID: target.ID, Provider: "provider-a", Subject: "shared-subject", CreatedAt: now},
+		{UserID: other.ID, Provider: "provider-b", Subject: "shared-subject", CreatedAt: now},
+	} {
+		if _, err := store.UpsertUserIdentity(ctx, identity); err != nil {
+			t.Fatalf("seed identity: %v", err)
+		}
+	}
+	scopeCtx := WithScope(ctx, Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopeCtx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopeCtx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	for _, member := range []TenancyWorkspaceMember{
+		{WorkspaceID: "workspace-a", MemberID: "target-member", UserUUID: target.ID, UserID: target.ID, Role: "viewer", Status: "active"},
+		{WorkspaceID: "workspace-a", MemberID: "other-legacy-member", UserID: "shared-subject", Role: "viewer", Status: "active"},
+		{WorkspaceID: "workspace-a", MemberID: "uuid-looking-orphan", UserID: target.ID, Role: "viewer", Status: "active"},
+	} {
+		if err := store.UpsertWorkspaceMember(scopeCtx, member); err != nil {
+			t.Fatalf("seed workspace membership: %v", err)
+		}
+	}
+	if _, err := store.SoftDeleteUser(ctx, target.ID, now); err != nil {
+		t.Fatalf("soft delete target: %v", err)
+	}
+	if _, err := store.HardDeleteUser(ctx, target.ID, now.Add(UserDeletionGracePeriod+time.Hour)); err != nil {
+		t.Fatalf("hard delete target: %v", err)
+	}
+	if _, err := store.GetWorkspaceMember(scopeCtx, "workspace-a", "target-member"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected target membership removed, got %v", err)
+	}
+	store.mu.RLock()
+	for _, member := range store.members {
+		if member.UserUUID == target.ID {
+			store.mu.RUnlock()
+			t.Fatalf("expected hard delete to remove target UUID membership, found %+v", member)
+		}
+	}
+	store.mu.RUnlock()
+	if _, err := store.GetWorkspaceMember(scopeCtx, "workspace-a", "other-legacy-member"); err != nil {
+		t.Fatalf("expected ambiguous legacy membership preserved, got %v", err)
+	}
+	if _, err := store.GetWorkspaceMember(scopeCtx, "workspace-a", "uuid-looking-orphan"); err != nil {
+		t.Fatalf("expected unverified UUID-looking subject membership preserved, got %v", err)
 	}
 }
 

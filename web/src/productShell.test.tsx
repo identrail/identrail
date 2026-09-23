@@ -3835,7 +3835,12 @@ describe('ProductOverviewPage', () => {
 });
 
 describe('Domain-first app routes', () => {
-  afterEach(() => {
+	beforeEach(async () => {
+		const { clearMeCacheForTests } = await import('./hooks/useMe');
+		clearMeCacheForTests();
+	});
+
+	afterEach(() => {
     window.localStorage.removeItem('idt:sidebar:collapsed');
     vi.restoreAllMocks();
     vi.doUnmock('./hooks/useBackendFeatures');

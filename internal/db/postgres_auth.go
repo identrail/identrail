@@ -374,6 +374,16 @@ func (p *PostgresStore) HardDeleteUser(ctx context.Context, userID string, now t
 		}
 		return User{}, err
 	}
+	// Membership rows bound to the local account are removed rather than left
+	// behind with a NULL user_uuid. Legacy rows store only a raw provider subject
+	// in user_id and do not retain its provider namespace. Deleting those rows by
+	// subject would be unsafe when another provider has the same subject but has
+	// not yet been backfilled into user_identities, so they are deliberately
+	// preserved and become inaccessible after the identity mapping is removed.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM tenancy_workspace_members
+			 WHERE user_uuid = NULLIF($1, '')::uuid`, id); err != nil {
+		return User{}, err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM user_identities WHERE user_id = NULLIF($1, '')::uuid`, id); err != nil {
 		return User{}, err
 	}
@@ -484,6 +494,57 @@ func (p *PostgresStore) GetUserIdentity(ctx context.Context, provider string, su
 		return UserIdentity{}, err
 	}
 	return identity, nil
+}
+
+// GetUserIdentityBySubject resolves one subject across providers. A subject
+// collision between local accounts is ambiguous and must not be used for
+// authorization or destructive cleanup.
+func (p *PostgresStore) GetUserIdentityBySubject(ctx context.Context, subject string) (UserIdentity, error) {
+	rows, err := p.queryContextAnyScope(
+		ctx,
+		`SELECT id::text, user_id::text, provider, subject, COALESCE(email::text, ''), email_verified, raw_claims, last_authenticated_at, created_at
+		 FROM user_identities
+		 WHERE subject = $1
+		 ORDER BY user_id::text, provider, id::text`,
+		strings.TrimSpace(subject),
+	)
+	if err != nil {
+		return UserIdentity{}, err
+	}
+	defer rows.Close()
+	var match UserIdentity
+	found := false
+	for rows.Next() {
+		var identity UserIdentity
+		if err := rows.Scan(
+			&identity.ID,
+			&identity.UserID,
+			&identity.Provider,
+			&identity.Subject,
+			&identity.Email,
+			&identity.EmailVerified,
+			&identity.RawClaims,
+			&identity.LastAuthenticatedAt,
+			&identity.CreatedAt,
+		); err != nil {
+			return UserIdentity{}, err
+		}
+		if !found {
+			match = identity
+			found = true
+			continue
+		}
+		if identity.UserID != match.UserID {
+			return UserIdentity{}, ErrConflict
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return UserIdentity{}, err
+	}
+	if !found {
+		return UserIdentity{}, ErrNotFound
+	}
+	return match, nil
 }
 
 // GetUserIdentityByProviderUserID returns one provider identity for a user.

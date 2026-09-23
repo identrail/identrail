@@ -425,6 +425,12 @@ func (m *MemoryStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, wo
 		if member.Status != "active" {
 			continue
 		}
+		if member.UserUUID != "" {
+			user, ok := m.users[member.UserUUID]
+			if !ok || user.Status != "active" {
+				continue
+			}
+		}
 		if member.UserUUID == normalizedUserUUID {
 			if member.Role == "owner" {
 				callerIsOwner = true
@@ -432,7 +438,16 @@ func (m *MemoryStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, wo
 			continue
 		}
 		if member.Role == "owner" {
-			if owner, ok := m.users[member.UserUUID]; ok && owner.Status == "deleted" {
+			if member.UserUUID != "" {
+				if owner, ok := m.users[member.UserUUID]; !ok || owner.Status != "active" {
+					continue
+				}
+			}
+			// A legacy owner without user_uuid remains an active co-owner until
+			// the identity backfill resolves it. Failing closed here prevents a
+			// caller from being treated as the sole owner merely because the
+			// migration has not completed.
+			if member.UserUUID != "" && member.UserUUID == normalizedUserUUID {
 				continue
 			}
 			otherLiveOwners++
@@ -832,7 +847,9 @@ func (m *MemoryStore) GetWorkspaceMember(ctx context.Context, workspaceID string
 	return member, nil
 }
 
-// GetWorkspaceMemberByUserUUID returns one scoped workspace member by auth user UUID.
+// GetWorkspaceMemberByUserUUID returns one scoped workspace member by auth
+// user UUID. It returns ErrConflict when corrupted or pre-backfill data has
+// multiple memberships for the same local account in one workspace.
 func (m *MemoryStore) GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -846,10 +863,54 @@ func (m *MemoryStore) GetWorkspaceMemberByUserUUID(ctx context.Context, workspac
 		return TenancyWorkspaceMember{}, err
 	}
 	normalizedUserUUID := strings.TrimSpace(userUUID)
+	if _, ok := m.users[normalizedUserUUID]; !ok {
+		return TenancyWorkspaceMember{}, ErrNotFound
+	}
+	var matched TenancyWorkspaceMember
+	found := false
 	for _, member := range m.members {
 		if member.TenantID == scope.TenantID &&
 			member.WorkspaceID == resolvedWorkspaceID &&
 			member.UserUUID == normalizedUserUUID {
+			if found {
+				return TenancyWorkspaceMember{}, ErrConflict
+			}
+			matched = member
+			found = true
+		}
+	}
+	if !found {
+		return TenancyWorkspaceMember{}, ErrNotFound
+	}
+	return matched, nil
+}
+
+// GetWorkspaceMemberByUserID returns one scoped workspace member by its
+// provider subject. Legacy membership rows use this field when user_uuid is
+// unavailable, so callers must not enumerate the entire workspace to resolve
+// one subject.
+func (m *MemoryStore) GetWorkspaceMemberByUserID(ctx context.Context, workspaceID string, userID string) (TenancyWorkspaceMember, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	normalizedUserID := strings.TrimSpace(userID)
+	for _, member := range m.members {
+		if member.TenantID == scope.TenantID &&
+			member.WorkspaceID == resolvedWorkspaceID &&
+			member.UserID == normalizedUserID {
+			if member.UserUUID != "" {
+				// A provider-subject lookup is only a legacy path. Never let it
+				// override the authoritative UUID binding for another account.
+				continue
+			}
 			return member, nil
 		}
 	}
@@ -972,7 +1033,7 @@ func (m *MemoryStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID stri
 			userOwns[key] = struct{}{}
 			continue
 		}
-		if owner, ok := m.users[member.UserUUID]; ok && owner.Status == "deleted" {
+		if owner, ok := m.users[member.UserUUID]; ok && owner.Status != "active" {
 			continue
 		}
 		otherLiveOwners[key]++
@@ -1015,6 +1076,11 @@ func (m *MemoryStore) ListWorkspaceMembers(ctx context.Context, workspaceID stri
 	for _, member := range m.members {
 		if member.TenantID != scope.TenantID || member.WorkspaceID != normalizedWorkspaceID {
 			continue
+		}
+		if member.UserUUID != "" {
+			if user, ok := m.users[member.UserUUID]; ok && user.Status != "active" {
+				continue
+			}
 		}
 		members = append(members, member)
 	}

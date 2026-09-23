@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/app"
 	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
@@ -33,6 +34,15 @@ func (f fakeScanner) Run(context.Context) (app.ScanResult, error) {
 		return app.ScanResult{}, f.err
 	}
 	return f.result, nil
+}
+
+type getUserErrorStore struct {
+	db.Store
+	err error
+}
+
+func (s *getUserErrorStore) GetUser(context.Context, string) (db.User, error) {
+	return db.User{}, s.err
 }
 
 type unscopedConnectorFallbackStore struct {
@@ -3699,7 +3709,29 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed workspace-b: %v", err)
 	}
+	workspaceCCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-c"})
+	if err := store.UpsertWorkspace(workspaceCCtx, db.TenancyWorkspace{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-c",
+		DisplayName: "Workspace C",
+		Slug:        "workspace-c",
+	}); err != nil {
+		t.Fatalf("seed workspace-c: %v", err)
+	}
 	workspaceACtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if _, err := store.UpsertUser(context.Background(), db.User{
+		ID:           userUUID,
+		PrimaryEmail: "user1@example.com",
+		DisplayName:  "User One",
+		Status:       "active",
+	}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: userUUID, Provider: "oidc:https://issuer.example.com", Subject: "user-1",
+	}); err != nil {
+		t.Fatalf("seed user identity: %v", err)
+	}
 	if err := store.UpsertWorkspaceMember(workspaceACtx, db.TenancyWorkspaceMember{
 		TenantID:    "tenant-a",
 		WorkspaceID: "workspace-a",
@@ -3722,8 +3754,20 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed workspace-b member: %v", err)
 	}
+	if err := store.UpsertWorkspaceMember(workspaceCCtx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-c",
+		MemberID:    "member-c",
+		UserID:      "user-1",
+		UserUUID:    userUUID,
+		Role:        "admin",
+		Status:      "removed",
+	}); err != nil {
+		t.Fatalf("seed removed workspace-c member: %v", err)
+	}
 
-	contextSnapshot, err := svc.ResolveWhoAmIContext(scopeCtx, "user-1")
+	oidcScopeCtx := sessionauth.WithSubjectIssuer(scopeCtx, "https://issuer.example.com")
+	contextSnapshot, err := svc.ResolveWhoAmIContext(oidcScopeCtx, "user-1")
 	if err != nil {
 		t.Fatalf("resolve whoami context: %v", err)
 	}
@@ -3737,10 +3781,15 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 		t.Fatalf("unexpected active workspace member: %+v", contextSnapshot.ActiveWorkspace.Member)
 	}
 	if len(contextSnapshot.Workspaces) != 2 {
-		t.Fatalf("expected 2 workspace contexts, got %d", len(contextSnapshot.Workspaces))
+		t.Fatalf("expected only active memberships in workspace contexts, got %d", len(contextSnapshot.Workspaces))
+	}
+	for _, item := range contextSnapshot.Workspaces {
+		if item.Workspace.WorkspaceID == "workspace-c" {
+			t.Fatal("removed workspace membership must not appear in whoami contexts")
+		}
 	}
 
-	switched, err := svc.ResolveActiveWorkspace(scopeCtx, "user-1", "workspace-b")
+	switched, err := svc.ResolveActiveWorkspace(oidcScopeCtx, "user-1", "workspace-b")
 	if err != nil {
 		t.Fatalf("resolve active workspace: %v", err)
 	}
@@ -3751,12 +3800,103 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 		t.Fatalf("unexpected switched member role: %+v", switched.Member)
 	}
 
-	switchedByUUID, err := svc.ResolveActiveWorkspace(scopeCtx, userUUID, "workspace-b")
+	sessionScopeCtx := sessionauth.WithSubjectSource(scopeCtx, sessionauth.SubjectSourceSession)
+	switchedByUUID, err := svc.ResolveActiveWorkspace(sessionScopeCtx, userUUID, "workspace-b")
 	if err != nil {
 		t.Fatalf("resolve active workspace by user uuid: %v", err)
 	}
 	if switchedByUUID.Member == nil || switchedByUUID.Member.MemberID != "member-b" {
 		t.Fatalf("unexpected uuid switched member: %+v", switchedByUUID.Member)
+	}
+
+	if _, err := svc.ResolveActiveWorkspace(oidcScopeCtx, "user-1", "workspace-c"); !errors.Is(err, ErrWorkspaceAccessDenied) {
+		t.Fatalf("expected removed workspace membership to deny switching, got %v", err)
+	}
+}
+
+func TestServiceResolveLegacyWorkspaceMemberByOIDCIdentity(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	issuer := "https://issuer.example.com"
+	subject := "legacy-oidc-subject"
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	ctx := sessionauth.WithSubjectIssuer(db.WithScope(context.Background(), scope), issuer)
+
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	user, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "legacy@example.com", Status: "active"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: user.ID, Provider: "oidc:" + issuer, Subject: subject,
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "legacy-member", UserID: subject,
+		Role: "admin", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed legacy membership: %v", err)
+	}
+
+	resolved, err := svc.ResolveWhoAmIContext(ctx, subject)
+	if err != nil {
+		t.Fatalf("resolve legacy whoami context: %v", err)
+	}
+	if resolved.ActiveWorkspace == nil || resolved.ActiveWorkspace.Member == nil {
+		t.Fatalf("expected legacy membership to remain visible: %+v", resolved)
+	}
+	if resolved.ActiveWorkspace.Member.UserUUID != user.ID || resolved.ActiveWorkspace.Member.Role != "admin" {
+		t.Fatalf("expected legacy membership to be bound to mapped active user, got %+v", resolved.ActiveWorkspace.Member)
+	}
+
+	switched, err := svc.ResolveActiveWorkspace(ctx, subject, "workspace-a")
+	if err != nil {
+		t.Fatalf("resolve legacy active workspace: %v", err)
+	}
+	if switched.Member == nil || switched.Member.UserUUID != user.ID {
+		t.Fatalf("expected legacy active workspace membership to retain mapped UUID, got %+v", switched.Member)
+	}
+}
+
+func TestServiceResolveWhoAmIContextPropagatesUserLookupErrors(t *testing.T) {
+	store := db.NewMemoryStore()
+	scopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopeCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopeCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	user, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "member@example.com", Status: "active"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: user.ID, Provider: "workos", Subject: "subject-a",
+	}); err != nil {
+		t.Fatalf("seed user identity: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopeCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "subject-a",
+		UserUUID:    user.ID,
+		Role:        "admin",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed membership: %v", err)
+	}
+
+	databaseErr := errors.New("database temporarily unavailable")
+	svc := NewService(&getUserErrorStore{Store: store, err: databaseErr}, fakeScanner{}, "aws")
+	if _, err := svc.ResolveWhoAmIContext(scopeCtx, "subject-a"); !errors.Is(err, databaseErr) {
+		t.Fatalf("expected user lookup error to propagate, got %v", err)
 	}
 }
 

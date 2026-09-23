@@ -145,9 +145,20 @@ function repoRemediationPreviewPayload() {
   };
 }
 
-function currentMePayload(tenantID = 'default', workspaceID = 'default', role = 'owner') {
-  return {
-    me: {
+function currentMePayload(tenantID = 'default', workspaceID = 'default', role: string | null = 'owner') {
+  const me: {
+    user: {
+      id: string;
+      primary_email: string;
+      display_name: string;
+      status: string;
+      created_at: string;
+      updated_at: string;
+    };
+    org_id: string;
+    workspace_id: string;
+    role?: string;
+  } = {
       user: {
         id: 'user-1',
         primary_email: 'owner@example.com',
@@ -157,10 +168,12 @@ function currentMePayload(tenantID = 'default', workspaceID = 'default', role = 
         updated_at: '2026-01-01T00:00:00Z'
       },
       org_id: tenantID,
-      workspace_id: workspaceID,
-      role
-    }
-  };
+      workspace_id: workspaceID
+    };
+  if (role !== null) {
+    me.role = role;
+  }
+  return { me };
 }
 
 function projectListPayload() {
@@ -1253,7 +1266,7 @@ describe('App', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
-        return okJSON(currentMePayload('', ''));
+        return okJSON(currentMePayload('', '', null));
       }
       if (url.endsWith('/v1/me/sessions')) {
         return okJSON({
@@ -1279,9 +1292,29 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
-    expect(await screen.findByText(/No workspace selected yet/i)).toBeInTheDocument();
+		 expect(await screen.findByRole('heading', { level: 2, name: 'No workspace role' })).toBeInTheDocument();
+		 expect(await screen.findByText(/No workspace membership selected/i)).toBeInTheDocument();
     expect(await screen.findByText(/current browser/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Back to app/i })).toHaveAttribute('href', '/app');
+  });
+
+  it('displays the validated workspace role on account security', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a', 'admin'));
+      }
+      if (url.endsWith('/v1/me/sessions')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/account/security');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'admin' })).toBeInTheDocument();
   });
 
   it('revalidates session after same-workspace navigation from an auth error', async () => {

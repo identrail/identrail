@@ -4068,8 +4068,19 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 	}
 
 	memberResp := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", `{"member_id":"member-1","user_id":"user-1","email":"user1@example.com","role":"admin","status":"active"}`)
-	if memberResp.Code != http.StatusOK {
-		t.Fatalf("expected member upsert 200, got %d body=%s", memberResp.Code, memberResp.Body.String())
+	if memberResp.Code != http.StatusForbidden {
+		t.Fatalf("expected API-key member upsert 403, got %d body=%s", memberResp.Code, memberResp.Body.String())
+	}
+	memberScope := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertWorkspaceMember(memberScope, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-1",
+		UserID:      "user-1",
+		Email:       "user1@example.com",
+		Role:        "admin",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed member for read assertions: %v", err)
 	}
 
 	listMembersResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/members?role=admin&status=active", "")
@@ -4182,8 +4193,8 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 	}
 
 	deleteMemberResp := doRequest(http.MethodDelete, "/v1/workspaces/workspace-a/members/member-1", "")
-	if deleteMemberResp.Code != http.StatusNoContent {
-		t.Fatalf("expected member delete 204, got %d body=%s", deleteMemberResp.Code, deleteMemberResp.Body.String())
+	if deleteMemberResp.Code != http.StatusForbidden {
+		t.Fatalf("expected API-key member delete 403, got %d body=%s", deleteMemberResp.Code, deleteMemberResp.Body.String())
 	}
 
 	// DELETE /v1/workspaces/:id is now an owner-only soft delete (see
@@ -4433,6 +4444,31 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed workspace-b: %v", err)
 	}
+	userOne, err := store.UpsertUser(context.Background(), db.User{
+		ID:           "11111111-1111-1111-1111-111111111111",
+		PrimaryEmail: "user1@example.com",
+	})
+	if err != nil {
+		t.Fatalf("seed user-1: %v", err)
+	}
+	userTwo, err := store.UpsertUser(context.Background(), db.User{
+		ID:           "22222222-2222-2222-2222-222222222222",
+		PrimaryEmail: "user2@example.com",
+	})
+	if err != nil {
+		t.Fatalf("seed user-2: %v", err)
+	}
+	for _, identity := range []db.UserIdentity{
+		{UserID: userOne.ID, Provider: "oidc:https://issuer.example.com", Subject: "user-1"},
+		{UserID: userTwo.ID, Provider: "oidc:https://issuer.example.com", Subject: "user-2"},
+		// OIDC subjects remain provider values even when they happen to be
+		// UUID-shaped; they must not be mistaken for local session IDs.
+		{UserID: userOne.ID, Provider: "oidc:https://issuer.example.com", Subject: "33333333-3333-3333-3333-333333333333"},
+	} {
+		if _, err := store.UpsertUserIdentity(context.Background(), identity); err != nil {
+			t.Fatalf("seed user identity: %v", err)
+		}
+	}
 
 	workspaceACtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	if err := store.UpsertWorkspaceMember(workspaceACtx, db.TenancyWorkspaceMember{
@@ -4440,6 +4476,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 		WorkspaceID: "workspace-a",
 		MemberID:    "member-a",
 		UserID:      "user-1",
+		UserUUID:    userOne.ID,
 		Email:       "user1@example.com",
 		Role:        "admin",
 		Status:      "active",
@@ -4451,6 +4488,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 		WorkspaceID: "workspace-b",
 		MemberID:    "member-b",
 		UserID:      "user-1",
+		UserUUID:    userOne.ID,
 		Email:       "user1@example.com",
 		Role:        "viewer",
 		Status:      "active",
@@ -4462,6 +4500,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 		WorkspaceID: "workspace-a",
 		MemberID:    "member-outsider",
 		UserID:      "user-2",
+		UserUUID:    userTwo.ID,
 		Email:       "user2@example.com",
 		Role:        "viewer",
 		Status:      "removed",
@@ -4475,6 +4514,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 			tokens: map[string]VerifiedToken{
 				"user-1-token": {
 					Subject:     "user-1",
+					Issuer:      "https://issuer.example.com",
 					TenantID:    "tenant-a",
 					WorkspaceID: "workspace-a",
 					Roles:       []string{"analyst"},
@@ -4482,6 +4522,15 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 				},
 				"user-2-token": {
 					Subject:     "user-2",
+					Issuer:      "https://issuer.example.com",
+					TenantID:    "tenant-a",
+					WorkspaceID: "workspace-a",
+					Roles:       []string{"viewer"},
+					Scopes:      []string{"identrail.read"},
+				},
+				"uuid-subject-token": {
+					Subject:     "33333333-3333-3333-3333-333333333333",
+					Issuer:      "https://issuer.example.com",
 					TenantID:    "tenant-a",
 					WorkspaceID: "workspace-a",
 					Roles:       []string{"viewer"},
@@ -4518,7 +4567,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 	if whoamiBody.Principal.Type != "subject" || whoamiBody.Principal.ID != "user-1" {
 		t.Fatalf("unexpected principal payload: %+v", whoamiBody.Principal)
 	}
-	if len(whoamiBody.Roles) != 1 || whoamiBody.Roles[0] != "analyst" {
+	if len(whoamiBody.Roles) != 2 || whoamiBody.Roles[0] != "authenticated" || whoamiBody.Roles[1] != "admin" {
 		t.Fatalf("unexpected roles payload: %+v", whoamiBody.Roles)
 	}
 	if len(whoamiBody.Scopes) != 1 || whoamiBody.Scopes[0] != "read" {
@@ -4567,6 +4616,44 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 	}
 	if switchBody.ScopeHeaders[scopeHeaderWorkspaceID] != "workspace-b" {
 		t.Fatalf("expected workspace scope header workspace-b, got %+v", switchBody.ScopeHeaders)
+	}
+
+	// A bearer subject can be UUID-shaped without being a local session UUID.
+	// Exercise both whoami and workspace switching through the real router so
+	// the authentication-source marker is proven to reach the service layer.
+	uuidWhoamiReq := httptest.NewRequest(http.MethodGet, "/v1/whoami", nil)
+	uuidWhoamiReq.Header.Set("Authorization", "Bearer uuid-subject-token")
+	uuidWhoamiResp := httptest.NewRecorder()
+	r.ServeHTTP(uuidWhoamiResp, uuidWhoamiReq)
+	if uuidWhoamiResp.Code != http.StatusOK {
+		t.Fatalf("expected UUID-shaped OIDC whoami 200, got %d body=%s", uuidWhoamiResp.Code, uuidWhoamiResp.Body.String())
+	}
+	var uuidWhoamiBody struct {
+		ActiveWorkspace *WorkspaceContext `json:"active_workspace"`
+	}
+	if err := json.Unmarshal(uuidWhoamiResp.Body.Bytes(), &uuidWhoamiBody); err != nil {
+		t.Fatalf("decode UUID-shaped OIDC whoami response: %v", err)
+	}
+	if uuidWhoamiBody.ActiveWorkspace == nil || uuidWhoamiBody.ActiveWorkspace.Member == nil || uuidWhoamiBody.ActiveWorkspace.Member.Role != "admin" {
+		t.Fatalf("expected UUID-shaped OIDC subject to resolve admin membership, got %+v", uuidWhoamiBody.ActiveWorkspace)
+	}
+
+	uuidSwitchReq := httptest.NewRequest(http.MethodPost, "/v1/workspaces/active", bytes.NewBufferString(`{"workspace_id":"workspace-b"}`))
+	uuidSwitchReq.Header.Set("Authorization", "Bearer uuid-subject-token")
+	uuidSwitchReq.Header.Set("Content-Type", "application/json")
+	uuidSwitchResp := httptest.NewRecorder()
+	r.ServeHTTP(uuidSwitchResp, uuidSwitchReq)
+	if uuidSwitchResp.Code != http.StatusOK {
+		t.Fatalf("expected UUID-shaped OIDC workspace switch 200, got %d body=%s", uuidSwitchResp.Code, uuidSwitchResp.Body.String())
+	}
+	var uuidSwitchBody struct {
+		ActiveWorkspace WorkspaceContext `json:"active_workspace"`
+	}
+	if err := json.Unmarshal(uuidSwitchResp.Body.Bytes(), &uuidSwitchBody); err != nil {
+		t.Fatalf("decode UUID-shaped OIDC switch response: %v", err)
+	}
+	if uuidSwitchBody.ActiveWorkspace.Member == nil || uuidSwitchBody.ActiveWorkspace.Member.Role != "viewer" {
+		t.Fatalf("expected UUID-shaped OIDC subject to resolve viewer membership after switch, got %+v", uuidSwitchBody.ActiveWorkspace)
 	}
 
 	switchBadBodyReq := httptest.NewRequest(http.MethodPost, "/v1/workspaces/active", bytes.NewBufferString(`{"workspace_id":""}`))
@@ -4854,8 +4941,8 @@ func TestRouterTenancyErrorPaths(t *testing.T) {
 	doRequest(http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"WS","slug":"ws-a"}`)
 
 	memberInvalid := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", `{"member_id":"","user_id":"","email":"","role":"","status":""}`)
-	if memberInvalid.Code != http.StatusBadRequest {
-		t.Fatalf("expected member invalid data 400, got %d body=%s", memberInvalid.Code, memberInvalid.Body.String())
+	if memberInvalid.Code != http.StatusForbidden {
+		t.Fatalf("expected API-key member invalid write 403, got %d body=%s", memberInvalid.Code, memberInvalid.Body.String())
 	}
 
 	projectInvalid := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"","name":"","slug":""}`)
@@ -4886,6 +4973,45 @@ func TestRouterTenancyErrorPaths(t *testing.T) {
 	projectBadArchived := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"p-bad","name":"Bad","slug":"bad","archived_at":"not-a-date"}`)
 	if projectBadArchived.Code != http.StatusBadRequest {
 		t.Fatalf("expected project with bad archived_at 400, got %d body=%s", projectBadArchived.Code, projectBadArchived.Body.String())
+	}
+}
+
+func TestRouterWorkspaceMemberValidationRunsForAuthenticatedOwner(t *testing.T) {
+	store := db.NewMemoryStore()
+	scopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopeCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopeCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	owner, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "owner-validation@example.com"})
+	if err != nil {
+		t.Fatalf("upsert owner: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: owner.ID, Provider: "oidc:https://issuer.example.com", Subject: owner.ID,
+	}); err != nil {
+		t.Fatalf("upsert owner identity: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopeCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "member-owner-validation", UserID: "owner-subject",
+		UserUUID: owner.ID, Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("upsert owner membership: %v", err)
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), NewService(store, routerScanner{}, "aws"), RouterOptions{
+		OIDCTokenVerifier: fakeTokenVerifier{tokens: map[string]VerifiedToken{
+			"owner-token": {Subject: owner.ID, Issuer: "https://issuer.example.com", TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		}},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", strings.NewReader(`{"member_id":"","user_id":"","role":"","status":""}`))
+	req.Header.Set("Authorization", "Bearer owner-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected authenticated owner to reach member validation (400), got %d body=%s", resp.Code, resp.Body.String())
 	}
 }
 

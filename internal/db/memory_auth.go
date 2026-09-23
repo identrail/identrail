@@ -289,6 +289,18 @@ func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now tim
 			delete(m.sessions, key)
 		}
 	}
+	// A hard-deleted account must not remain as an active-looking workspace
+	// member. The membership map is not backed by a foreign-key cascade in the
+	// memory store, so remove only UUID-bound rows. Legacy rows contain a raw
+	// provider subject but no provider namespace; deleting them by subject could
+	// remove another provider's membership when that provider has not yet been
+	// backfilled into user_identities. Such rows are intentionally preserved and
+	// become inaccessible once the identity mapping is removed.
+	for key, member := range m.members {
+		if member.UserUUID == id {
+			delete(m.members, key)
+		}
+	}
 	m.mu.Unlock()
 	audit.WriteAction(ctx, audit.AuditEvent{
 		Action:       "auth.user.hard_delete",
@@ -344,6 +356,39 @@ func (m *MemoryStore) GetUserIdentity(ctx context.Context, provider string, subj
 		return UserIdentity{}, ErrNotFound
 	}
 	return identity, nil
+}
+
+// GetUserIdentityBySubject resolves one subject across providers. Subjects are
+// not globally unique: returning ErrConflict when two local accounts claim the
+// same subject keeps authorization and deletion fail-closed.
+func (m *MemoryStore) GetUserIdentityBySubject(ctx context.Context, subject string) (UserIdentity, error) {
+	normalizedSubject := strings.TrimSpace(subject)
+	if normalizedSubject == "" {
+		return UserIdentity{}, ErrNotFound
+	}
+	m.mu.RLock()
+	items := make([]UserIdentity, 0)
+	for _, identity := range m.userIdentityByID {
+		if strings.TrimSpace(identity.Subject) == normalizedSubject {
+			items = append(items, identity)
+		}
+	}
+	m.mu.RUnlock()
+	if len(items) == 0 {
+		return UserIdentity{}, ErrNotFound
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].UserID != items[j].UserID {
+			return items[i].UserID < items[j].UserID
+		}
+		return items[i].ID < items[j].ID
+	})
+	for _, identity := range items[1:] {
+		if identity.UserID != items[0].UserID {
+			return UserIdentity{}, ErrConflict
+		}
+	}
+	return items[0], nil
 }
 
 // GetUserIdentityByProviderUserID returns one provider identity for a user.
