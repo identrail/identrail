@@ -368,6 +368,12 @@ function fillScanIdentityStep({
   });
 }
 
+function expectActiveScanStep(label: string) {
+  const steps = screen.getByRole('list', { name: 'Scan request steps' });
+  expect(within(steps).getByText(label).closest('li')).toHaveAttribute('aria-current', 'step');
+  expect(within(steps).getAllByRole('listitem').filter((step) => step.getAttribute('aria-current') === 'step')).toHaveLength(1);
+}
+
 function leadCaptureCalls(fetchMock: ReturnType<typeof vi.fn>) {
   return fetchMock.mock.calls.filter(([url]) => url === '/api/leads');
 }
@@ -631,6 +637,27 @@ describe('App', () => {
     expect(within(steps).getByText('Identity').closest('li')).toHaveAttribute('aria-current', 'step');
     expect(screen.getByText(/Use a work email and matching website/i)).toBeInTheDocument();
     expect(screen.queryByText(/Use a company email, not a personal inbox/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps the active step semantics in sync while navigating the scan intake', () => {
+    setCurrentPath('/');
+    vi.stubGlobal('fetch', vi.fn(async () => okJSON({ status: 'accepted' })));
+    render(<App />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
+
+    expectActiveScanStep('Identity');
+    fillScanIdentityStep();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expectActiveScanStep('Environment');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expectActiveScanStep('Priority');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review Request' }));
+    expectActiveScanStep('Review');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expectActiveScanStep('Priority');
   });
 
   it('rejects company domains that do not match the work email domain', () => {

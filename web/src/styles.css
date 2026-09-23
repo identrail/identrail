@@ -17871,7 +17871,7 @@ html[data-theme='light'] .idt-scan-stepper li.is-active {
   }
 
   .idt-scan-risk-metrics,
-  .idt-scan-form .idt-intake-grid {
+  .idt-scan-form:not(.idt-scan-modal-form) .idt-intake-grid {
     grid-template-columns: 1fr;
   }
 
