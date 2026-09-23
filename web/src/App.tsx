@@ -2649,7 +2649,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
           />
           <div className="idt-scan-form-header">
             <p className="idt-intake-step idt-visually-hidden" aria-live="polite">
-              Step {submitted ? INTAKE_TOTAL_STEPS : step} of {INTAKE_TOTAL_STEPS}
+              Step {submitted ? INTAKE_TOTAL_STEPS : step} of {INTAKE_TOTAL_STEPS}: {stepTitle}
             </p>
             <h2 id="scan-intake-title">{stepTitle}</h2>
             <p>
