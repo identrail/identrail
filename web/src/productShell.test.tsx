@@ -3835,7 +3835,12 @@ describe('ProductOverviewPage', () => {
 });
 
 describe('Domain-first app routes', () => {
-  afterEach(() => {
+	beforeEach(async () => {
+		const { clearMeCacheForTests } = await import('./hooks/useMe');
+		clearMeCacheForTests();
+	});
+
+	afterEach(() => {
     window.localStorage.removeItem('idt:sidebar:collapsed');
     vi.restoreAllMocks();
     vi.doUnmock('./hooks/useBackendFeatures');
@@ -4265,6 +4270,49 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('keeps the disconnected AWS accounts state focused on setup', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    const coverageDashboardAPIs = mockAWSCoverageDashboardAPIs(api);
+
+    const { ProductAWSAccountsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/accounts?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/accounts" element={<ProductAWSAccountsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Connect AWS to see account inventory' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Connect AWS' })).toHaveLength(1);
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 of 1 scanned/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Degraded')).not.toBeInTheDocument();
+    expect(coverageDashboardAPIs.getCoveragePlan).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getAccountRegionCoverage).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getFanOutExecution).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getOrganizationsTopology).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getStackSetOnboarding).not.toHaveBeenCalled();
+  });
+
   it('keeps AWS account inventory usable when Organizations arrays are null', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
@@ -4449,6 +4497,7 @@ describe('Domain-first app routes', () => {
     expect(
       screen.queryByRole('heading', { name: /AWS Organization StackSet read-only deployment/i })
     ).not.toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'StackSet onboarding instances' })).not.toBeInTheDocument();
   });
 
   it('renders AWS machine identity inventory with current IAM, EC2, ECS, Lambda, CodeBuild, and EKS role rows', async () => {
@@ -10373,10 +10422,23 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
-  expect(screen.getByRole('list', { name: 'AWS setup scope options' })).toHaveTextContent('This AWS account');
-  expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-  expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose what to cover/i })).toBeInTheDocument();
+    const coverageScope = screen.getByRole('radiogroup', { name: 'AWS coverage scope' });
+    expect(coverageScope).toHaveTextContent('This account');
+    expect(screen.getByRole('radiogroup', { name: 'AWS connection method' })).toHaveTextContent('Guided CloudFormation');
+    const thisAccount = within(coverageScope).getByRole('radio', { name: /This account/i });
+    const allAccounts = within(coverageScope).getByRole('radio', { name: /All accounts/i });
+    thisAccount.focus();
+    fireEvent.keyDown(thisAccount, { key: 'ArrowRight' });
+    expect(allAccounts).toHaveFocus();
+    fireEvent.keyDown(allAccounts, { key: 'Home' });
+    expect(thisAccount).toHaveFocus();
+    expect(thisAccount).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
+    expect(screen.getByRole('status', { name: /Disconnected/i })).toBeInTheDocument();
+    expect(screen.queryByText('Health')).not.toBeInTheDocument();
+    expect(screen.queryByText('Last validation')).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production AWS' } });
     fireEvent.change(screen.getByLabelText('Home region'), { target: { value: 'ap-south-1' } });
@@ -10718,7 +10780,7 @@ describe('Domain-first app routes', () => {
     fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS/i }))[0]);
   expect(await screen.findAllByRole('link', { name: /^Open AWS$/i })).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole('button', { name: /Existing IAM role/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /Existing IAM role/i }));
 
     expect(screen.getByRole('heading', { level: 4, name: /Use an existing IAM role/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
@@ -10815,11 +10877,11 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose what to cover/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Existing IAM role/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /Existing IAM role/i }));
     expect(screen.getByRole('heading', { level: 4, name: /Use an existing IAM role/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
 
@@ -10921,7 +10983,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /Existing IAM role/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Existing IAM role/i }));
     fireEvent.change(screen.getByLabelText('Home region'), { target: { value: 'us-gov-west-1' } });
     fireEvent.click(screen.getByRole('button', { name: /Generate External ID/i }));
 
@@ -10997,13 +11059,19 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /Existing IAM role/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Existing IAM role/i }));
+    const coverageScope = screen.getByRole('radiogroup', { name: 'AWS coverage scope' });
+    expect(within(coverageScope).getByRole('radio', { name: /This account/i })).toHaveAttribute('aria-checked', 'false');
+    expect(within(screen.getByRole('radiogroup', { name: 'AWS connection method' })).getByRole('radio', { name: /Existing IAM role/i })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
     fireEvent.click(screen.getByRole('button', { name: /Generate External ID/i }));
     expect(await screen.findByLabelText('External ID')).toHaveValue('manual-external-id-to-clear');
 
-    fireEvent.click(screen.getByRole('button', { name: /This AWS account/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /This account/i }));
 
-    expect(screen.getByRole('heading', { level: 4, name: /Connect this account/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 4, name: /Create the connection/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Connect AWS/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue('manual-external-id-to-clear')).not.toBeInTheDocument();
@@ -11087,7 +11155,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /Existing IAM role/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Existing IAM role/i }));
     fireEvent.click(screen.getByRole('button', { name: /Generate External ID/i }));
     expect(await screen.findByLabelText('External ID')).toHaveValue('manual-external-id-to-keep');
     fireEvent.change(screen.getByLabelText('Role ARN'), {
@@ -11161,7 +11229,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /Existing IAM role/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Existing IAM role/i }));
     expect(screen.getByRole('heading', { level: 4, name: /Use an existing IAM role/i })).toBeInTheDocument();
 
     await act(async () => {
@@ -11243,7 +11311,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /Existing IAM role/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Existing IAM role/i }));
     fireEvent.click(screen.getByRole('button', { name: /Generate External ID/i }));
     expect(await screen.findByDisplayValue('manual-external-id-to-clear')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Role ARN'), {
@@ -11293,7 +11361,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 4, name: /Connect this account/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 4, name: /Create the connection/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
 
@@ -11641,7 +11709,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
     expect(screen.getByRole('heading', { level: 4, name: /Set the coverage scope/i })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/Target regions/i), { target: { value: 'us-east-1, us-west-2' } });
@@ -11748,7 +11816,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /Selected scope/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Selected scope/i }));
     fireEvent.change(screen.getByLabelText(/Target OU IDs/i), { target: { value: 'ou-1234-abcd5678' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -11840,7 +11908,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /Selected scope/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Selected scope/i }));
     fireEvent.click(screen.getByRole('tab', { name: /Account IDs/i }));
     fireEvent.change(screen.getByLabelText(/Target account IDs/i), {
       target: { value: '111111111111, 222222222222' }
@@ -11896,7 +11964,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /Selected scope/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Selected scope/i }));
     fireEvent.click(screen.getByRole('tab', { name: /Account IDs/i }));
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -11987,7 +12055,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
     fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -12075,7 +12143,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
     fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -12125,7 +12193,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
     fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -12228,7 +12296,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
     fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -12307,7 +12375,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /Selected scope/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Selected scope/i }));
     fireEvent.change(screen.getByLabelText(/Target OU IDs/i), { target: { value: 'r-abcd' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -12392,7 +12460,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
     fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -12438,11 +12506,11 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
     fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
-    fireEvent.click(screen.getByRole('button', { name: /Selected scope/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /Selected scope/i }));
 
     await act(async () => {
       pendingStart.resolve({
@@ -12640,7 +12708,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
     fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -12852,7 +12920,7 @@ describe('Domain-first app routes', () => {
     // Kick off a fresh StackSet setup in staging — the hidden StackSet name
     // must come from the wizard default, not leak from the production
     // environment's custom name.
-    fireEvent.click(screen.getByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /AWS Organization/i }));
     fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -13160,7 +13228,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
     fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
 
@@ -13236,7 +13304,7 @@ describe('Domain-first app routes', () => {
 
     await openAWSConnectionManagement();
     expect(await screen.findByText(/Persisted organization recovery action/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Selected scope/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /Selected scope/i }));
     expect(screen.queryByText(/Persisted organization recovery action/i)).not.toBeInTheDocument();
   });
 
@@ -13302,7 +13370,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
     fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
     fireEvent.change(screen.getByLabelText(/Target regions/i), { target: { value: 'us-east-1, us-west-2' } });
     fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
@@ -13382,11 +13450,11 @@ describe('Domain-first app routes', () => {
     const initialCallCount = getStackSetOnboarding.mock.calls.length;
 
     // Switch away from the connector's scope.
-    fireEvent.click(screen.getByRole('button', { name: /Selected scope/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /Selected scope/i }));
     expect(screen.queryByText(/Persisted recovery action to restore/i)).not.toBeInTheDocument();
 
     // Switch back to the connector's scope — panel should reappear via a fresh refetch.
-    fireEvent.click(screen.getByRole('button', { name: /AWS Organization/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /AWS Organization/i }));
     expect(await screen.findByText(/Persisted recovery action to restore/i)).toBeInTheDocument();
     expect(getStackSetOnboarding.mock.calls.length).toBeGreaterThan(initialCallCount);
   });
@@ -13440,7 +13508,7 @@ describe('Domain-first app routes', () => {
     await openAWSConnectionManagement();
     await screen.findByRole('region', { name: /StackSet onboarding progress/i });
 
-    fireEvent.click(screen.getByRole('button', { name: /This AWS account/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /This account/i }));
 
     // Under Single account, the persisted StackSet launch URL must not surface.
     const links = screen.queryAllByRole('link', { name: /Open AWS|Open StackSet(?: in AWS)?/i });
@@ -13496,7 +13564,7 @@ describe('Domain-first app routes', () => {
 
     await openAWSConnectionManagement();
     await screen.findByRole('region', { name: /StackSet onboarding progress/i });
-    fireEvent.click(screen.getByRole('button', { name: /Selected scope/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /Selected scope/i }));
 
     // Selected OUs shares the stackset_ deployment method with organization,
     // but the scope type differs — the persisted URL must not leak through.
@@ -13768,7 +13836,7 @@ describe('Domain-first app routes', () => {
     await openAWSConnectionManagement();
     await screen.findByRole('region', { name: /StackSet onboarding progress/i });
 
-    fireEvent.click(screen.getByRole('button', { name: /Selected scope/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /Selected scope/i }));
     fireEvent.change(await screen.findByLabelText(/Target OU IDs/i), {
       target: { value: 'ou-1234-abcd5678' }
     });
@@ -14257,7 +14325,7 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Manage connection/i }));
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose what to cover/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /^Validate role$/i })).not.toBeInTheDocument();
     expect(screen.getByText(/Start CloudFormation setup to move it onto the connector flow/i)).toBeInTheDocument();
@@ -14834,7 +14902,7 @@ describe('Domain-first app routes', () => {
       });
     });
 
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose what to cover/i })).toBeInTheDocument();
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Display name')).toHaveValue('');
@@ -14980,7 +15048,7 @@ describe('Domain-first app routes', () => {
     );
 
     await openAWSConnectionManagement();
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose what to cover/i })).toBeInTheDocument();
     const refreshButton = within(screen.getByLabelText('AWS account setup')).getByRole('button', {
       name: /Refresh/i
     });

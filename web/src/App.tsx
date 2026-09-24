@@ -1,6 +1,7 @@
 import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router';
 import { Analytics } from '@vercel/analytics/react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { HeroOpenSourceProofPills } from './components/home/HeroOpenSourceProofPills';
@@ -27,6 +28,11 @@ import { OrgPage } from './pages/onboarding/OrgPage';
 import { ScanPage } from './pages/onboarding/ScanPage';
 import { WorkspacePage } from './pages/onboarding/WorkspacePage';
 import { RequireOnboardingBackend } from './components/onboarding/OnboardingAvailability';
+import { Badge } from './components/ui/badge';
+import { Button } from './components/ui/button';
+import { Card } from './components/ui/card';
+import { Separator } from './components/ui/separator';
+import { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group';
 import {
   ProductAppIndexRedirect,
   ProductAuthCallbackRedirectPage,
@@ -1097,69 +1103,82 @@ function ProductHeroVisual() {
 }
 
 type PricingHeroVisualProps = {
-  annual: boolean;
   proPrice: number;
 };
 
-function PricingHeroVisual({ annual, proPrice }: PricingHeroVisualProps) {
+function PricingHeroVisual({ proPrice }: PricingHeroVisualProps) {
+  const shouldReduceMotion = useReducedMotion();
+  const transition = shouldReduceMotion
+    ? { duration: 0 }
+    : { duration: 0.42, ease: [0.22, 1, 0.36, 1] as const };
+  const paths = [
+    {
+      name: 'Open Source',
+      price: '$0',
+      unit: '',
+      summary: 'Self-hosted control',
+      detail: 'Run it in your infrastructure'
+    },
+    {
+      name: 'Pro',
+      price: `$${proPrice}`,
+      unit: '/user/mo',
+      summary: 'Managed speed',
+      detail: 'Hosted graph and guided setup',
+      featured: true
+    },
+    {
+      name: 'Enterprise',
+      price: 'Custom',
+      unit: '',
+      summary: 'Private governance',
+      detail: 'Deployment and controls for procurement'
+    }
+  ];
+
   return (
-    <div className="idt-pricing-hero-visual idt-pricing-decision-console">
-      <div className="idt-pricing-console-top">
+    <motion.div
+      className="idt-pricing-hero-visual idt-pricing-decision-console"
+      initial={shouldReduceMotion ? false : { opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={transition}
+    >
+      <div className="idt-pricing-console-top idt-pricing-path-header">
         <div>
-          <span className="idt-pricing-console-eyebrow">Pricing console</span>
-          <strong>Choose deployment model</strong>
-          <p>Compare the adoption path without hunting through a tiny matrix.</p>
+          <span className="idt-pricing-console-eyebrow">Pricing paths</span>
+          <strong>Choose your control boundary</strong>
+          <p>Start with the operating model that matches your team today. Move up when the next control becomes important.</p>
         </div>
-        <div className="idt-pricing-hero-toggle" role="presentation">
-          <span className={!annual ? 'is-active' : undefined}>Monthly</span>
-          <strong className={annual ? 'is-active' : undefined}>Annual - save 25%</strong>
-        </div>
+        <Badge className="idt-pricing-path-count">3 paths</Badge>
       </div>
-      <div className="idt-pricing-hero-plans">
-        <div>
-          <span>Open Source</span>
-          <strong>$0</strong>
-          <p>Self-hosted core</p>
-        </div>
-        <div className="is-featured">
-          <span>Pro</span>
-          <strong>
-            ${proPrice}
-            <small>/user/mo</small>
-          </strong>
-          <p>Hosted graph + SSO</p>
-        </div>
-        <div>
-          <span>Enterprise</span>
-          <strong>Custom</strong>
-          <p>Private tenancy</p>
-        </div>
+      <Separator />
+      <div className="idt-pricing-path-options">
+        {paths.map((path, index) => (
+          <motion.div
+            className={`idt-pricing-path-option${path.featured ? ' is-featured' : ''}`}
+            key={path.name}
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { ...transition, delay: index * 0.06 }}
+          >
+            <div className="idt-pricing-path-option-meta">
+              <span>{path.name}</span>
+              {path.featured ? <Badge>Most popular</Badge> : null}
+            </div>
+            <div className="idt-pricing-path-price">
+              <strong>{path.price}</strong>
+              {path.unit ? <small>{path.unit}</small> : null}
+            </div>
+            <p>{path.summary}</p>
+            <span className="idt-pricing-path-detail">{path.detail}</span>
+          </motion.div>
+        ))}
       </div>
-      <div className="idt-pricing-hero-matrix">
-        <span>Capability</span>
-        <span>OSS</span>
-        <span>Pro</span>
-        <span>Ent</span>
-        <strong>Trust graph</strong>
-        <b>Yes</b>
-        <b>Yes</b>
-        <b>Yes</b>
-        <strong>SSO / SCIM</strong>
-        <b>-</b>
-        <b>SSO</b>
-        <b>Full</b>
-        <strong>Support SLA</strong>
-        <b>-</b>
-        <b>Biz</b>
-        <b>24/7</b>
+      <div className="idt-pricing-console-footnote">
+        <span>Every plan starts with read-only onboarding.</span>
+        <span>Compare capabilities below <span aria-hidden="true">↓</span></span>
       </div>
-      <div className="idt-pricing-hero-procurement">
-        <strong>Procurement ready</strong>
-        <span>SOC 2 roadmap</span>
-        <span>Security review</span>
-        <span>Data residency</span>
-      </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -2607,12 +2626,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
           ? 'Describe the environment'
           : 'Prioritize the first review';
 
-  const guidance = [
-    'Use a company email, not a personal inbox.',
-    'Enter the registered company website that matches the email domain.',
-    'Share public context only: no keys, tokens, credentials, or screenshots of secrets.',
-    'Add a public GitHub, GitLab, or Bitbucket organization or repository URL only if it helps verify the workspace.'
-  ];
+  const guidance = 'Use a work email and matching website. A public repository URL is optional. Never share credentials or secrets.';
 
   return (
     <ModalShell titleId="scan-intake-title" onClose={onClose} className="idt-scan-modal">
@@ -2623,11 +2637,15 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
         <aside className="idt-scan-modal-guide" aria-label="Scan request guidance">
           <h2>Request a trust path review</h2>
           <p>
-            A short, review-first request gives the team enough public context to prepare a useful trust-path report.
+            Give us the public context needed to prepare your review.
           </p>
           <ol className="idt-scan-stepper" aria-label="Scan request steps">
             {['Identity', 'Environment', 'Priority', 'Review'].map((label, index) => (
-              <li key={label} className={step === index + 1 ? 'is-active' : ''}>
+              <li
+                key={label}
+                className={step === index + 1 ? 'is-active' : ''}
+                aria-current={step === index + 1 ? 'step' : undefined}
+              >
                 <span>{index + 1}</span>
                 {label}
               </li>
@@ -2635,11 +2653,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
           </ol>
           <div className="idt-scan-guidance-list">
             <h3>What to prepare</h3>
-            <ul>
-              {guidance.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+            <p>{guidance}</p>
           </div>
         </aside>
 
@@ -2653,10 +2667,12 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
             aria-hidden="true"
           />
           <div className="idt-scan-form-header">
-            <p className="idt-intake-step">Step {submitted ? INTAKE_TOTAL_STEPS : step} of {INTAKE_TOTAL_STEPS}</p>
+            <p className="idt-intake-step idt-visually-hidden" aria-live="polite">
+              Step {submitted ? INTAKE_TOTAL_STEPS : step} of {INTAKE_TOTAL_STEPS}: {stepTitle}
+            </p>
             <h2 id="scan-intake-title">{stepTitle}</h2>
             <p>
-              Nothing is sent until you review and submit the final step.
+              Review everything before submitting.
             </p>
           </div>
           {!submitted ? (
@@ -2893,7 +2909,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
 
               {error ? <p className="idt-form-error" role="alert">{error}</p> : null}
 
-              <div className="idt-inline-actions">
+              <div className="idt-inline-actions idt-intake-actions">
                 {step > 1 ? (
                   <button type="button" className="idt-btn idt-btn-ghost" onClick={() => setStep((value) => Math.max(1, value - 1))}>
                     Back
@@ -3361,102 +3377,139 @@ function PricingPage() {
 
   const [annual, setAnnual] = useState(true);
   const [salesModalOpen, setSalesModalOpen] = useState(false);
+  const shouldReduceMotion = useReducedMotion();
 
   const proPrice = annual ? 30 : 39;
+  const sectionMotion = shouldReduceMotion
+    ? { initial: false as const, whileInView: undefined, viewport: undefined }
+    : {
+        initial: { opacity: 0, y: 18 },
+        whileInView: { opacity: 1, y: 0 },
+        viewport: { once: true, amount: 0.18 }
+      };
 
   return (
     <div className="idt-marketing-page idt-pricing-page">
       <PageHero
         eyebrow="Pricing"
-        title="Pricing aligned to how teams adopt machine identity security"
-        body="Start with open source, move to hosted Pro for speed, then scale to enterprise controls when needed."
+        title="Pricing that matches your control boundary"
+        body="Start self-hosted, move to hosted Pro, or add private controls when your program requires them."
         variant="pricing"
-        visual={<PricingHeroVisual annual={annual} proPrice={proPrice} />}
+        visual={<PricingHeroVisual proPrice={proPrice} />}
         actions={
           <>
             <ScanIntakeCTA className="idt-btn idt-btn-primary" />
-            <button type="button" className="idt-btn idt-btn-dark" onClick={() => setSalesModalOpen(true)}>
+            <Button variant="secondary" type="button" onClick={() => setSalesModalOpen(true)}>
               Talk to Enterprise
-            </button>
+            </Button>
           </>
         }
       />
 
-      <section className="idt-section idt-shell">
-        <div className="idt-pricing-toggle" role="group" aria-label="Pricing cadence">
-          <button type="button" className={!annual ? 'is-active' : ''} onClick={() => setAnnual(false)}>
-            Monthly
-          </button>
-          <button type="button" className={annual ? 'is-active' : ''} onClick={() => setAnnual(true)}>
-            Annual <span>Save 25%</span>
-          </button>
+      <motion.section className="idt-section idt-shell idt-pricing-plans-section" {...sectionMotion}>
+        <div className="idt-pricing-plans-toolbar">
+          <div>
+            <p className="idt-eyebrow">Plans and billing</p>
+            <h2 id="pricing-plans-heading">Choose the path that fits today</h2>
+            <p>Start with the smallest commitment that gives your team useful signal and a clear next step.</p>
+          </div>
+          <ToggleGroup
+            value={annual ? 'annual' : 'monthly'}
+            onValueChange={(value) => {
+              if (value === 'annual') setAnnual(true);
+              if (value === 'monthly') setAnnual(false);
+            }}
+            aria-label="Pricing cadence"
+          >
+            <ToggleGroupItem value="monthly">Monthly</ToggleGroupItem>
+            <ToggleGroupItem value="annual">
+              Annual <span className="ui-toggle-group__save">Billed annually</span>
+            </ToggleGroupItem>
+          </ToggleGroup>
         </div>
         <p className="idt-pricing-note">
-          Pro pricing is billed per user per month. All plans support read-only onboarding before any enforcement changes.
+          Pro is billed per user per month. Annual pricing applies when you choose Annual. Every plan supports read-only onboarding before enforcement changes.
         </p>
 
         <div className="idt-pricing-grid idt-pricing-section">
-          <article className="idt-pricing-card">
-            <h2>Open Source</h2>
-            <p className="idt-price">$0</p>
-            <p className="idt-plan-fit">
-              <strong>Best for:</strong> Self-hosted evaluation and internal platform control.
-            </p>
-            <p>Self-hosted core platform for AWS, GitHub, and Kubernetes machine identity workflows.</p>
-            <ul>
-              <li>Trust graph + exposure detections</li>
-              <li>Community support</li>
-              <li>API and docs access</li>
-            </ul>
-            <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
-              Deploy Self-Hosted
-            </SafeLink>
-          </article>
+          <motion.div className="idt-pricing-card-motion" {...(shouldReduceMotion ? { initial: false } : { initial: { opacity: 0, y: 12 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, amount: 0.25 }, transition: { duration: 0.36 } })}>
+            <Card as="article" className="idt-pricing-card">
+              <h2>Open Source</h2>
+              <p className="idt-price">$0</p>
+              <p className="idt-plan-fit">
+                <strong>Best for:</strong> Self-hosted evaluation and internal platform control.
+              </p>
+              <p>Self-hosted core platform for AWS, GitHub, and Kubernetes machine identity workflows.</p>
+              <ul>
+                <li>Trust graph + exposure detections</li>
+                <li>Community support</li>
+                <li>API and docs access</li>
+              </ul>
+              <Button asChild variant="outline">
+                <SafeLink href={GITHUB_REPO}>Deploy Self-Hosted</SafeLink>
+              </Button>
+            </Card>
+          </motion.div>
 
-          <article className="idt-pricing-card is-featured">
-            <p className="idt-badge">Most Popular</p>
-            <h2>Pro</h2>
-            <p className="idt-price">
-              ${proPrice}
-              <span>/user/mo</span>
-            </p>
-            <p className="idt-plan-fit">
-              <strong>Best for:</strong> Fast time-to-value without managing infrastructure.
-            </p>
-            <p>Hosted SaaS with advanced detections, collaboration workflows, and managed operations.</p>
-            <ul>
-              <li>Everything in Open Source</li>
-              <li>Hosted trust graph and accelerated queries</li>
-              <li>SAML SSO, alerts, and workflow integrations</li>
-              <li>14-day hosted trial with guided setup</li>
-            </ul>
-            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
-          </article>
+          <motion.div className="idt-pricing-card-motion" {...(shouldReduceMotion ? { initial: false } : { initial: { opacity: 0, y: 12 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, amount: 0.25 }, transition: { duration: 0.36, delay: 0.06 } })}>
+            <Card as="article" className="idt-pricing-card is-featured">
+              <Badge className="idt-pricing-featured-badge">Most Popular</Badge>
+              <h2>Pro</h2>
+              <p className="idt-price">
+                <AnimatePresence initial={false} mode="wait">
+                  <motion.span
+                    key={proPrice}
+                    className="idt-price-value"
+                    initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
+                    transition={{ duration: shouldReduceMotion ? 0 : 0.18 }}
+                  >
+                    ${proPrice}
+                  </motion.span>
+                </AnimatePresence>
+                <span>/user/mo</span>
+              </p>
+              <p className="idt-plan-fit">
+                <strong>Best for:</strong> Fast time-to-value without managing infrastructure.
+              </p>
+              <p>Hosted SaaS with advanced detections, collaboration workflows, and managed operations.</p>
+              <ul>
+                <li>Everything in Open Source</li>
+                <li>Hosted trust graph and accelerated queries</li>
+                <li>SAML SSO, alerts, and workflow integrations</li>
+                <li>14-day hosted trial with guided setup</li>
+              </ul>
+              <ScanIntakeCTA className="idt-btn idt-btn-primary ui-button ui-button--primary">Start Pro evaluation</ScanIntakeCTA>
+            </Card>
+          </motion.div>
 
-          <article className="idt-pricing-card">
-            <h2>Enterprise</h2>
-            <p className="idt-price">Custom quote</p>
-            <p className="idt-plan-fit">
-              <strong>Best for:</strong> Private deployment, procurement workflows, and advanced governance.
-            </p>
-            <p>Advanced governance, private deployment options, and enterprise-grade support.</p>
-            <ul>
-              <li>Everything in Pro</li>
-              <li>SCIM, regional controls, and private tenancy</li>
-              <li>24/7 support, SLA, TAM, and onboarding program</li>
-            </ul>
-            <button type="button" className="idt-btn idt-btn-dark" onClick={() => setSalesModalOpen(true)}>
-              Contact Sales
-            </button>
-          </article>
+          <motion.div className="idt-pricing-card-motion" {...(shouldReduceMotion ? { initial: false } : { initial: { opacity: 0, y: 12 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, amount: 0.25 }, transition: { duration: 0.36, delay: 0.12 } })}>
+            <Card as="article" className="idt-pricing-card">
+              <h2>Enterprise</h2>
+              <p className="idt-price">Custom quote</p>
+              <p className="idt-plan-fit">
+                <strong>Best for:</strong> Private deployment, procurement workflows, and advanced governance.
+              </p>
+              <p>Advanced governance, private deployment options, and enterprise-grade support.</p>
+              <ul>
+                <li>Everything in Pro</li>
+                <li>SCIM, regional controls, and private tenancy</li>
+                <li>24/7 support, SLA, TAM, and onboarding program</li>
+              </ul>
+              <Button variant="secondary" type="button" onClick={() => setSalesModalOpen(true)}>
+                Contact Sales
+              </Button>
+            </Card>
+          </motion.div>
         </div>
-      </section>
+      </motion.section>
 
-      <section className="idt-section idt-shell">
+      <motion.section className="idt-section idt-shell idt-pricing-comparison-section" {...sectionMotion}>
         <SectionTitle
           eyebrow="Feature Matrix"
-          title="Compare plan capabilities"
-          body="Move from OSS to enterprise without replacing your workflows."
+          title="Compare what changes by plan"
+          body="The core trust-path workflow stays consistent. The difference is how much hosting, governance, and support your team needs."
         />
         <div className="idt-table-wrap">
           <table className="idt-compare-table">
@@ -3480,21 +3533,21 @@ function PricingPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </motion.section>
 
-      <section className="idt-section idt-shell idt-pricing-roi">
+      <motion.section className="idt-section idt-shell idt-pricing-roi" {...sectionMotion}>
         <SectionTitle
           eyebrow="Impact Model"
-          title="Need ROI modeling before procurement?"
-          body="Use the dedicated ROI assessment page with transparent assumptions and editable parameters."
+          title="Build the business case before procurement"
+          body="Model expected impact with transparent assumptions, then bring the result into your security review."
         />
         <div className="idt-inline-actions">
-          <Link to="/roi-assessment" className="idt-btn idt-btn-primary">
-            Open ROI Assessment
-          </Link>
-          <ScanIntakeCTA className="idt-btn idt-btn-dark" />
+          <Button asChild variant="primary">
+            <Link to="/roi-assessment">Open ROI Assessment</Link>
+          </Button>
+          <ScanIntakeCTA className="idt-btn idt-btn-dark">Talk through the model</ScanIntakeCTA>
         </div>
-      </section>
+      </motion.section>
 
       {salesModalOpen ? (
         <ModalShell titleId="sales-modal-title" onClose={() => setSalesModalOpen(false)}>

@@ -18,3 +18,4 @@ allow-licenses:
   - BSD-3-Clause
   - ISC
   - MPL-2.0
+  - 0BSD

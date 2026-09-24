@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/telemetry"
@@ -402,6 +404,404 @@ func TestPolicyRolesFromAuthClaims(t *testing.T) {
 	}
 	if roles[0] != "owner" || roles[1] != "viewer" {
 		t.Fatalf("unexpected claim role mapping %+v", roles)
+	}
+}
+
+func TestPolicyRolesFromAuthUsesScopedMembershipOverStaleClaims(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	user, err := store.UpsertUser(context.Background(), db.User{
+		ID:           "11111111-1111-1111-1111-111111111111",
+		PrimaryEmail: "subject-a@example.com",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: user.ID, Provider: "workos", Subject: "subject-a",
+	}); err != nil {
+		t.Fatalf("seed user identity: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "subject-a",
+		UserUUID:    user.ID,
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed viewer membership: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", nil)
+	c.Request = c.Request.WithContext(scopedCtx)
+	c.Set("auth.subject", "subject-a")
+	c.Set("auth.roles", []string{"owner"})
+	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if strings.Contains(strings.Join(roles, ","), "owner") || strings.Contains(strings.Join(roles, ","), "admin") {
+		t.Fatalf("stale owner claim must not survive scoped membership resolution: %v", roles)
+	}
+	if len(roles) != 2 || roles[0] != "authenticated" || roles[1] != "viewer" {
+		t.Fatalf("expected authenticated+viewer roles, got %v", roles)
+	}
+
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "subject-a",
+		UserUUID:    user.ID,
+		Role:        "admin",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("promote membership: %v", err)
+	}
+	c.Set("auth.roles", []string{"viewer"})
+	roles = policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 2 || roles[0] != "admin" || roles[1] != "authenticated" {
+		t.Fatalf("expected scoped admin role to override stale viewer claim, got %v", roles)
+	}
+}
+
+func TestPolicyRolesFromAuthRejectsInactiveLinkedMembershipsByUUIDAndSubject(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	inactive, err := store.UpsertUser(context.Background(), db.User{
+		ID:           "33333333-3333-3333-3333-333333333333",
+		PrimaryEmail: "inactive@example.com",
+		Status:       "deactivated",
+	})
+	if err != nil {
+		t.Fatalf("seed inactive user: %v", err)
+	}
+	for _, member := range []db.TenancyWorkspaceMember{
+		{WorkspaceID: "workspace-a", MemberID: "inactive-uuid-member", UserID: "inactive-uuid-subject", UserUUID: inactive.ID, Role: "owner", Status: "active"},
+		{WorkspaceID: "workspace-a", MemberID: "inactive-legacy-member", UserID: "inactive-legacy-subject", UserUUID: inactive.ID, Role: "owner", Status: "active"},
+	} {
+		if err := store.UpsertWorkspaceMember(scopedCtx, member); err != nil {
+			t.Fatalf("seed inactive membership: %v", err)
+		}
+	}
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil).WithContext(scopedCtx)
+	c.Set("auth.roles", []string{"owner"})
+	for _, subject := range []string{inactive.ID, "inactive-legacy-subject"} {
+		c.Set("auth.subject", subject)
+		if subject == inactive.ID {
+			c.Set("auth.subject_source", sessionauth.SubjectSourceSession)
+			c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceSession))
+		} else {
+			c.Set("auth.subject_source", sessionauth.SubjectSourceOIDC)
+			c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC))
+		}
+		roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+		if len(roles) != 1 || roles[0] != "authenticated" {
+			t.Fatalf("expected inactive linked membership to fail closed for subject %q, got %v", subject, roles)
+		}
+	}
+	active, err := store.UpsertUser(context.Background(), db.User{
+		ID: "44444444-4444-4444-4444-444444444444", PrimaryEmail: "active@example.com",
+	})
+	if err != nil {
+		t.Fatalf("seed active user: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "active-member", UserID: "active-subject",
+		UserUUID: active.ID, Role: "viewer", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed active membership: %v", err)
+	}
+	c.Set("auth.subject", active.ID)
+	c.Set("auth.subject_source", sessionauth.SubjectSourceSession)
+	c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceSession))
+	c.Set("auth.roles", []string{"owner"})
+	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 2 || roles[0] != "authenticated" || roles[1] != "viewer" {
+		t.Fatalf("expected UUID subject to resolve active linked membership, got %v", roles)
+	}
+}
+
+type membershipLookupErrorStore struct {
+	db.Store
+}
+
+func (membershipLookupErrorStore) GetWorkspaceMemberByUserUUID(context.Context, string, string) (db.TenancyWorkspaceMember, error) {
+	return db.TenancyWorkspaceMember{}, errors.New("membership lookup failed")
+}
+
+func (membershipLookupErrorStore) GetWorkspaceMemberByUserID(context.Context, string, string) (db.TenancyWorkspaceMember, error) {
+	return db.TenancyWorkspaceMember{}, errors.New("membership lookup failed")
+}
+
+func TestPolicyRolesFromAuthFailsClosedOnMembershipLookupError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil).WithContext(policyTestScopeContext())
+	c.Set("auth.subject", "11111111-1111-1111-1111-111111111111")
+	c.Set("auth.subject_source", sessionauth.SubjectSourceSession)
+	c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(policyTestScopeContext(), sessionauth.SubjectSourceSession))
+	c.Set("auth.roles", []string{"owner"})
+	roles := policyRolesFromAuthWithStore(c, nil, nil, membershipLookupErrorStore{Store: db.NewMemoryStore()})
+	if len(roles) != 1 || roles[0] != "authenticated" {
+		t.Fatalf("expected membership lookup error to fail closed, got %v", roles)
+	}
+}
+
+func TestPolicyRolesFromAuthDistinguishesUUIDSubjectSource(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	localID := "11111111-1111-1111-1111-111111111111"
+	other, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "other-uuid-subject@example.com"})
+	if err != nil {
+		t.Fatalf("seed other user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: other.ID, Provider: "provider-b", Subject: localID,
+	}); err != nil {
+		t.Fatalf("seed colliding provider identity: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "other-member", UserID: localID,
+		UserUUID: other.ID, Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed other membership: %v", err)
+	}
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil).WithContext(scopedCtx)
+	c.Set("auth.subject", localID)
+	c.Set("auth.subject_source", sessionauth.SubjectSourceOIDC)
+	c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC))
+	c.Set("auth.roles", []string{"owner"})
+	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 2 || roles[0] != "authenticated" || roles[1] != "owner" {
+		t.Fatalf("expected UUID-shaped OIDC subject to resolve its mapped account, got %v", roles)
+	}
+
+	c.Set("auth.subject_source", sessionauth.SubjectSourceSession)
+	c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceSession))
+	roles = policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 1 || roles[0] != "authenticated" {
+		t.Fatalf("expected the same UUID-shaped session subject to use the local-account namespace, got %v", roles)
+	}
+}
+
+func TestPolicyRolesFromAuthUsesOIDCIssuerNamespace(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	first, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "first@example.com"})
+	if err != nil {
+		t.Fatalf("seed first user: %v", err)
+	}
+	second, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "second@example.com"})
+	if err != nil {
+		t.Fatalf("seed second user: %v", err)
+	}
+	const subject = "shared-oidc-subject"
+	const firstIssuer = "https://first-issuer.example.com"
+	const secondIssuer = "https://second-issuer.example.com"
+	for _, identity := range []db.UserIdentity{
+		{UserID: first.ID, Provider: "oidc:" + firstIssuer, Subject: subject},
+		{UserID: second.ID, Provider: "oidc:" + secondIssuer, Subject: subject},
+	} {
+		if _, err := store.UpsertUserIdentity(context.Background(), identity); err != nil {
+			t.Fatalf("seed identity: %v", err)
+		}
+	}
+	for _, member := range []db.TenancyWorkspaceMember{
+		{WorkspaceID: "workspace-a", MemberID: "first-member", UserID: subject, UserUUID: first.ID, Role: "owner", Status: "active"},
+		{WorkspaceID: "workspace-a", MemberID: "second-member", UserID: subject, UserUUID: second.ID, Role: "viewer", Status: "active"},
+	} {
+		if err := store.UpsertWorkspaceMember(scopedCtx, member); err != nil {
+			t.Fatalf("seed membership: %v", err)
+		}
+	}
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set("auth.subject", subject)
+	c.Set("auth.subject_source", sessionauth.SubjectSourceOIDC)
+	c.Set("auth.roles", []string{"admin"})
+	for _, testCase := range []struct {
+		issuer string
+		role   string
+	}{
+		{issuer: firstIssuer, role: "owner"},
+		{issuer: secondIssuer, role: "viewer"},
+	} {
+		requestContext := sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC)
+		requestContext = sessionauth.WithSubjectIssuer(requestContext, testCase.issuer)
+		c.Request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil).WithContext(requestContext)
+		roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+		if len(roles) != 2 || roles[0] != "authenticated" || roles[1] != testCase.role {
+			t.Fatalf("expected issuer %s to resolve %s membership, got %v", testCase.issuer, testCase.role, roles)
+		}
+	}
+}
+
+func TestPolicyRolesFromAuthClearsScopesForInactiveMembership(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	user, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "suspended@example.com"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	const issuer = "https://issuer.example.com"
+	const subject = "suspended-subject"
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: user.ID, Provider: "oidc:" + issuer, Subject: subject,
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "suspended-member", UserID: subject,
+		UserUUID: user.ID, Role: "owner", Status: "suspended",
+	}); err != nil {
+		t.Fatalf("seed suspended membership: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	requestContext := sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC)
+	requestContext = sessionauth.WithSubjectIssuer(requestContext, issuer)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/scans", nil).WithContext(requestContext)
+	c.Set("auth.subject", subject)
+	c.Set("auth.subject_source", sessionauth.SubjectSourceOIDC)
+	c.Set("auth.roles", []string{"owner"})
+	c.Set("auth.scope_set", newScopeSet([]string{scopeRead, scopeWrite}))
+
+	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 1 || roles[0] != "authenticated" {
+		t.Fatalf("expected inactive known membership to clear roles and scopes, got %v", roles)
+	}
+}
+
+func TestPolicyRolesFromAuthFailsClosedOnDuplicateLocalMemberships(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	user, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "duplicate-membership@example.com"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	const issuer = "https://issuer.example.com"
+	const subject = "duplicate-membership-subject"
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: user.ID, Provider: "oidc:" + issuer, Subject: subject,
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	for _, member := range []db.TenancyWorkspaceMember{
+		{WorkspaceID: "workspace-a", MemberID: "duplicate-owner", UserID: subject, UserUUID: user.ID, Role: "owner", Status: "active"},
+		{WorkspaceID: "workspace-a", MemberID: "duplicate-viewer", UserID: "another-subject", UserUUID: user.ID, Role: "viewer", Status: "active"},
+	} {
+		if err := store.UpsertWorkspaceMember(scopedCtx, member); err != nil {
+			t.Fatalf("seed duplicate membership: %v", err)
+		}
+	}
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	requestContext := sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC)
+	requestContext = sessionauth.WithSubjectIssuer(requestContext, issuer)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/scans", nil).WithContext(requestContext)
+	c.Set("auth.subject", subject)
+	c.Set("auth.subject_source", sessionauth.SubjectSourceOIDC)
+	c.Set("auth.roles", []string{"owner"})
+	c.Set("auth.scope_set", newScopeSet([]string{scopeRead, scopeWrite}))
+
+	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 1 || roles[0] != "authenticated" {
+		t.Fatalf("expected duplicate local memberships to fail closed, got %v", roles)
+	}
+}
+
+func TestPolicyRolesFromAuthDropsUnassignedProviderRoles(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", nil)
+	c.Request = c.Request.WithContext(scopedCtx)
+	c.Set("auth.subject", "unassigned-subject")
+	c.Set("auth.roles", []string{"admin", "viewer"})
+	c.Set("auth.scope_set", newScopeSet([]string{scopeWrite}))
+	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 3 || roles[0] != "authenticated" || roles[1] != scopeRead || roles[2] != scopeWrite {
+		t.Fatalf("expected authenticated plus explicit scope roles, got %v", roles)
+	}
+
+	missingUserUUID := "00000000-0000-0000-0000-000000000099"
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "orphan-member",
+		UserID:      "orphan-subject",
+		UserUUID:    missingUserUUID,
+		Role:        "owner",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed orphan membership: %v", err)
+	}
+	c.Set("auth.subject", missingUserUUID)
+	c.Set("auth.subject_source", sessionauth.SubjectSourceSession)
+	c.Request = c.Request.WithContext(sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceSession))
+	c.Set("auth.roles", []string{"owner"})
+	c.Set("auth.scope_set", newScopeSet(nil))
+	roles = policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 1 || roles[0] != "authenticated" {
+		t.Fatalf("expected orphaned membership to fail closed, got %v", roles)
 	}
 }
 
