@@ -13324,7 +13324,11 @@ html[data-theme='light'] .idt-pricing-decision-console {
   transition: background var(--idt-motion-standard) var(--idt-motion-ease), color var(--idt-motion-standard) var(--idt-motion-ease);
 }
 
-.ui-toggle-group__item:hover,
+.ui-toggle-group__item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--pricing-bright);
+}
+
 .ui-toggle-group__item[data-state='on'] {
   background: #ffffff;
   color: #09090b;
@@ -31963,7 +31967,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 
   .idt-app-console-layout .idt-app-shell-nav {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.18rem;
     overflow: visible;
     padding-bottom: 0;
@@ -32021,6 +32025,12 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   .idt-app-console-layout .idt-app-sidebar-footer,
   .idt-app-console-layout .idt-app-sidebar-resize-handle {
     display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .idt-app-console-layout .idt-app-shell-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

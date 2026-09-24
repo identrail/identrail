@@ -1,5 +1,5 @@
 import type { HTMLAttributes, ReactNode } from 'react';
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { cn } from './utils';
 
 type ToggleGroupContextValue = {
@@ -11,13 +11,23 @@ const ToggleGroupContext = createContext<ToggleGroupContextValue | null>(null);
 
 type ToggleGroupProps = HTMLAttributes<HTMLDivElement> & {
   value?: string;
+  defaultValue?: string;
   onValueChange?: (value: string) => void;
   children?: ReactNode;
 };
 
-export function ToggleGroup({ className, value, onValueChange, children, ...props }: ToggleGroupProps) {
+export function ToggleGroup({ className, value: controlledValue, defaultValue, onValueChange, children, ...props }: ToggleGroupProps) {
+  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue);
+  const value = controlledValue ?? uncontrolledValue;
+  const handleValueChange = (nextValue: string) => {
+    if (controlledValue === undefined) {
+      setUncontrolledValue(nextValue);
+    }
+    onValueChange?.(nextValue);
+  };
+
   return (
-    <ToggleGroupContext.Provider value={{ value, onValueChange }}>
+    <ToggleGroupContext.Provider value={{ value, onValueChange: handleValueChange }}>
       <div className={cn('ui-toggle-group', className)} role="group" {...props}>
         {children}
       </div>

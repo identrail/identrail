@@ -4270,6 +4270,49 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('keeps the disconnected AWS accounts state focused on setup', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    const coverageDashboardAPIs = mockAWSCoverageDashboardAPIs(api);
+
+    const { ProductAWSAccountsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/accounts?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/accounts" element={<ProductAWSAccountsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Connect AWS to see account inventory' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Connect AWS' })).toHaveLength(1);
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 of 1 scanned/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Degraded')).not.toBeInTheDocument();
+    expect(coverageDashboardAPIs.getCoveragePlan).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getAccountRegionCoverage).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getFanOutExecution).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getOrganizationsTopology).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getStackSetOnboarding).not.toHaveBeenCalled();
+  });
+
   it('keeps AWS account inventory usable when Organizations arrays are null', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
@@ -4454,6 +4497,7 @@ describe('Domain-first app routes', () => {
     expect(
       screen.queryByRole('heading', { name: /AWS Organization StackSet read-only deployment/i })
     ).not.toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'StackSet onboarding instances' })).not.toBeInTheDocument();
   });
 
   it('renders AWS machine identity inventory with current IAM, EC2, ECS, Lambda, CodeBuild, and EKS role rows', async () => {
@@ -10379,9 +10423,12 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
-  expect(screen.getByRole('list', { name: 'AWS setup scope options' })).toHaveTextContent('This AWS account');
-  expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-  expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'AWS setup scope options' })).toHaveTextContent('This AWS account');
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
+    expect(screen.getByText('Not connected')).toBeInTheDocument();
+    expect(screen.queryByText('Health')).not.toBeInTheDocument();
+    expect(screen.queryByText('Last validation')).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production AWS' } });
     fireEvent.change(screen.getByLabelText('Home region'), { target: { value: 'ap-south-1' } });

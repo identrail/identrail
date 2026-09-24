@@ -40,7 +40,7 @@ export function Button({ className, variant, size, asChild = false, children, ..
   }
 
   return (
-    <button className={classes} {...props}>
+    <button {...props} type={props.type ?? 'button'} className={classes}>
       {children}
     </button>
   );

@@ -5785,6 +5785,17 @@ function awsCoverageState(connection: AWSConnectionStatus | null): string {
   return 'covered';
 }
 
+function isAWSStackSetConnector(connection: AWSConnectionStatus | null): boolean {
+  return Boolean(
+    connection &&
+      (connection.scope_type === 'organization' ||
+        connection.scope_type === 'selected_ous' ||
+        connection.scope_type === 'selected_accounts' ||
+        connection.deployment_method === 'stackset_service_managed' ||
+        connection.deployment_method === 'stackset_self_managed')
+  );
+}
+
 function awsInventoryPillTone(stage: AWSCapabilityStage): 'success' | 'warning' | 'neutral' {
   return awsStageTone(stage);
 }
@@ -6395,11 +6406,13 @@ function AWSInventoryRouteAside({
 }
 
 function AWSInventoryPrerequisites({
+  routeID,
   scope,
   selectedEnvironmentID,
   connection,
   connectPath
 }: {
+  routeID: AWSInventoryRouteID;
   scope: ProductSession;
   selectedEnvironmentID: string;
   connection: AWSConnectionStatus | null;
@@ -6416,12 +6429,17 @@ function AWSInventoryPrerequisites({
     );
   }
 
-  if (!connection?.connected) {
+  if (!connection?.connected || !connection.connector_id) {
+    const isAccountsRoute = routeID === 'accounts';
     return (
       <DomainEmptyState
-        eyebrow="Connector prerequisite"
-        title="Connect AWS to load live inventory"
-        body="Inventory pages show the workspace shape now. Connect the read-only role to load account, region, role, permission, and diagnostic evidence."
+        eyebrow={isAccountsRoute ? 'Next step' : 'Connector prerequisite'}
+        title={isAccountsRoute ? 'Connect AWS to see account inventory' : 'Connect AWS to load live inventory'}
+        body={
+          isAccountsRoute
+            ? 'Connect a read-only AWS role to load accounts, regions, permissions, and diagnostic evidence.'
+            : 'Inventory pages show the workspace shape now. Connect the read-only role to load account, region, role, permission, and diagnostic evidence.'
+        }
         nextAction={{ label: 'Connect AWS', to: connectPath }}
       />
     );
@@ -6453,6 +6471,10 @@ function AWSAccountsInventoryContent({
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
+  if (!connection?.connected || !connection.connector_id) {
+    return null;
+  }
+
   const accountCoverage = awsCoverageState(connection);
   const hasHealthyCoverage = accountCoverage === 'covered';
   const plan = coveragePlanState.plan;
@@ -6679,6 +6701,12 @@ function AWSAccountsInventoryContent({
         label="AWS Organizations topology"
         rows={displayedTopologyRows}
         getRowKey={(row) => row.id}
+        emptyState={
+          <DomainEmptyState
+            title="No organization records match this view"
+            body="Clear filters or adjust the AWS scope to see organization accounts and OUs."
+          />
+        }
         columns={[
           { key: 'category', header: 'Account / OU', render: (row) => <strong>{row.category}</strong> },
           { key: 'coverage', header: 'Discovery', render: (row) => <AWSInventoryPill stage={awsCoveragePlanStage(row.coverage)} label={formatTokenLabel(row.coverage)} /> },
@@ -6774,17 +6802,25 @@ function AWSAccountsInventoryContent({
           ) : null}
         </DomainStatusPanel>
       ) : null}
-      <DomainDataTable
-        label="StackSet onboarding instances"
-        rows={filterAWSInventoryRows(stackSetRows, filters)}
-        getRowKey={(row) => row.id}
-        columns={[
-          { key: 'category', header: 'Account / region', render: (row) => <strong>{row.category}</strong> },
-          { key: 'coverage', header: 'Stage', render: (row) => <AWSInventoryPill stage={awsCoveragePlanStage(row.coverage)} label={formatTokenLabel(row.coverage)} /> },
-          { key: 'status', header: 'Instance state', render: (row) => formatTokenLabel(row.status) },
-          { key: 'detail', header: 'Next action', render: (row) => row.detail }
-        ]}
-      />
+      {isAWSStackSetConnector(connection) ? (
+        <DomainDataTable
+          label="StackSet onboarding instances"
+          rows={filterAWSInventoryRows(stackSetRows, filters)}
+          getRowKey={(row) => row.id}
+          emptyState={
+            <DomainEmptyState
+              title="No onboarding instances match this view"
+              body="Clear filters or adjust the AWS scope to see StackSet onboarding progress."
+            />
+          }
+          columns={[
+            { key: 'category', header: 'Account / region', render: (row) => <strong>{row.category}</strong> },
+            { key: 'coverage', header: 'Stage', render: (row) => <AWSInventoryPill stage={awsCoveragePlanStage(row.coverage)} label={formatTokenLabel(row.coverage)} /> },
+            { key: 'status', header: 'Instance state', render: (row) => formatTokenLabel(row.status) },
+            { key: 'detail', header: 'Next action', render: (row) => row.detail }
+          ]}
+        />
+      ) : null}
       <DomainDataTable
         label="AWS account and region coverage"
         rows={displayedRows}
@@ -10997,18 +11033,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     // with fabricated OUs and accounts, which would render as fake
     // organization progress under a plain single_account/cloudformation
     // connector on the AWS Accounts and Coverage routes.
-    const isStackSetConnector =
-      connection?.scope_type === 'organization' ||
-      connection?.scope_type === 'selected_ous' ||
-      connection?.scope_type === 'selected_accounts' ||
-      connection?.deployment_method === 'stackset_service_managed' ||
-      connection?.deployment_method === 'stackset_self_managed';
     if (
       !isAWSCoverageInventoryRoute(routeID) ||
       !scope ||
       !selectedEnvironmentID ||
       !connection?.connector_id ||
-      !isStackSetConnector
+      !isAWSStackSetConnector(connection)
     ) {
       setStackSetOnboardingLoading(false);
       return;
@@ -11082,7 +11112,7 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     if (connectionError) {
       return "Couldn't load AWS status.";
     }
-    if (!connection?.connected) {
+    if (!connection?.connected || !connection.connector_id) {
       return 'Not connected for this environment.';
     }
     const bits: string[] = [];
@@ -11103,9 +11133,9 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
       primaryAction={
         connectionError || environmentScope.loading || connectionLoading
           ? undefined
-          : connection?.connected
+          : connection?.connected && connection.connector_id
             ? { label: 'AWS findings', to: findingsPath, variant: 'primary' }
-            : { label: 'Connect AWS', to: connectPath, variant: 'primary' }
+            : undefined
       }
     >
       {connectionError ? (
@@ -11118,6 +11148,7 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
 
       {!environmentScope.loading && !connectionLoading && !connectionError ? (
         <AWSInventoryPrerequisites
+          routeID={routeID}
           scope={scope}
           selectedEnvironmentID={selectedEnvironmentID}
           connection={connection}
@@ -22570,8 +22601,8 @@ const AWS_DISCOVERY_STEPS: Array<{ id: Exclude<AWSDiscoveryPhase, 'error' | 'res
   { id: 'analyzing', label: 'Analyzing', description: 'Building relationships and evaluating the collected evidence.' }
 ];
 
-function awsDiscoveryEventPhase(events: ScanEvent[]): AWSDiscoveryPhase | null {
-  const orderedEvents = [...events].sort((left, right) => {
+function awsDiscoveryEventPhase(events?: ScanEvent[] | null): AWSDiscoveryPhase | null {
+  const orderedEvents = [...(events ?? [])].sort((left, right) => {
     return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
   });
   for (const event of orderedEvents) {
@@ -22590,19 +22621,19 @@ function awsDiscoveryEventPhase(events: ScanEvent[]): AWSDiscoveryPhase | null {
   return null;
 }
 
-function awsDiscoveryHasPartialResults(events: ScanEvent[]): boolean {
-  return events.some((event) => {
+function awsDiscoveryHasPartialResults(events?: ScanEvent[] | null): boolean {
+  return (events ?? []).some((event) => {
     const message = normalizeValue(event.message).toLowerCase();
     return message.includes('partial source') || normalizeValue(event.metadata?.state).toLowerCase() === 'partial';
   });
 }
 
-function awsDiscoveryFindingCoverage(events: ScanEvent[]): AWSFindingCoverageContext {
+function awsDiscoveryFindingCoverage(events?: ScanEvent[] | null): AWSFindingCoverageContext {
   const issues: AWSFindingCoverageIssue[] = [];
   const seenIssues = new Set<string>();
   let totalCount = 0;
 
-  for (const event of events) {
+  for (const event of events ?? []) {
     const declaredCount = Number(event.metadata?.source_error_count);
     if (Number.isFinite(declaredCount) && declaredCount > totalCount) {
       totalCount = Math.floor(declaredCount);
@@ -22635,7 +22666,7 @@ function awsDiscoveryFindingCoverage(events: ScanEvent[]): AWSFindingCoverageCon
   };
 }
 
-function awsDiscoveryPhase(scan: ScanRecord | null, events: ScanEvent[]): AWSDiscoveryPhase {
+function awsDiscoveryPhase(scan: ScanRecord | null, events?: ScanEvent[] | null): AWSDiscoveryPhase {
   if (!scan) {
     return 'connecting';
   }
@@ -26715,14 +26746,23 @@ export function ProductAWSConnectPage() {
                   <dt>Scope</dt>
                   <dd>{awsScopeSummaryLabel(awsSetupMode, stackSetAWSStart ?? cloudFormationAWSStart ?? manualAWSStart)}</dd>
                 </div>
-                <div>
-                  <dt>Health</dt>
-                  <dd>{connectionHealth(connection ?? undefined)}</dd>
-                </div>
-                <div>
-                  <dt>Last validation</dt>
-          <dd>{formatConnectionTime(connection?.last_validated_at)}</dd>
-                </div>
+                {connectedNow ? (
+                  <div>
+                    <dt>Health</dt>
+                    <dd>{connectionHealth(connection ?? undefined)}</dd>
+                  </div>
+                ) : (
+                  <div>
+                    <dt>Status</dt>
+                    <dd>Not connected</dd>
+                  </div>
+                )}
+                {connectedNow && connection?.last_validated_at ? (
+                  <div>
+                    <dt>Last validation</dt>
+                    <dd>{formatConnectionTime(connection.last_validated_at)}</dd>
+                  </div>
+                ) : null}
               </dl>
               <p>{setupSummaryBody}</p>
               <div className="idt-source-actions idt-aws-summary-actions">
