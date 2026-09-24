@@ -665,30 +665,111 @@ function stackSetContractsMatch(a: AWSStackSetContractSnapshot, b: AWSStackSetCo
 const AWS_SCOPE_OPTION_LABELS: Record<AWSSetupMode, { title: string; kicker: string; blurb: string }> = {
   cloudformation: {
     kicker: 'Single account',
-    title: 'This AWS account',
-    blurb: 'One-click CloudFormation'
+    title: 'This account',
+    blurb: 'Guided CloudFormation setup'
   },
   organization: {
     kicker: 'AWS Organization',
     title: 'All accounts',
-    blurb: 'Recommended for teams'
+    blurb: 'Best for teams'
   },
   selected_ous: {
-    kicker: 'Selected OUs',
-    title: 'Chosen OUs',
-    blurb: 'Pick OUs to onboard'
+    kicker: 'Selected scope',
+    title: 'Accounts or OUs',
+    blurb: 'Choose a subset'
   },
   selected_accounts: {
-    kicker: 'Selected accounts',
-    title: 'Chosen accounts',
-    blurb: 'Pick accounts to onboard'
+    kicker: 'Selected scope',
+    title: 'Accounts or OUs',
+    blurb: 'Choose a subset'
   },
   manual: {
-    kicker: 'Advanced',
+    kicker: 'Bring your own role',
     title: 'Existing IAM role',
-    blurb: 'Use your change process'
+    blurb: 'Use an existing read-only role'
   }
 };
+
+type AWSChoiceOption = {
+  value: string;
+  kicker: string;
+  title: string;
+  blurb: string;
+};
+
+function AWSChoiceGroup({
+  ariaLabel,
+  className,
+  options,
+  selectedValue,
+  onChange
+}: {
+  ariaLabel: string;
+  className: string;
+  options: AWSChoiceOption[];
+  selectedValue: string | null;
+  onChange: (value: string) => void;
+}) {
+  const groupRef = useRef<HTMLDivElement | null>(null);
+
+  const focusOption = (value: string) => {
+    groupRef.current
+      ?.querySelector<HTMLButtonElement>(`[data-aws-choice-value="${value}"]`)
+      ?.focus();
+  };
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, value: string) => {
+    const currentIndex = options.findIndex((option) => option.value === value);
+    if (currentIndex < 0) {
+      return;
+    }
+
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      nextIndex = (currentIndex + 1) % options.length;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      nextIndex = (currentIndex - 1 + options.length) % options.length;
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = options.length - 1;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    const nextValue = options[nextIndex].value;
+    onChange(nextValue);
+    focusOption(nextValue);
+  };
+
+  return (
+    <div ref={groupRef} className={className} role="radiogroup" aria-label={ariaLabel}>
+      {options.map((option, index) => {
+        const isSelected = selectedValue === option.value;
+        const isTabStop = isSelected || (selectedValue === null && index === 0);
+        return (
+          <div className="idt-aws-scope-option-shell" key={option.value}>
+            <button
+              className={`idt-aws-scope-option ${isSelected ? 'is-selected' : ''}`}
+              type="button"
+              role="radio"
+              aria-checked={isSelected}
+              tabIndex={isTabStop ? 0 : -1}
+              data-aws-choice-value={option.value}
+              onClick={() => onChange(option.value)}
+              onKeyDown={(event) => handleKeyDown(event, option.value)}
+            >
+              <span>{option.kicker}</span>
+              <strong>{option.title}</strong>
+              <small>{option.blurb}</small>
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function awsRoleNameFromARN(roleARN: string): string {
   const match = normalizeValue(roleARN).match(/^arn:(?:aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/(.+)$/);
@@ -23616,7 +23697,7 @@ function awsScopeSummaryLabel(mode: AWSSetupMode, start: AWSConnectorStartRespon
     case 'selected_accounts':
       return 'Selected accounts';
     case 'manual':
-      return 'Existing IAM role';
+      return 'Role-defined scope';
     case 'cloudformation':
     default:
       return 'Single account';
@@ -26177,7 +26258,7 @@ export function ProductAWSConnectPage() {
     if (onboardingStatus === 'needs_fix' || onboardingStatus === 'failed') {
       return 'Needs attention';
     }
-    return 'Connect this account';
+    return 'Create a read-only connection';
   })();
   const setupSummaryBody = (() => {
     if (hasRoleOnlyConnection) {
@@ -26210,10 +26291,52 @@ export function ProductAWSConnectPage() {
     if (hasConnectorSetup) {
       return 'Identrail is waiting for AWS.';
     }
-    return 'Create one read-only CloudFormation stack for this environment.';
+    return 'Create a read-only connection for this environment.';
   })();
   const onboardingInProgress = ['launch_ready', 'waiting_for_aws', 'registering', 'validating'].includes(onboardingStatus);
   const wizardHealth = connection?.health_status;
+  const coverageScopeValue =
+    awsSetupMode === 'cloudformation'
+      ? 'cloudformation'
+      : awsSetupMode === 'organization'
+        ? 'organization'
+        : awsSetupMode === 'selected_ous' || awsSetupMode === 'selected_accounts'
+          ? 'selected'
+          : null;
+  const coverageScopeOptions: AWSChoiceOption[] = [
+    {
+      value: 'cloudformation',
+      kicker: AWS_SCOPE_OPTION_LABELS.cloudformation.kicker,
+      title: AWS_SCOPE_OPTION_LABELS.cloudformation.title,
+      blurb: AWS_SCOPE_OPTION_LABELS.cloudformation.blurb
+    },
+    {
+      value: 'organization',
+      kicker: AWS_SCOPE_OPTION_LABELS.organization.kicker,
+      title: AWS_SCOPE_OPTION_LABELS.organization.title,
+      blurb: AWS_SCOPE_OPTION_LABELS.organization.blurb
+    },
+    {
+      value: 'selected',
+      kicker: AWS_SCOPE_OPTION_LABELS.selected_ous.kicker,
+      title: AWS_SCOPE_OPTION_LABELS.selected_ous.title,
+      blurb: AWS_SCOPE_OPTION_LABELS.selected_ous.blurb
+    }
+  ];
+  const connectionMethodOptions: AWSChoiceOption[] = [
+    {
+      value: 'cloudformation',
+      kicker: 'Recommended',
+      title: 'Guided CloudFormation',
+      blurb: 'One read-only stack in AWS'
+    },
+    {
+      value: 'manual',
+      kicker: AWS_SCOPE_OPTION_LABELS.manual.kicker,
+      title: AWS_SCOPE_OPTION_LABELS.manual.title,
+      blurb: AWS_SCOPE_OPTION_LABELS.manual.blurb
+    }
+  ];
 
   return (
     <DomainPageShell
@@ -26228,7 +26351,7 @@ export function ProductAWSConnectPage() {
       primaryAction={
         awaitingFirstConnectLoad
           ? undefined
-          : { label: 'AWS overview', to: controlPath, variant: 'primary' as const }
+          : { label: 'AWS overview', to: controlPath, variant: 'secondary' as const }
       }
     >
       {!selectedEnvironmentID && !environmentScope.loading ? (
@@ -26327,8 +26450,8 @@ export function ProductAWSConnectPage() {
                   <div className="idt-source-config-title">
                     <SourceLogoMark provider="aws" className="is-hero" />
                     <div>
-                      <h3>Choose coverage</h3>
-                      <p>Connect one account or select a broader scope.</p>
+                      <h3>Choose what to cover</h3>
+                      <p>Choose a single account, an organization, or selected accounts and OUs.</p>
                     </div>
                   </div>
                   <DomainStatusBadge
@@ -26338,64 +26461,46 @@ export function ProductAWSConnectPage() {
                   />
                 </div>
 
-                <div className="idt-aws-scope-options" role="list" aria-label="AWS setup scope options">
-              <div className="idt-aws-scope-option-shell" role="listitem">
-                <button
-                  className={`idt-aws-scope-option ${awsSetupMode === 'organization' ? 'is-selected' : ''}`}
-                  type="button"
-                  aria-current={awsSetupMode === 'organization' ? 'true' : undefined}
-                  onClick={() => chooseAWSSetupMode('organization')}
-                >
-                  <span>{AWS_SCOPE_OPTION_LABELS.organization.kicker}</span>
-                  <strong>{AWS_SCOPE_OPTION_LABELS.organization.title}</strong>
-                  <small>{AWS_SCOPE_OPTION_LABELS.organization.blurb}</small>
-                </button>
-              </div>
-              <div className="idt-aws-scope-option-shell" role="listitem">
-                <button
-                  className={`idt-aws-scope-option ${awsSetupMode === 'cloudformation' ? 'is-selected' : ''}`}
-                  type="button"
-                  aria-current={awsSetupMode === 'cloudformation' ? 'true' : undefined}
-                  onClick={() => chooseAWSSetupMode('cloudformation')}
-                >
-                  <span>{AWS_SCOPE_OPTION_LABELS.cloudformation.kicker}</span>
-                  <strong>{AWS_SCOPE_OPTION_LABELS.cloudformation.title}</strong>
-                  <small>{AWS_SCOPE_OPTION_LABELS.cloudformation.blurb}</small>
-                </button>
-              </div>
-              <div className="idt-aws-scope-option-shell" role="listitem">
-                <button
-                  className={`idt-aws-scope-option ${
-                    awsSetupMode === 'selected_ous' || awsSetupMode === 'selected_accounts' ? 'is-selected' : ''
-                  }`}
-                  type="button"
-                  aria-current={
-                    awsSetupMode === 'selected_ous' || awsSetupMode === 'selected_accounts' ? 'true' : undefined
-                  }
-                  onClick={() =>
-                    chooseAWSSetupMode(
-                      awsSetupMode === 'selected_accounts' ? 'selected_accounts' : 'selected_ous'
-                    )
-                  }
-                >
-                  <span>Selected scope</span>
-                  <strong>OUs or accounts</strong>
-                  <small>Pick a subset</small>
-                </button>
-              </div>
-              <div className="idt-aws-scope-option-shell" role="listitem">
-                <button
-                  className={`idt-aws-scope-option ${awsSetupMode === 'manual' ? 'is-selected' : ''}`}
-                  type="button"
-                  aria-current={awsSetupMode === 'manual' ? 'true' : undefined}
-                  onClick={() => chooseAWSSetupMode('manual')}
-                >
-                  <span>{AWS_SCOPE_OPTION_LABELS.manual.kicker}</span>
-                  <strong>{AWS_SCOPE_OPTION_LABELS.manual.title}</strong>
-                  <small>{AWS_SCOPE_OPTION_LABELS.manual.blurb}</small>
-                </button>
-              </div>
-            </div>
+                <div className="idt-aws-option-group">
+                  <p className="idt-aws-option-group-label">Coverage scope</p>
+                  <AWSChoiceGroup
+                    ariaLabel="AWS coverage scope"
+                    className="idt-aws-scope-options"
+                    options={coverageScopeOptions}
+                    selectedValue={coverageScopeValue}
+                    onChange={(value) => {
+                      if (value === 'selected') {
+                        chooseAWSSetupMode(
+                          awsSetupMode === 'selected_accounts' ? 'selected_accounts' : 'selected_ous'
+                        );
+                      } else if (value === 'cloudformation' || value === 'organization') {
+                        chooseAWSSetupMode(value);
+                      }
+                    }}
+                  />
+                </div>
+
+                <div className="idt-aws-option-group">
+                  <p className="idt-aws-option-group-label">Connection method</p>
+                  {isStackSetSetup ? (
+                    <div className="idt-aws-method-summary">
+                      <strong>Guided CloudFormation via StackSet</strong>
+                      <small>Deploy a read-only role across the selected scope.</small>
+                    </div>
+                  ) : (
+                    <AWSChoiceGroup
+                      ariaLabel="AWS connection method"
+                      className="idt-aws-method-options"
+                      options={connectionMethodOptions}
+                      selectedValue={isManualSetup ? 'manual' : 'cloudformation'}
+                      onChange={(value) => {
+                        if (value === 'cloudformation' || value === 'manual') {
+                          chooseAWSSetupMode(value);
+                        }
+                      }}
+                    />
+                  )}
+                </div>
 
             <form className="idt-app-form idt-aws-connect-form" onSubmit={handleAWSSubmit}>
               <div className="idt-aws-wizard-step">
@@ -26403,7 +26508,7 @@ export function ProductAWSConnectPage() {
                 <div className="idt-aws-step-body">
                   <div className="idt-aws-step-heading">
                     <div>
-                      <h4>Name the account</h4>
+                      <h4>Name this connection</h4>
                       <p>Use a name your team will recognize.</p>
                     </div>
                     <span>{selectedAWSRegion}</span>
@@ -26494,12 +26599,12 @@ export function ProductAWSConnectPage() {
                   <div className="idt-aws-step-body">
                     <div className="idt-aws-step-heading">
                       <div>
-            <h4>Connect this account</h4>
-            <p>Approve one read-only CloudFormation stack in AWS.</p>
+                        <h4>Create the connection</h4>
+                        <p>Approve one read-only CloudFormation stack in AWS.</p>
                       </div>
                       {cloudFormationAWSStart ? <span>Launch ready</span> : <span>Read-only</span>}
                     </div>
-          <p className="idt-aws-access-note">Reads identity and workload metadata. Cannot write, delete, or remediate.</p>
+                    <p className="idt-aws-access-note">Read-only access. No writes, deletes, or remediation.</p>
                     {awsSetupMessage ? (
                       <p role="status" className="idt-aws-setup-note">
                         {awsSetupMessage}
@@ -26738,25 +26843,30 @@ export function ProductAWSConnectPage() {
           </div>
 
           <div className="idt-aws-connect-side">
-            <section className="idt-source-config idt-aws-connect-summary" aria-label="AWS setup summary">
-              <p className="idt-app-kicker">Setup</p>
+            <section className="idt-source-config idt-aws-connect-summary" aria-label="AWS connection summary">
+              <p className="idt-app-kicker">Connection summary</p>
               <h3>{setupSummaryTitle}</h3>
               <dl className="idt-source-meta">
                 <div>
                   <dt>Scope</dt>
                   <dd>{awsScopeSummaryLabel(awsSetupMode, stackSetAWSStart ?? cloudFormationAWSStart ?? manualAWSStart)}</dd>
                 </div>
+                <div>
+                  <dt>Method</dt>
+                  <dd>
+                    {isManualSetup
+                      ? 'Existing IAM role'
+                      : isStackSetSetup
+                        ? 'Guided CloudFormation via StackSet'
+                        : 'Guided CloudFormation'}
+                  </dd>
+                </div>
                 {connectedNow ? (
                   <div>
                     <dt>Health</dt>
                     <dd>{connectionHealth(connection ?? undefined)}</dd>
                   </div>
-                ) : (
-                  <div>
-                    <dt>Status</dt>
-                    <dd>Not connected</dd>
-                  </div>
-                )}
+                ) : null}
                 {connectedNow && connection?.last_validated_at ? (
                   <div>
                     <dt>Last validation</dt>

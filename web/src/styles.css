@@ -24138,10 +24138,49 @@ html[data-theme='light'] .idt-app-shell-screen select {
   align-items: flex-start;
 }
 
+.idt-aws-option-group {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.idt-aws-option-group-label {
+  margin: 0;
+  color: var(--app-dim);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .idt-aws-scope-options {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.65rem;
+}
+
+.idt-aws-method-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.idt-aws-method-summary {
+  display: grid;
+  gap: 0.22rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.72rem;
+  background: #080809;
+}
+
+.idt-aws-method-summary strong {
+  color: #ffffff;
+  font-size: 0.92rem;
+}
+
+.idt-aws-method-summary small {
+  color: var(--app-muted);
+  font-weight: 800;
 }
 
 .idt-aws-scope-option-shell {
@@ -24166,6 +24205,11 @@ html[data-theme='light'] .idt-app-shell-screen select {
   cursor: pointer;
   font: inherit;
   text-align: left;
+}
+
+.idt-aws-scope-option:focus-visible {
+  outline: 2px solid #a99cff;
+  outline-offset: 2px;
 }
 
 .idt-aws-scope-option span,
@@ -25455,6 +25499,10 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
   .idt-aws-scope-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .idt-aws-method-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -25551,6 +25599,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
   }
 
   .idt-aws-scope-options,
+  .idt-aws-method-options,
   .idt-aws-wizard-step,
   .idt-aws-step-heading,
   .idt-aws-copy-row {
