@@ -145,9 +145,20 @@ function repoRemediationPreviewPayload() {
   };
 }
 
-function currentMePayload(tenantID = 'default', workspaceID = 'default', role = 'owner') {
-  return {
-    me: {
+function currentMePayload(tenantID = 'default', workspaceID = 'default', role: string | null = 'owner') {
+  const me: {
+    user: {
+      id: string;
+      primary_email: string;
+      display_name: string;
+      status: string;
+      created_at: string;
+      updated_at: string;
+    };
+    org_id: string;
+    workspace_id: string;
+    role?: string;
+  } = {
       user: {
         id: 'user-1',
         primary_email: 'owner@example.com',
@@ -157,10 +168,12 @@ function currentMePayload(tenantID = 'default', workspaceID = 'default', role = 
         updated_at: '2026-01-01T00:00:00Z'
       },
       org_id: tenantID,
-      workspace_id: workspaceID,
-      role
-    }
-  };
+      workspace_id: workspaceID
+    };
+  if (role !== null) {
+    me.role = role;
+  }
+  return { me };
 }
 
 function projectListPayload() {
@@ -353,6 +366,12 @@ function fillScanIdentityStep({
   fireEvent.change(screen.getByLabelText(/Company website/i), {
     target: { value: companyWebsite }
   });
+}
+
+function expectActiveScanStep(label: string) {
+  const steps = screen.getByRole('list', { name: 'Scan request steps' });
+  expect(within(steps).getByText(label).closest('li')).toHaveAttribute('aria-current', 'step');
+  expect(within(steps).getAllByRole('listitem').filter((step) => step.getAttribute('aria-current') === 'step')).toHaveLength(1);
 }
 
 function leadCaptureCalls(fetchMock: ReturnType<typeof vi.fn>) {
@@ -611,6 +630,34 @@ describe('App', () => {
 
     expect(screen.getByRole('heading', { name: 'Request a trust path review' })).toBeInTheDocument();
     expect(screen.queryByText('Read-only trust review')).not.toBeInTheDocument();
+    expect(screen.getByText(/Step 1 of 4/i)).toHaveClass('idt-visually-hidden');
+    expect(screen.getByText('Review everything before submitting.')).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing is sent until you review/i)).not.toBeInTheDocument();
+    const steps = screen.getByRole('list', { name: 'Scan request steps' });
+    expect(within(steps).getByText('Identity').closest('li')).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByText(/Use a work email and matching website/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Use a company email, not a personal inbox/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps the active step semantics in sync while navigating the scan intake', () => {
+    setCurrentPath('/');
+    vi.stubGlobal('fetch', vi.fn(async () => okJSON({ status: 'accepted' })));
+    render(<App />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
+
+    expectActiveScanStep('Identity');
+    fillScanIdentityStep();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expectActiveScanStep('Environment');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expectActiveScanStep('Priority');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review Request' }));
+    expectActiveScanStep('Review');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expectActiveScanStep('Priority');
   });
 
   it('rejects company domains that do not match the work email domain', () => {
@@ -1246,7 +1293,7 @@ describe('App', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
-        return okJSON(currentMePayload('', ''));
+        return okJSON(currentMePayload('', '', null));
       }
       if (url.endsWith('/v1/me/sessions')) {
         return okJSON({
@@ -1272,9 +1319,29 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
-    expect(await screen.findByText(/No workspace selected yet/i)).toBeInTheDocument();
+		 expect(await screen.findByRole('heading', { level: 2, name: 'No workspace role' })).toBeInTheDocument();
+		 expect(await screen.findByText(/No workspace membership selected/i)).toBeInTheDocument();
     expect(await screen.findByText(/current browser/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Back to app/i })).toHaveAttribute('href', '/app');
+  });
+
+  it('displays the validated workspace role on account security', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a', 'admin'));
+      }
+      if (url.endsWith('/v1/me/sessions')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/account/security');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'admin' })).toBeInTheDocument();
   });
 
   it('revalidates session after same-workspace navigation from an auth error', async () => {

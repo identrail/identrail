@@ -33,11 +33,19 @@ func TestRouterWhoAmIScopeUsesOIDCClaimsOverScopeHeaders(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed workspace: %v", err)
 	}
+	user, err := store.UpsertUser(context.Background(), db.User{
+		ID:           "11111111-1111-1111-1111-111111111111",
+		PrimaryEmail: "user-1@example.com",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
 	if err := store.UpsertWorkspaceMember(scopeCtx, db.TenancyWorkspaceMember{
 		TenantID:    "tenant-a",
 		WorkspaceID: "workspace-a",
 		MemberID:    "member-a",
 		UserID:      "user-1",
+		UserUUID:    user.ID,
 		Role:        "admin",
 		Status:      "active",
 	}); err != nil {

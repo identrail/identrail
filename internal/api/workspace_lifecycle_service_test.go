@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/db"
 )
 
@@ -125,6 +126,274 @@ func TestServiceRequireWorkspaceOwnerRefusesNonOwner(t *testing.T) {
 	// the handler can return a consistent 403.
 	if err := svc.requireWorkspaceOwner(ctx, "workspace-a", "33333333-3333-3333-3333-333333333333"); !errors.Is(err, ErrWorkspaceOwnerRequired) {
 		t.Fatalf("expected ErrWorkspaceOwnerRequired for unknown user, got %v", err)
+	}
+}
+
+func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
+	store := svc.Store.(*db.MemoryStore)
+	viewer, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "viewer@example.com",
+		DisplayName:  "Viewer",
+	})
+	if err != nil {
+		t.Fatalf("upsert viewer: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-viewer",
+		UserID:      "subj-viewer",
+		UserUUID:    viewer.ID,
+		Email:       viewer.PrimaryEmail,
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed viewer membership: %v", err)
+	}
+
+	request := WorkspaceMemberUpsertRequest{
+		MemberID: "member-new",
+		UserID:   "subj-new",
+		Email:    "new@example.com",
+		Role:     "viewer",
+		Status:   "invited",
+	}
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, viewer.ID); !errors.Is(err, ErrWorkspaceAdminRequired) {
+		t.Fatalf("expected viewer member write to be denied, got %v", err)
+	}
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, ownerUUID); err != nil {
+		t.Fatalf("expected owner member write to succeed, got %v", err)
+	}
+	if err := svc.DeleteWorkspaceMemberAs(ctx, "workspace-a", "member-new", viewer.ID); !errors.Is(err, ErrWorkspaceAdminRequired) {
+		t.Fatalf("expected viewer member delete to be denied, got %v", err)
+	}
+
+	admin, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "admin@example.com",
+		DisplayName:  "Workspace Admin",
+	})
+	if err != nil {
+		t.Fatalf("upsert admin: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-admin",
+		UserID:      "subj-admin",
+		UserUUID:    admin.ID,
+		Email:       admin.PrimaryEmail,
+		Role:        "admin",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed admin membership: %v", err)
+	}
+	adminRequest := request
+	adminRequest.MemberID = "member-admin-created"
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", adminRequest, admin.ID); err != nil {
+		t.Fatalf("expected admin member write to succeed, got %v", err)
+	}
+	if err := svc.DeleteWorkspaceMemberAs(ctx, "workspace-a", adminRequest.MemberID, admin.ID); err != nil {
+		t.Fatalf("expected admin member delete to succeed, got %v", err)
+	}
+
+	suspendedOwner, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "suspended-owner@example.com",
+		DisplayName:  "Suspended Owner",
+	})
+	if err != nil {
+		t.Fatalf("upsert suspended owner: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-suspended-owner",
+		UserID:      "subj-suspended-owner",
+		UserUUID:    suspendedOwner.ID,
+		Email:       suspendedOwner.PrimaryEmail,
+		Role:        "owner",
+		Status:      "suspended",
+	}); err != nil {
+		t.Fatalf("seed suspended owner membership: %v", err)
+	}
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, suspendedOwner.ID); !errors.Is(err, ErrWorkspaceAdminRequired) {
+		t.Fatalf("expected suspended owner member write to be denied, got %v", err)
+	}
+
+	deactivatedOwner, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "deactivated-owner@example.com", DisplayName: "Deactivated Owner",
+	})
+	if err != nil {
+		t.Fatalf("upsert deactivated owner: %v", err)
+	}
+	if _, err := store.SetUserStatus(context.Background(), deactivatedOwner.ID, "deactivated", svc.Now()); err != nil {
+		t.Fatalf("deactivate owner: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "member-deactivated-owner",
+		UserID: "subj-deactivated-owner", UserUUID: deactivatedOwner.ID,
+		Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed deactivated owner membership: %v", err)
+	}
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, deactivatedOwner.ID); !errors.Is(err, ErrWorkspaceAdminRequired) {
+		t.Fatalf("expected deactivated owner write to be denied, got %v", err)
+	}
+
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "member-orphan-owner",
+		UserID: "subj-orphan-owner", UserUUID: "00000000-0000-0000-0000-000000000099",
+		Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed orphan owner membership: %v", err)
+	}
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, "00000000-0000-0000-0000-000000000099"); !errors.Is(err, ErrWorkspaceAdminRequired) {
+		t.Fatalf("expected orphan owner write to be denied, got %v", err)
+	}
+}
+
+func TestServiceWorkspaceMemberTargetUsesItsOwnIdentityNamespace(t *testing.T) {
+	svc, scopedCtx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	store := svc.Store.(*db.MemoryStore)
+	const callerIssuer = "https://caller-issuer.example.com"
+	const targetIssuer = "https://target-issuer.example.com"
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: ownerUUID, Provider: "oidc:" + callerIssuer, Subject: "owner-subject",
+	}); err != nil {
+		t.Fatalf("seed caller identity: %v", err)
+	}
+	target, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "target@example.com", Status: "active"})
+	if err != nil {
+		t.Fatalf("seed target user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: target.ID, Provider: "oidc:" + targetIssuer, Subject: "target-subject",
+	}); err != nil {
+		t.Fatalf("seed target identity: %v", err)
+	}
+	requestCtx := sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC)
+	requestCtx = sessionauth.WithSubjectIssuer(requestCtx, callerIssuer)
+	member, err := svc.UpsertWorkspaceMemberAs(requestCtx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: "member-target", UserID: "target-subject", Email: target.PrimaryEmail,
+		Role: "viewer", Status: "active",
+	}, "owner-subject")
+	if err != nil {
+		t.Fatalf("expected cross-issuer target to resolve, got %v", err)
+	}
+	if member.UserUUID != target.ID {
+		t.Fatalf("expected target identity from issuer B, got %+v", member)
+	}
+
+	other, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "other-target@example.com", Status: "active"})
+	if err != nil {
+		t.Fatalf("seed other target user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: other.ID, Provider: "oidc:" + callerIssuer, Subject: "shared-target-subject",
+	}); err != nil {
+		t.Fatalf("seed caller-issuer collision: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: target.ID, Provider: "oidc:" + targetIssuer, Subject: "shared-target-subject",
+	}); err != nil {
+		t.Fatalf("seed target-issuer collision: %v", err)
+	}
+	_, err = svc.UpsertWorkspaceMemberAs(requestCtx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: "member-ambiguous-target", UserID: "shared-target-subject",
+		Role: "viewer", Status: "active",
+	}, "owner-subject")
+	if !errors.Is(err, ErrInvalidTenancyRequest) {
+		t.Fatalf("expected cross-issuer target collision to be rejected, got %v", err)
+	}
+}
+
+func TestServiceLegacyMembershipRejectsCrossIssuerSubjectCollision(t *testing.T) {
+	svc, scopedCtx, _ := setupWorkspaceLifecycleServiceHarness(t)
+	store := svc.Store.(*db.MemoryStore)
+	const issuerA = "https://issuer-a.example.com"
+	const issuerB = "https://issuer-b.example.com"
+	first, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "legacy-first@example.com", Status: "active"})
+	if err != nil {
+		t.Fatalf("seed first user: %v", err)
+	}
+	second, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "legacy-second@example.com", Status: "active"})
+	if err != nil {
+		t.Fatalf("seed second user: %v", err)
+	}
+	for _, identity := range []db.UserIdentity{
+		{UserID: first.ID, Provider: "oidc:" + issuerA, Subject: "shared-legacy-subject"},
+		{UserID: second.ID, Provider: "oidc:" + issuerB, Subject: "shared-legacy-subject"},
+	} {
+		if _, err := store.UpsertUserIdentity(context.Background(), identity); err != nil {
+			t.Fatalf("seed colliding identity: %v", err)
+		}
+	}
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a", MemberID: "legacy-owner", UserID: "shared-legacy-subject",
+		Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("seed legacy membership: %v", err)
+	}
+	requestCtx := sessionauth.WithSubjectSource(scopedCtx, sessionauth.SubjectSourceOIDC)
+	requestCtx = sessionauth.WithSubjectIssuer(requestCtx, issuerA)
+	if err := svc.requireWorkspaceAdmin(requestCtx, "workspace-a", "shared-legacy-subject"); !errors.Is(err, ErrWorkspaceAdminRequired) {
+		t.Fatalf("expected ambiguous legacy membership to fail closed, got %v", err)
+	}
+}
+
+func TestServiceWorkspaceMemberWriteReturnsInactiveTarget(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
+	store := svc.Store.(*db.MemoryStore)
+	inactive, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "inactive-target@example.com", Status: "deactivated",
+	})
+	if err != nil {
+		t.Fatalf("seed inactive target: %v", err)
+	}
+	member, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: "inactive-target-member", UserID: "inactive-target-subject",
+		Email: inactive.PrimaryEmail, Role: "viewer", Status: "suspended",
+	}, ownerUUID)
+	if err != nil {
+		t.Fatalf("expected suspended inactive target write to succeed, got %v", err)
+	}
+	if member.UserUUID != inactive.ID || member.Status != "suspended" {
+		t.Fatalf("unexpected inactive target membership: %+v", member)
+	}
+}
+
+func TestServiceWorkspaceMemberWriteLinksProviderSubject(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
+	store := svc.Store.(*db.MemoryStore)
+	target, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "linked@example.com"})
+	if err != nil {
+		t.Fatalf("upsert target: %v", err)
+	}
+	linkedSubject := "55555555-5555-5555-5555-555555555555"
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: target.ID, Provider: "provider-b", Subject: linkedSubject,
+	}); err != nil {
+		t.Fatalf("upsert target identity: %v", err)
+	}
+	member, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: "member-linked", UserID: linkedSubject, Email: target.PrimaryEmail,
+		Role: "viewer", Status: "active",
+	}, ownerUUID)
+	if err != nil {
+		t.Fatalf("upsert linked member: %v", err)
+	}
+	if member.UserUUID != target.ID {
+		t.Fatalf("expected provider subject to link local user UUID, got %+v", member)
+	}
+	member, err = svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: "member-linked", UserID: linkedSubject, Email: target.PrimaryEmail,
+		Role: "admin", Status: "active",
+	}, ownerUUID)
+	if err != nil {
+		t.Fatalf("update linked member: %v", err)
+	}
+	if member.UserUUID != target.ID || member.Role != "admin" {
+		t.Fatalf("expected update to preserve linked UUID, got %+v", member)
 	}
 }
 

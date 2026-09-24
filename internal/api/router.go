@@ -1499,6 +1499,35 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	return r
 }
 
+// effectiveWhoAmIRoles reports the role that is actually effective in the
+// selected workspace. Provider claims can be stale, so exposing them here
+// would make /whoami disagree with the membership-backed authorization used
+// by the request itself. API-key callers have no workspace subject and retain
+// their configured roles/scopes.
+func effectiveWhoAmIRoles(c *gin.Context, snapshot WhoAmIContext) []string {
+	roles := authContextStringSlice(c, "auth.roles")
+	if strings.TrimSpace(authContextString(c, "auth.subject")) == "" {
+		return roles
+	}
+	effective := []string{"authenticated"}
+	if snapshot.ActiveWorkspace != nil && snapshot.ActiveWorkspace.Member != nil {
+		if role := strings.ToLower(strings.TrimSpace(snapshot.ActiveWorkspace.Member.Role)); role != "" {
+			effective = append(effective, role)
+		}
+	}
+	return effective
+}
+
+func workspaceMemberCallerSubject(c *gin.Context) string {
+	if subject := authContextString(c, "auth.subject"); subject != "" {
+		return subject
+	}
+	if authContextString(c, "auth.api_key") != "" {
+		return workspaceMemberAPIKeyCaller
+	}
+	return workspaceMemberUnauthenticatedCaller
+}
+
 func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, featureConnectorAWS bool, featureConnectorGitHubV2 bool) {
 	v1.GET("/organizations/current", func(c *gin.Context) {
 		if svc == nil {
@@ -1617,7 +1646,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			principalType = "api_key"
 			principalID = fingerprintAPIKeyWith(nil, apiKey)
 		}
-		roles := authContextStringSlice(c, "auth.roles")
+		roles := effectiveWhoAmIRoles(c, contextSnapshot)
 		scopes := authContextScopes(c)
 		c.JSON(http.StatusOK, gin.H{
 			"principal": gin.H{
@@ -1946,10 +1975,19 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
-		record, err := svc.UpsertWorkspaceMember(c.Request.Context(), c.Param("workspace_id"), request)
+		record, err := svc.UpsertWorkspaceMemberAs(
+			c.Request.Context(),
+			c.Param("workspace_id"),
+			request,
+			workspaceMemberCallerSubject(c),
+		)
 		if err != nil {
 			if errors.Is(err, ErrInvalidTenancyRequest) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace member request"})
+				return
+			}
+			if errors.Is(err, ErrWorkspaceAdminRequired) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "workspace owner or admin role required", "code": "admin_required"})
 				return
 			}
 			if errors.Is(err, db.ErrNotFound) {
@@ -1990,7 +2028,16 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			tenancyServiceUnavailable(c)
 			return
 		}
-		if err := svc.DeleteWorkspaceMember(c.Request.Context(), c.Param("workspace_id"), c.Param("member_id")); err != nil {
+		if err := svc.DeleteWorkspaceMemberAs(
+			c.Request.Context(),
+			c.Param("workspace_id"),
+			c.Param("member_id"),
+			workspaceMemberCallerSubject(c),
+		); err != nil {
+			if errors.Is(err, ErrWorkspaceAdminRequired) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "workspace owner or admin role required", "code": "admin_required"})
+				return
+			}
 			if errors.Is(err, db.ErrNotFound) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "workspace member not found"})
 				return
@@ -6491,6 +6538,10 @@ func apiKeyAuthMiddleware(
 			token, err := tokenVerifier.VerifyToken(c.Request.Context(), rawBearer)
 			if err == nil {
 				c.Set("auth.subject", token.Subject)
+				c.Set("auth.subject_source", sessionauth.SubjectSourceOIDC)
+				requestContext := sessionauth.WithSubjectSource(c.Request.Context(), sessionauth.SubjectSourceOIDC)
+				requestContext = sessionauth.WithSubjectIssuer(requestContext, token.Issuer)
+				c.Request = c.Request.WithContext(requestContext)
 				c.Set("auth.issuer", token.Issuer)
 				c.Set("auth.audiences", token.Audiences)
 				c.Set("auth.groups", token.Groups)

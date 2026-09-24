@@ -66,6 +66,8 @@ export function AccountSecurityPage() {
     }
   };
 
+  const workspaceRole = me?.role?.trim();
+
   if (loading) {
     return (
       <section className="idt-app-shell-screen" aria-live="polite">
@@ -134,8 +136,12 @@ export function AccountSecurityPage() {
         </article>
         <article>
           <p className="idt-app-kicker">Access scope</p>
-          <h2>{me?.role ?? 'member'}</h2>
-          <p>{me?.org_id && me.workspace_id ? `${me.org_id} / ${me.workspace_id}` : 'No workspace selected yet'}</p>
+          <h2>{workspaceRole || 'No workspace role'}</h2>
+          <p>
+            {me?.org_id && me.workspace_id
+              ? `${me.org_id} / ${me.workspace_id}`
+              : 'No workspace membership selected'}
+          </p>
         </article>
       </section>
 

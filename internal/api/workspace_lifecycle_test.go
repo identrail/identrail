@@ -361,8 +361,11 @@ func TestWorkspaceLifecycleOIDCOwnerClaimStillRequiresMembership(t *testing.T) {
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("expected lifecycle write to require membership despite owner claim, got %d body=%s", resp.Code, resp.Body.String())
 	}
-	if !strings.Contains(resp.Body.String(), `"code":"owner_required"`) {
-		t.Fatalf("expected owner_required code, got %s", resp.Body.String())
+	if !strings.Contains(resp.Body.String(), `"error":"forbidden"`) {
+		t.Fatalf("expected generic forbidden response, got %s", resp.Body.String())
+	}
+	if strings.Contains(resp.Body.String(), `"code":"owner_required"`) {
+		t.Fatalf("unassigned provider role should be rejected by route policy before the lifecycle service, got %s", resp.Body.String())
 	}
 }
 

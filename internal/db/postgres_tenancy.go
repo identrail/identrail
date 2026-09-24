@@ -456,7 +456,7 @@ func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, 
 		   AND m.workspace_id = $2
 		   AND m.status = 'active'
 		   AND m.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
-		   AND NOT (m.role = 'owner' AND mu.id IS NOT NULL AND mu.status = 'deleted')
+			AND ((m.role <> 'owner' AND m.user_uuid IS NULL) OR (m.user_uuid IS NOT NULL AND mu.id IS NOT NULL AND mu.status = 'active'))
 		   AND EXISTS (
 		       SELECT 1 FROM tenancy_workspace_members caller
 		       WHERE caller.tenant_id = m.tenant_id
@@ -471,10 +471,10 @@ func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, 
 		       LEFT JOIN users other_u ON other_u.id = other.user_uuid
 		       WHERE other.tenant_id = m.tenant_id
 		         AND other.workspace_id = m.workspace_id
-		         AND other.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
-		         AND other.status = 'active'
-		         AND other.role = 'owner'
-		         AND (other_u.id IS NULL OR other_u.status <> 'deleted')
+			   AND other.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
+			   AND other.status = 'active'
+			   AND other.role = 'owner'
+			   AND (other.user_uuid IS NULL OR (other_u.id IS NOT NULL AND other_u.status = 'active'))
 		   )
 		 ORDER BY m.member_id ASC`,
 		scope.TenantID,
@@ -863,11 +863,12 @@ func (p *PostgresStore) GetWorkspaceMember(ctx context.Context, workspaceID stri
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
-		 FROM tenancy_workspace_members
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		   AND member_id = $3`,
+		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users u ON u.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND m.member_id = $3`,
 		scope.TenantID,
 		resolvedWorkspaceID,
 		memberID,
@@ -893,8 +894,70 @@ func (p *PostgresStore) GetWorkspaceMember(ctx context.Context, workspaceID stri
 	return member, nil
 }
 
-// GetWorkspaceMemberByUserUUID returns one scoped workspace member by auth user UUID.
+// GetWorkspaceMemberByUserUUID returns one scoped workspace member by auth
+// user UUID. It returns ErrConflict when corrupted or pre-backfill data has
+// multiple memberships for the same local account in one workspace.
 func (p *PostgresStore) GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	rows, err := p.queryContext(
+		ctx,
+		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users u ON u.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND u.id IS NOT NULL
+		   AND m.user_uuid = NULLIF($3, '')::uuid`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		strings.TrimSpace(userUUID),
+	)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	defer rows.Close()
+	var member TenancyWorkspaceMember
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return TenancyWorkspaceMember{}, err
+		}
+		return TenancyWorkspaceMember{}, ErrNotFound
+	}
+	if err := rows.Scan(
+		&member.TenantID,
+		&member.WorkspaceID,
+		&member.MemberID,
+		&member.UserID,
+		&member.UserUUID,
+		&member.Email,
+		&member.Role,
+		&member.Status,
+		&member.JoinedAt,
+		&member.UpdatedAt,
+	); err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	if rows.Next() {
+		return TenancyWorkspaceMember{}, ErrConflict
+	}
+	if err := rows.Err(); err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	return member, nil
+}
+
+// GetWorkspaceMemberByUserID returns one scoped workspace member by its
+// provider subject. Legacy membership rows use this field when user_uuid is
+// unavailable, so callers must not enumerate the entire workspace to resolve
+// one subject.
+func (p *PostgresStore) GetWorkspaceMemberByUserID(ctx context.Context, workspaceID string, userID string) (TenancyWorkspaceMember, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return TenancyWorkspaceMember{}, err
@@ -905,14 +968,16 @@ func (p *PostgresStore) GetWorkspaceMemberByUserUUID(ctx context.Context, worksp
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
-		 FROM tenancy_workspace_members
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		   AND user_uuid = NULLIF($3, '')::uuid`,
+		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users u ON u.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND m.user_uuid IS NULL
+		   AND m.user_id = $3`,
 		scope.TenantID,
 		resolvedWorkspaceID,
-		strings.TrimSpace(userUUID),
+		strings.TrimSpace(userID),
 	)
 	var member TenancyWorkspaceMember
 	if err := row.Scan(
@@ -1137,10 +1202,10 @@ func (p *PostgresStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID st
 		     LEFT JOIN users other_u ON other_u.id = other.user_uuid
 		     WHERE other.tenant_id = w.tenant_id
 		       AND other.workspace_id = w.workspace_id
-		       AND other.user_uuid <> NULLIF($1, '')::uuid
+			   AND other.user_uuid IS DISTINCT FROM NULLIF($1, '')::uuid
 		       AND other.status = 'active'
 		       AND other.role = 'owner'
-		       AND (other_u.id IS NULL OR other_u.status <> 'deleted')
+			       AND (other_u.id IS NULL OR other_u.status = 'active')
 		 )
 		 ORDER BY w.workspace_id ASC`,
 		normalizedUserUUID,
@@ -1178,11 +1243,13 @@ func (p *PostgresStore) ListWorkspaceMembers(ctx context.Context, workspaceID st
 	}
 	rows, err := p.queryContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
-		 FROM tenancy_workspace_members
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		 ORDER BY joined_at ASC
+		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users u ON u.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND (u.id IS NULL OR u.status = 'active')
+		 ORDER BY m.joined_at ASC
 		 LIMIT $3`,
 		scope.TenantID,
 		resolvedWorkspaceID,

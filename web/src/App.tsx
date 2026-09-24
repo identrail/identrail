@@ -2607,12 +2607,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
           ? 'Describe the environment'
           : 'Prioritize the first review';
 
-  const guidance = [
-    'Use a company email, not a personal inbox.',
-    'Enter the registered company website that matches the email domain.',
-    'Share public context only: no keys, tokens, credentials, or screenshots of secrets.',
-    'Add a public GitHub, GitLab, or Bitbucket organization or repository URL only if it helps verify the workspace.'
-  ];
+  const guidance = 'Use a work email and matching website. A public repository URL is optional. Never share credentials or secrets.';
 
   return (
     <ModalShell titleId="scan-intake-title" onClose={onClose} className="idt-scan-modal">
@@ -2623,11 +2618,15 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
         <aside className="idt-scan-modal-guide" aria-label="Scan request guidance">
           <h2>Request a trust path review</h2>
           <p>
-            A short, review-first request gives the team enough public context to prepare a useful trust-path report.
+            Give us the public context needed to prepare your review.
           </p>
           <ol className="idt-scan-stepper" aria-label="Scan request steps">
             {['Identity', 'Environment', 'Priority', 'Review'].map((label, index) => (
-              <li key={label} className={step === index + 1 ? 'is-active' : ''}>
+              <li
+                key={label}
+                className={step === index + 1 ? 'is-active' : ''}
+                aria-current={step === index + 1 ? 'step' : undefined}
+              >
                 <span>{index + 1}</span>
                 {label}
               </li>
@@ -2635,11 +2634,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
           </ol>
           <div className="idt-scan-guidance-list">
             <h3>What to prepare</h3>
-            <ul>
-              {guidance.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+            <p>{guidance}</p>
           </div>
         </aside>
 
@@ -2653,10 +2648,12 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
             aria-hidden="true"
           />
           <div className="idt-scan-form-header">
-            <p className="idt-intake-step">Step {submitted ? INTAKE_TOTAL_STEPS : step} of {INTAKE_TOTAL_STEPS}</p>
+            <p className="idt-intake-step idt-visually-hidden" aria-live="polite">
+              Step {submitted ? INTAKE_TOTAL_STEPS : step} of {INTAKE_TOTAL_STEPS}: {stepTitle}
+            </p>
             <h2 id="scan-intake-title">{stepTitle}</h2>
             <p>
-              Nothing is sent until you review and submit the final step.
+              Review everything before submitting.
             </p>
           </div>
           {!submitted ? (
@@ -2893,7 +2890,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
 
               {error ? <p className="idt-form-error" role="alert">{error}</p> : null}
 
-              <div className="idt-inline-actions">
+              <div className="idt-inline-actions idt-intake-actions">
                 {step > 1 ? (
                   <button type="button" className="idt-btn idt-btn-ghost" onClick={() => setStep((value) => Math.max(1, value - 1))}>
                     Back
