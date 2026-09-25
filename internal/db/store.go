@@ -3451,6 +3451,7 @@ type Store interface {
 	UpsertWorkspaceMember(ctx context.Context, member TenancyWorkspaceMember) error
 	GetWorkspaceMember(ctx context.Context, workspaceID string, memberID string) (TenancyWorkspaceMember, error)
 	GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error)
+	GetWorkspaceMemberByUserID(ctx context.Context, workspaceID string, userID string) (TenancyWorkspaceMember, error)
 	ListWorkspaceMembers(ctx context.Context, workspaceID string, limit int) ([]TenancyWorkspaceMember, error)
 	DeleteWorkspaceMember(ctx context.Context, workspaceID string, memberID string) error
 	UpsertProject(ctx context.Context, project TenancyProject) error
@@ -3505,6 +3506,10 @@ type Store interface {
 	HardDeleteUser(ctx context.Context, userID string, now time.Time) (User, error)
 	UpsertUserIdentity(ctx context.Context, identity UserIdentity) (UserIdentity, error)
 	GetUserIdentity(ctx context.Context, provider string, subject string) (UserIdentity, error)
+	// GetUserIdentityBySubject resolves a provider subject across all identity
+	// providers. A subject shared by different users is ambiguous and returns
+	// ErrConflict so callers cannot bind it to the wrong local account.
+	GetUserIdentityBySubject(ctx context.Context, subject string) (UserIdentity, error)
 	GetUserIdentityByProviderUserID(ctx context.Context, provider string, userID string) (UserIdentity, error)
 	ListUserIdentitiesByProvider(ctx context.Context, provider string, limit int) ([]UserIdentity, error)
 	DeleteUserIdentity(ctx context.Context, provider string, subject string) error

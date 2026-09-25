@@ -134,6 +134,52 @@ func TestPostgresHardDeleteUserDoesNotPurgeActiveUser(t *testing.T) {
 	}
 }
 
+func TestPostgresHardDeleteUserPurgesWorkspaceMemberships(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	now := time.Now().UTC()
+	userID := "11111111-1111-1111-1111-111111111111"
+	deletedAt := now.Add(-31 * 24 * time.Hour)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE users
+		 SET primary_email = $2::citext,
+		     display_name = '',
+		     avatar_url = '',
+		     status = 'deleted',
+		     updated_at = $3::timestamptz
+		 WHERE id = NULLIF($1, '')::uuid
+		   AND status = 'deleted'
+		   AND deleted_at IS NOT NULL
+		 RETURNING id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at`)).
+		WithArgs(userID, HardDeletedTombstoneEmail(userID), now).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "primary_email", "display_name", "avatar_url", "status", "created_at", "updated_at", "deleted_at"}).
+			AddRow(userID, HardDeletedTombstoneEmail(userID), "", "", "deleted", now.Add(-time.Hour), now, deletedAt))
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM tenancy_workspace_members
+			 WHERE user_uuid = NULLIF($1, '')::uuid`)).
+		WithArgs(userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM user_identities WHERE user_id = NULLIF($1, '')::uuid`)).
+		WithArgs(userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM sessions WHERE user_id = NULLIF($1, '')::uuid`)).
+		WithArgs(userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if _, err := store.HardDeleteUser(context.Background(), userID, now); err != nil {
+		t.Fatalf("hard delete pending user: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreUpsertFindings(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

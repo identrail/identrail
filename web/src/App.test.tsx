@@ -145,9 +145,20 @@ function repoRemediationPreviewPayload() {
   };
 }
 
-function currentMePayload(tenantID = 'default', workspaceID = 'default', role = 'owner') {
-  return {
-    me: {
+function currentMePayload(tenantID = 'default', workspaceID = 'default', role: string | null = 'owner') {
+  const me: {
+    user: {
+      id: string;
+      primary_email: string;
+      display_name: string;
+      status: string;
+      created_at: string;
+      updated_at: string;
+    };
+    org_id: string;
+    workspace_id: string;
+    role?: string;
+  } = {
       user: {
         id: 'user-1',
         primary_email: 'owner@example.com',
@@ -157,10 +168,12 @@ function currentMePayload(tenantID = 'default', workspaceID = 'default', role = 
         updated_at: '2026-01-01T00:00:00Z'
       },
       org_id: tenantID,
-      workspace_id: workspaceID,
-      role
-    }
-  };
+      workspace_id: workspaceID
+    };
+  if (role !== null) {
+    me.role = role;
+  }
+  return { me };
 }
 
 function projectListPayload() {
@@ -355,6 +368,12 @@ function fillScanIdentityStep({
   });
 }
 
+function expectActiveScanStep(label: string) {
+  const steps = screen.getByRole('list', { name: 'Scan request steps' });
+  expect(within(steps).getByText(label).closest('li')).toHaveAttribute('aria-current', 'step');
+  expect(within(steps).getAllByRole('listitem').filter((step) => step.getAttribute('aria-current') === 'step')).toHaveLength(1);
+}
+
 function leadCaptureCalls(fetchMock: ReturnType<typeof vi.fn>) {
   return fetchMock.mock.calls.filter(([url]) => url === '/api/leads');
 }
@@ -522,21 +541,50 @@ describe('App', () => {
     expect(document.body.scrollTop).toBe(640);
   });
 
-  it('renders pricing page routes and key elements', () => {
+  it('renders pricing page routes and key elements', async () => {
     setCurrentPath('/pricing');
     render(<App />);
 
-    expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: /Pricing aligned to how teams adopt machine identity security/i
-      })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /Pricing that matches your control boundary/i })).toBeInTheDocument();
 
     expect(screen.getByRole('button', { name: /Annual/i })).toBeInTheDocument();
-    expect(screen.getByText(/Choose deployment model/i)).toBeInTheDocument();
-    expect(screen.getByText(/Procurement ready/i)).toBeInTheDocument();
+    expect(screen.getByText(/Choose your control boundary/i)).toBeInTheDocument();
+    expect(screen.getByText(/Compare what changes by plan/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Procurement ready/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Talk to Enterprise/i })).toBeInTheDocument();
+
+    expect(screen.getAllByRole('button', { name: /Annual/i })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /Annual/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Annual/i })).toHaveAttribute('data-state', 'on');
+    fireEvent.click(screen.getByRole('button', { name: /Monthly/i }));
+    await waitFor(() => expect(document.querySelector('.idt-pricing-card.is-featured .idt-price-value')).toHaveTextContent('39'));
+    fireEvent.click(screen.getByRole('button', { name: /Annual/i }));
+    await waitFor(() => expect(document.querySelector('.idt-pricing-card.is-featured .idt-price-value')).toHaveTextContent('30'));
+  });
+
+  it('keeps pricing content visible and controls stateful with reduced motion', async () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        matches: query === '(prefers-reduced-motion: reduce)',
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn()
+      }))
+    );
+    setCurrentPath('/pricing');
+    render(<App />);
+
+    await waitFor(() => expect(getComputedStyle(document.querySelector('.idt-pricing-decision-console') as Element).opacity).not.toBe('0'));
+    await waitFor(() => expect(getComputedStyle(document.querySelector('.idt-pricing-plans-section') as Element).opacity).not.toBe('0'));
+    expect(screen.getByRole('button', { name: /Annual/i })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: /Monthly/i }));
+    await waitFor(() => expect(document.querySelector('.idt-pricing-card.is-featured .idt-price-value')).toHaveTextContent('39'));
   });
 
   it('renders the full-bleed product page story', () => {
@@ -611,6 +659,34 @@ describe('App', () => {
 
     expect(screen.getByRole('heading', { name: 'Request a trust path review' })).toBeInTheDocument();
     expect(screen.queryByText('Read-only trust review')).not.toBeInTheDocument();
+    expect(screen.getByText(/Step 1 of 4/i)).toHaveClass('idt-visually-hidden');
+    expect(screen.getByText('Review everything before submitting.')).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing is sent until you review/i)).not.toBeInTheDocument();
+    const steps = screen.getByRole('list', { name: 'Scan request steps' });
+    expect(within(steps).getByText('Identity').closest('li')).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByText(/Use a work email and matching website/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Use a company email, not a personal inbox/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps the active step semantics in sync while navigating the scan intake', () => {
+    setCurrentPath('/');
+    vi.stubGlobal('fetch', vi.fn(async () => okJSON({ status: 'accepted' })));
+    render(<App />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
+
+    expectActiveScanStep('Identity');
+    fillScanIdentityStep();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expectActiveScanStep('Environment');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expectActiveScanStep('Priority');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review Request' }));
+    expectActiveScanStep('Review');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expectActiveScanStep('Priority');
   });
 
   it('rejects company domains that do not match the work email domain', () => {
@@ -1246,7 +1322,7 @@ describe('App', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
-        return okJSON(currentMePayload('', ''));
+        return okJSON(currentMePayload('', '', null));
       }
       if (url.endsWith('/v1/me/sessions')) {
         return okJSON({
@@ -1272,9 +1348,29 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
-    expect(await screen.findByText(/No workspace selected yet/i)).toBeInTheDocument();
+		 expect(await screen.findByRole('heading', { level: 2, name: 'No workspace role' })).toBeInTheDocument();
+		 expect(await screen.findByText(/No workspace membership selected/i)).toBeInTheDocument();
     expect(await screen.findByText(/current browser/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Back to app/i })).toHaveAttribute('href', '/app');
+  });
+
+  it('displays the validated workspace role on account security', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a', 'admin'));
+      }
+      if (url.endsWith('/v1/me/sessions')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/account/security');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'admin' })).toBeInTheDocument();
   });
 
   it('revalidates session after same-workspace navigation from an auth error', async () => {
@@ -1827,7 +1923,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: /Connect AWS/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/aws/connect');
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose coverage/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose what to cover/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /AWS overview/i })).toHaveAttribute('href', '/app/tenant-a/workspace-a/aws?environment=project-1');
     expect(screen.queryByLabelText('AWS source')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Source types')).not.toBeInTheDocument();
