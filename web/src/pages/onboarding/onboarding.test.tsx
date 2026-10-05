@@ -83,6 +83,7 @@ async function loadOnboardingModules() {
 
   return {
     apiClient: api.apiClient,
+    ApiError: api.ApiError,
     OrgPage: org.OrgPage,
     WorkspacePage: workspace.WorkspacePage,
     ConnectPage: connect.ConnectPage,
@@ -459,6 +460,107 @@ describe('onboarding pages', () => {
     await waitFor(() => {
       expect(update).toHaveBeenCalledWith({ current_step: 'scan' });
     });
+  });
+
+  it('explains scan access denial and prevents actions while status is unknown', async () => {
+    const { apiClient, ApiError, ScanPage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'scan',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production'
+      }),
+      redirect_path: '/onboarding/scan'
+    });
+    vi.spyOn(apiClient, 'listScans').mockRejectedValue(new ApiError('forbidden', 403));
+
+    renderOnboarding(<ScanPage />, '/onboarding/scan');
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/This session can’t access scans in the selected workspace/i);
+    expect(alert).not.toHaveTextContent(/\bforbidden\b/i);
+    expect(screen.getByRole('link', { name: 'Sign out and check account' })).toHaveAttribute('href', '/app/logout');
+    expect(screen.getByText('Scan status unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('No scan started yet')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start first scan' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  });
+
+  it('does not let skipped connectors bypass denied scan access', async () => {
+    const { apiClient, ApiError, ScanPage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'scan',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production',
+        connector_skipped: true
+      }),
+      redirect_path: '/onboarding/scan'
+    });
+    vi.spyOn(apiClient, 'listScans').mockRejectedValue(new ApiError('forbidden', 403));
+
+    renderOnboarding(<ScanPage />, '/onboarding/scan');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/This session can’t access scans/i);
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Skip scan' })).toBeDisabled();
+  });
+
+  it('preserves read access when the role cannot start a scan', async () => {
+    const { apiClient, ApiError, ScanPage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'scan',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production',
+        connector_type: 'aws'
+      }),
+      redirect_path: '/onboarding/scan'
+    });
+    vi.spyOn(apiClient, 'listScans').mockResolvedValue({ items: [scan()] });
+    vi.spyOn(apiClient, 'startScan').mockRejectedValue(new ApiError('forbidden', 403));
+
+    renderOnboarding(<ScanPage />, '/onboarding/scan');
+
+    expect(await screen.findByText('3 findings')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Start another scan' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/You can still view existing scans, but this workspace denied the request to start one/i);
+    expect(alert).not.toHaveTextContent(/Sign out and check account/i);
+    expect(screen.getByText('3 findings')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start another scan' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+
+  it('preserves scan read access when saving onboarding progress is forbidden', async () => {
+    const { apiClient, ApiError, ScanPage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'scan',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production',
+        connector_type: 'aws'
+      }),
+      redirect_path: '/onboarding/scan'
+    });
+    vi.spyOn(apiClient, 'listScans').mockResolvedValue({ items: [scan()] });
+    vi.spyOn(apiClient, 'updateOnboardingState').mockRejectedValue(new ApiError('forbidden', 403));
+
+    renderOnboarding(<ScanPage />, '/onboarding/scan');
+
+    expect(await screen.findByText('3 findings')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/denied the request to update onboarding/i);
+    expect(alert).not.toHaveTextContent(/Sign out and check account/i);
+    expect(screen.getByText('3 findings')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
   });
 
   it('invites teammates and completes onboarding', async () => {

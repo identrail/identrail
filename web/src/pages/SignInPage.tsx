@@ -121,7 +121,8 @@ function authReasonDetails(reason: string, returnTo: string, hardDeleteAfter: st
       return { message: 'Secure sign-in validation failed. Start a new sign-in from this page.' };
     case 'account_not_found':
       return {
-        message: 'No Identrail account uses that sign-in method yet.',
+        message:
+          "We couldn't find an Identrail account for this sign-in. If your previous account was permanently deleted, create a new account to continue.",
         actionLabel: 'Create an account',
         actionHref: authPathWithReturnTo('/signup', returnTo)
       };

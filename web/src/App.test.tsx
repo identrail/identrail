@@ -1550,7 +1550,7 @@ describe('App', () => {
     setCurrentPath('/signin?reason=account_not_found&return_to=/app/team/workspace');
     render(<App />);
 
-    expect(await screen.findByText(/No Identrail account uses that sign-in method yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/If your previous account was permanently deleted, create a new account to continue/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Create an account/i })).toHaveAttribute(
       'href',
       '/signup?return_to=%2Fapp%2Fteam%2Fworkspace'
