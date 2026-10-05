@@ -26,6 +26,13 @@ function scanErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function actionErrorMessage(error: unknown, fallback: string, deniedMessage: string): string {
+  if (isAccessDenied(error)) {
+    return deniedMessage;
+  }
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 export function ScanPage() {
   const navigate = useNavigate();
   const [state, setState] = useState<OnboardingState | null>(null);
@@ -36,6 +43,7 @@ export function ScanPage() {
   const [error, setError] = useState('');
   const [accessDenied, setAccessDenied] = useState(false);
   const [scanStatusLoaded, setScanStatusLoaded] = useState(false);
+  const [scanRunDenied, setScanRunDenied] = useState(false);
 
   useEffect(() => {
     if (!FEATURE_ONBOARDING_WIZARD) {
@@ -47,6 +55,7 @@ export function ScanPage() {
       setError('');
       setAccessDenied(false);
       setScanStatusLoaded(false);
+      setScanRunDenied(false);
       setScan(null);
       try {
         const response = await loadOrStartOnboardingResponse();
@@ -108,14 +117,17 @@ export function ScanPage() {
       const auth = onboardingAuth(state);
       const response = request.project_id || request.connector_id ? await apiClient.startScan(request, auth) : await apiClient.startScan(auth);
       setScan(response.scan);
+      setScanRunDenied(false);
     } catch (requestError) {
       const denied = isAccessDenied(requestError);
-      setAccessDenied(denied);
       if (denied) {
-        setScanStatusLoaded(false);
-        setScan(null);
+        setScanRunDenied(true);
       }
-      setError(scanErrorMessage(requestError, 'Unable to start the first scan.'));
+      setError(actionErrorMessage(
+        requestError,
+        'Unable to start the first scan.',
+        'You can still view existing scans, but this workspace denied the request to start one. Ask a workspace owner to review scan permissions.'
+      ));
     } finally {
       setStartingScan(false);
     }
@@ -130,13 +142,11 @@ export function ScanPage() {
       setState(response.state);
       routeAfterOnboardingResponse(navigate, response.redirect_path, '/onboarding/invite');
     } catch (requestError) {
-      const denied = isAccessDenied(requestError);
-      setAccessDenied(denied);
-      if (denied) {
-        setScanStatusLoaded(false);
-        setScan(null);
-      }
-      setError(scanErrorMessage(requestError, 'Unable to save scan progress.'));
+      setError(actionErrorMessage(
+        requestError,
+        'Unable to save scan progress.',
+        'This workspace denied the request to update onboarding. Ask a workspace owner to review your access.'
+      ));
     } finally {
       setSaving(false);
     }
@@ -154,13 +164,11 @@ export function ScanPage() {
       setState(response.state);
       routeAfterOnboardingResponse(navigate, response.redirect_path, '/onboarding/invite');
     } catch (requestError) {
-      const denied = isAccessDenied(requestError);
-      setAccessDenied(denied);
-      if (denied) {
-        setScanStatusLoaded(false);
-        setScan(null);
-      }
-      setError(scanErrorMessage(requestError, 'Unable to skip scan.'));
+      setError(actionErrorMessage(
+        requestError,
+        'Unable to skip scan.',
+        'This workspace denied the request to update onboarding. Ask a workspace owner to review your access.'
+      ));
     } finally {
       setSaving(false);
     }
@@ -205,7 +213,7 @@ export function ScanPage() {
           <button
             type="button"
             className="idt-btn idt-btn-primary"
-            disabled={startingScan || saving || loading || !state || !scanStatusLoaded}
+            disabled={startingScan || saving || loading || !state || !scanStatusLoaded || scanRunDenied}
             onClick={startScan}
           >
             {startingScan ? 'Starting...' : scan ? 'Start another scan' : 'Start first scan'}
