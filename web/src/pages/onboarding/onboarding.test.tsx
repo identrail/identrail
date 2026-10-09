@@ -618,7 +618,7 @@ describe('onboarding pages', () => {
     expect(invite).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
 
-    fireEvent.change(emailInput, { target: { value: 'analyst@bücher.de' } });
+    fireEvent.change(emailInput, { target: { value: 'analyst@bücher.de, 用户@example.com' } });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
 
@@ -626,6 +626,12 @@ describe('onboarding pages', () => {
       expect(invite).toHaveBeenCalledWith(
         'production',
         expect.objectContaining({ email: 'analyst@bücher.de', role: 'viewer', status: 'invited' }),
+        { tenantID: 'tenant-a', workspaceID: 'production' }
+      );
+      expect(invite).toHaveBeenNthCalledWith(
+        2,
+        'production',
+        expect.objectContaining({ email: '用户@example.com', role: 'viewer', status: 'invited' }),
         { tenantID: 'tenant-a', workspaceID: 'production' }
       );
       expect(complete).toHaveBeenCalled();
@@ -710,13 +716,16 @@ describe('onboarding pages', () => {
     const complete = vi.spyOn(apiClient, 'completeOnboarding');
 
     renderOnboarding(<InvitePage />, '/onboarding/invite');
+    const overlongUtf8LocalPart = '界'.repeat(22);
     fireEvent.change(await screen.findByLabelText('Email addresses'), {
-      target: { value: 'first..last@example.com, user@-example.com, user@example..com, user@💩.example' }
+      target: {
+        value: `first..last@example.com, user@-example.com, user@example..com, user@💩.example, ${overlongUtf8LocalPart}@example.com`
+      }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'first..last@example.com, user@-example.com, user@example..com, user@💩.example'
+      `first..last@example.com, user@-example.com, user@example..com, user@💩.example, ${overlongUtf8LocalPart}@example.com`
     );
     expect(invite).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();

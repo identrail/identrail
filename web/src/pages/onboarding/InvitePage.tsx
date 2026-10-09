@@ -12,9 +12,15 @@ import {
   routeToOnboardingStep
 } from './onboardingUtils';
 
-const EMAIL_LOCAL_PART_PATTERN = /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/i;
+const EMAIL_LOCAL_ATOM_CHARACTER_PATTERN = /^(?:[a-zA-Z0-9!#$%&'*+\/=?^_`{|}~-]|[^\p{ASCII}\p{C}\p{Z}])$/u;
 const EMAIL_DOMAIN_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 const EMAIL_DOMAIN_CHARACTERS_PATTERN = /^[\p{L}\p{M}\p{N}.-\u3002\uFF0E\uFF61]+$/u;
+
+function isValidEmailLocalPart(localPart: string): boolean {
+  return localPart.split('.').every((atom) => {
+    return atom.length > 0 && Array.from(atom).every((character) => EMAIL_LOCAL_ATOM_CHARACTER_PATTERN.test(character));
+  });
+}
 
 function normalizeEmailDomain(domain: string): string | null {
   if (!EMAIL_DOMAIN_CHARACTERS_PATTERN.test(domain)) {
@@ -28,11 +34,12 @@ function normalizeEmailDomain(domain: string): string | null {
 }
 
 function isValidInviteEmail(email: string): boolean {
-  if (email.length > 254) {
+  const [localPart, domain, ...extra] = email.split('@');
+  if (extra.length || !localPart || !domain || !isValidEmailLocalPart(localPart)) {
     return false;
   }
-  const [localPart, domain, ...extra] = email.split('@');
-  if (extra.length || !localPart || localPart.length > 64 || !domain || !EMAIL_LOCAL_PART_PATTERN.test(localPart)) {
+  const localPartByteLength = new TextEncoder().encode(localPart).length;
+  if (localPartByteLength > 64) {
     return false;
   }
   const asciiDomain = normalizeEmailDomain(domain);
@@ -42,6 +49,7 @@ function isValidInviteEmail(email: string): boolean {
   const labels = asciiDomain.split('.');
   const topLevelDomain = labels[labels.length - 1] ?? '';
   return (
+    localPartByteLength + asciiDomain.length + 1 <= 254 &&
     labels.length > 1 &&
     labels.every((label) => EMAIL_DOMAIN_LABEL_PATTERN.test(label)) &&
     /^[a-z0-9-]{2,63}$/i.test(topLevelDomain) &&
