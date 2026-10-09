@@ -4141,6 +4141,8 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: /Severity composition/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /Top finding types/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /Notes for leadership/i })).toBeInTheDocument();
+    const domainFilter = screen.getByRole('group', { name: 'Filter executive report by domain' });
+    expect(within(domainFilter).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('link', { name: /Review findings/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Download report/i })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
@@ -4167,9 +4169,10 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: /Unknown report domain/i })).toBeInTheDocument();
     expect(screen.getByText('awss')).toBeInTheDocument();
-    // The segmented switch stays interactive so the user can recover.
-    expect(screen.getByRole('tab', { name: 'All' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'AWS' })).toBeInTheDocument();
+    // The domain filter stays interactive without claiming tab semantics.
+    const domainFilter = screen.getByRole('group', { name: 'Filter executive report by domain' });
+    expect(within(domainFilter).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
+    expect(within(domainFilter).getByRole('button', { name: 'AWS' })).toHaveAttribute('aria-pressed', 'false');
     // No executive-report fetch was issued for the bad URL.
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining('/v1/enterprise/reports/executive'),
