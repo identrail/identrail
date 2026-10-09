@@ -99,7 +99,9 @@ export function CommandCenterSection() {
         >
           <div className="idt-command-surface-head">
             <div>
-              <p>{activeView.eyebrow}</p>
+              <p>
+                {activeView.eyebrow} <span aria-hidden="true">·</span> Illustrative example
+              </p>
               <h3>{activeView.title}</h3>
             </div>
             <span>{activeView.confidence}</span>
