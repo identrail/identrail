@@ -24,7 +24,7 @@ function isValidInviteEmail(email: string): boolean {
     return false;
   }
   const labels = domain.split('.');
-  const topLevelDomain = labels.at(-1) ?? '';
+  const topLevelDomain = labels[labels.length - 1] ?? '';
   return (
     labels.length > 1 &&
     labels.every((label) => EMAIL_DOMAIN_LABEL_PATTERN.test(label)) &&
