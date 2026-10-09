@@ -4270,6 +4270,101 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('keeps AWS organization and permission coverage unmeasured without evidence', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: { ...connectedAWS, permission_checks: [] }
+    });
+    const dashboardAPIs = mockAWSCoverageDashboardAPIs(api);
+    dashboardAPIs.getOrganizationsTopology.mockResolvedValue({
+      topology: {
+        ...readyAWSOrganizationsTopology,
+        summary: {
+          ...readyAWSOrganizationsTopology.summary,
+          account_count: 0,
+          organizational_unit_count: 0,
+          scan_eligible_accounts: 0
+        },
+        accounts: [],
+        organizational_units: []
+      }
+    });
+
+    const { ProductAWSAccountsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/accounts?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/accounts" element={<ProductAWSAccountsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(dashboardAPIs.getOrganizationsTopology).toHaveBeenCalled());
+    expect(await screen.findByText(/0 OUs/)).toBeInTheDocument();
+    const organizationsCard = screen.getByRole('article', { name: 'Organizations accounts coverage' });
+    const permissionsCard = screen.getByRole('article', { name: 'Permission evidence coverage' });
+    expect(organizationsCard).toHaveTextContent('â€”');
+    expect(organizationsCard).toHaveTextContent('Measured Â· no accounts found');
+    expect(within(organizationsCard).queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(permissionsCard).toHaveTextContent('â€”');
+    expect(permissionsCard).toHaveTextContent('No validation checks available');
+    expect(within(permissionsCard).queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('keeps account and region coverage unmeasured before the coverage plan loads', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const dashboardAPIs = mockAWSCoverageDashboardAPIs(api);
+    dashboardAPIs.getCoveragePlan.mockResolvedValue({ plan: null } as any);
+
+    const { ProductAWSAccountsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/accounts?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/accounts" element={<ProductAWSAccountsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    for (const name of ['Account coverage', 'Region coverage']) {
+      const card = await screen.findByRole('article', { name });
+      expect(card).toHaveTextContent('â€”');
+      expect(card).toHaveTextContent('Not measured');
+      expect(card).not.toHaveTextContent('0 of 1 scanned');
+      expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument();
+    }
+  });
+
   it('keeps the disconnected AWS accounts state focused on setup', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
@@ -9357,13369 +9452,7 @@ describe('Domain-first app routes', () => {
                 owner: 'AWS scanner',
                 evidence: { source: 'iam-policy' },
                 remediation: 'Review the role policy.',
-                created_at: '2026-08-20T20:03:00Z',
-                lifecycle_status: 'open'
-              },
-              {
-                id: 'finding-aws-iso-b',
-                scan_id: 'scan-aws-complete',
-                type: 'aws_iam_partition_role',
-                severity: 'low',
-                title: 'ISO-B IAM role',
-                human_summary: 'A role in the AWS ISO-B partition.',
-                path: ['arn:aws-iso-b:iam::123456789012:role/iso-b-role'],
-                owner: 'AWS scanner',
-                evidence: { source: 'iam-policy' },
-                remediation: 'Review the role policy.',
-                created_at: '2026-08-20T20:03:00Z',
-                lifecycle_status: 'open'
-              },
-              {
-                id: 'finding-aws-lifecycle-suppressed',
-                scan_id: 'scan-aws-complete',
-                type: 'aws_iam_lifecycle_role',
-                severity: 'medium',
-                title: 'Suppressed lifecycle role',
-                human_summary: 'The role has a suppressed finding.',
-                path: ['arn:aws:iam::123456789012:role/lifecycle-role'],
-                owner: 'AWS scanner',
-                evidence: { source: 'iam-policy' },
-                remediation: 'Review the suppression decision.',
-                created_at: '2026-08-20T20:03:00Z',
-                triage: { status: 'suppressed' }
-              },
-              {
-                id: 'finding-aws-lifecycle-resolved',
-                scan_id: 'scan-aws-complete',
-                type: 'aws_iam_lifecycle_role',
-                severity: 'low',
-                title: 'Resolved lifecycle role',
-                human_summary: 'The role has a resolved finding.',
-                path: ['arn:aws:iam::123456789012:role/lifecycle-role'],
-                owner: 'AWS scanner',
-                evidence: { source: 'iam-policy' },
-                remediation: 'No remediation is pending.',
-                created_at: '2026-08-20T20:03:00Z',
-                triage: { status: 'resolved' }
-              },
-              {
-                id: 'finding-aws-east-function',
-                scan_id: 'scan-aws-complete',
-                type: 'aws_lambda_function',
-                severity: 'low',
-                title: 'East Lambda function',
-                human_summary: 'A regional Lambda finding.',
-                path: ['arn:aws:lambda:us-east-1:123456789012:function/shared-function'],
-                owner: 'AWS scanner',
-                evidence: { source: 'lambda-policy' },
-                remediation: 'Review the function policy.',
-                created_at: '2026-08-20T20:03:00Z',
-                lifecycle_status: 'open'
-              },
-              {
-                id: 'finding-aws-west-function',
-                scan_id: 'scan-aws-complete',
-                type: 'aws_lambda_function',
-                severity: 'low',
-                title: 'West Lambda function',
-                human_summary: 'A regional Lambda finding.',
-                path: ['arn:aws:lambda:eu-west-1:123456789012:function/shared-function'],
-                owner: 'AWS scanner',
-                evidence: { source: 'lambda-policy' },
-                remediation: 'Review the function policy.',
-                created_at: '2026-08-20T20:03:00Z',
-                lifecycle_status: 'open'
-              },
-              {
-                id: 'finding-aws-3',
-                scan_id: 'scan-aws-complete',
-                type: 'aws_iam_acknowledged_role',
-                severity: 'low',
-                title: 'Acknowledged IAM role',
-                human_summary: 'The finding has been acknowledged for review.',
-                path: ['review-role'],
-                owner: 'AWS scanner',
-                evidence: { source: 'iam-policy' },
-                remediation: 'Review the acknowledged finding.',
-                created_at: '2026-08-20T20:03:00Z',
-                triage: { status: 'ack' }
-              },
-              {
-                id: 'finding-aws-4',
-                scan_id: 'scan-aws-complete',
-                type: 'aws_iam_resolved_role',
-                severity: 'low',
-                title: 'Resolved IAM role',
-                human_summary: 'The finding has been resolved.',
-                path: ['resolved-role'],
-                owner: 'AWS scanner',
-                evidence: { source: 'iam-policy' },
-                remediation: 'No remediation is pending.',
-                created_at: '2026-08-20T20:03:00Z',
-                triage: { status: 'resolved' }
-              }
-            ]
-          }
-        : {
-            items: [
-              {
-                id: 'finding-aws-1',
-                scan_id: 'scan-aws-complete',
-                type: 'aws_iam_overprivileged_role',
-                severity: 'high',
-                title: 'Overprivileged IAM role',
-                human_summary: 'The role grants more permissions than this workload requires.',
-                path: ['arn:aws:iam::123456789012:role/production-role', 'aws%3Aaccess%3Aiam%3AGetRole%20-%3E%20aws%3Aaccess%3Aiam%3AListRoles'],
-                owner: 'AWS scanner',
-                adapter_source: 'iam-policy collector',
-                confidence_score: 0.88,
-                actionability: 'action_required',
-                exploitability: 'plausible',
-                evidence_completeness: 'complete',
-                provenance: 'aws_iam_inventory',
-                first_seen_at: '2026-08-20T20:01:00Z',
-                evidence: { source: 'iam-policy', account_id: '123456789012', region: 'us-east-1' },
-                remediation: 'Reduce the role policy to the required actions.',
-                created_at: '2026-08-20T20:03:00Z',
-                lifecycle_status: 'open',
-                triage: { status: 'suppressed' }
-              },
-              {
-                id: 'finding-aws-5',
-                scan_id: 'scan-aws-complete',
-                type: 'aws_iam_ownerless_role',
-                severity: 'medium',
-                title: 'Ownerless IAM role',
-                human_summary: 'No accountable owner was detected for the role.',
-                path: ['production-role'],
-                adapter_source: 'iam-policy collector',
-                confidence_score: 0.82,
-                first_seen_at: '2026-08-20T20:01:00Z',
-                evidence: { source: 'iam-policy', account_id: '123456789012', region: 'us-east-1' },
-                remediation: 'Assign an accountable owner to the role.',
-                created_at: '2026-08-20T20:03:00Z',
-                lifecycle_status: 'open'
-              },
-              {
-                id: 'finding-aws-unknown-severity',
-                scan_id: 'scan-aws-complete',
-                type: 'aws_iam_role',
-                severity: 'informational',
-                title: 'Unclassified IAM role signal',
-                human_summary: 'The severity is not mapped to a supported priority.',
-                path: ['unclassified-role'],
-                owner: 'AWS scanner',
-                evidence: { source: 'iam-policy', account_id: '123456789012', region: 'us-east-1' },
-                remediation: 'Review the signal classification.',
-                created_at: '2026-08-20T20:03:00Z',
-                lifecycle_status: 'open'
-              }
-            ],
-            next_cursor: 'aws-findings-page-2'
-          }
-    );
-    vi.spyOn(api.apiClient, 'listFindingHistory').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'listScanEvents').mockRejectedValue(new Error('scan events unavailable'));
-    const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence');
-
-    const { ProductAWSFindingsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-complete']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('AWS findings')).toBeInTheDocument();
-    expect(screen.getByText(/source completeness could not be verified/i)).toBeInTheDocument();
-    const prioritySummary = await screen.findByRole('region', { name: 'Finding priority summary' });
-    expect(within(prioritySummary).getByText('Completeness').closest('div')).toHaveTextContent('Unknown');
-    expect(within(prioritySummary).getByText('20 findings Â· 0 critical/high open Â· 18 affected resources')).toBeInTheDocument();
-    expect(within(prioritySummary).getByText(/Scan scan-aws-complete/)).toBeInTheDocument();
-    expect(within(prioritySummary).getByText('Account 123456789012 Â· 2 regions + Global')).toBeInTheDocument();
-    expect(within(prioritySummary).getByRole('link', { name: 'View coverage details' })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/aws/coverage?environment=production'
-    );
-    const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
-    expect(findingsTable.closest('.idt-domain-table-wrap')).toHaveClass('is-narrow-stack');
-    expect(stylesSource).toContain('.idt-domain-table-wrap.is-narrow-stack .idt-domain-data-table {');
-    expect(stylesSource).toContain('min-width: 0 !important;');
-    expect(stylesSource).toContain('content: attr(data-label);');
-    expect(stylesSource).toContain('overflow-wrap: anywhere;');
-    expect(stylesSource).toContain('table-layout: fixed;');
-    expect(stylesSource).toContain('@media (min-width: 1101px)');
-    expect(stylesSource).toContain("[data-column='workflow']");
-    expect(stylesSource).toContain('.idt-domain-drawer .idt-inline-actions');
-    expect(stylesSource).toContain('.idt-domain-drawer .idt-aws-finding-workflow-controls textarea');
-    expect(within(findingsTable).getByRole('columnheader', { name: 'Workflow' })).toHaveAttribute('data-column', 'workflow');
-    const [productionRoleFinding] = within(findingsTable).getAllByText('production-role', { exact: true });
-    const overprivilegedRow = productionRoleFinding.closest('tr');
-    expect(overprivilegedRow).not.toBeNull();
-    expect(overprivilegedRow).toHaveTextContent('production-role');
-    expect(overprivilegedRow).toHaveTextContent('IAM role');
-    expect(overprivilegedRow).toHaveTextContent('Account 123456789012 Â· Global');
-    expect(overprivilegedRow).toHaveTextContent('1 affected resource');
-    expect(overprivilegedRow).toHaveTextContent('2 related risks');
-    expect(overprivilegedRow).toHaveTextContent('iam-policy collector');
-    expect(overprivilegedRow).toHaveTextContent('Confidence: 82% Â· Completeness: Unknown');
-    expect(within(overprivilegedRow as HTMLElement).queryByText('Technical evidence (2 refs)')).not.toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).queryByText('scan-aws-complete')).not.toBeInTheDocument();
-    fireEvent.click(within(overprivilegedRow as HTMLElement).getByRole('button', { name: 'View details' }));
-    const findingDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
-    expect(within(findingDrawer).getByText('Related risks (2)')).toBeInTheDocument();
-    expect(within(findingDrawer).getByText('Technical evidence (1 refs)')).toBeInTheDocument();
-    expect(within(findingDrawer).getByText('scan-aws-complete')).toBeInTheDocument();
-    expect(within(findingDrawer).getByRole('link', { name: 'Open in AWS Console' })).toHaveAttribute(
-      'href',
-      'https://console.aws.amazon.com/iam/home#/roles/production-role'
-    );
-    fireEvent.click(within(findingDrawer).getByRole('button', { name: 'View details for Ownerless IAM role' }));
-    await waitFor(() => {
-      expect(within(findingDrawer).getByText('Assign an accountable owner to the role.')).toBeInTheDocument();
-      expect(within(findingDrawer).getByText('Unassigned')).toBeInTheDocument();
-      expect(within(findingDrawer).getByText('Technical evidence (1 refs)')).toBeInTheDocument();
-    });
-    fireEvent.click(within(findingDrawer).getByRole('button', { name: 'View details for Overprivileged IAM role' }));
-    await waitFor(() => {
-      expect(within(findingDrawer).getByText('Reduce the role policy to the required actions.')).toBeInTheDocument();
-      expect(within(findingDrawer).getByText('Technical evidence (2 refs)')).toBeInTheDocument();
-      expect(within(findingDrawer).getByText('Action Required')).toBeInTheDocument();
-      expect(within(findingDrawer).getByText('Plausible')).toBeInTheDocument();
-      expect(within(findingDrawer).getByText('Complete')).toBeInTheDocument();
-    });
-    fireEvent.click(within(findingDrawer).getByRole('button', { name: 'Close detail drawer' }));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
-    expect(within(findingsTable).getByText('Public S3 bucket')).toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).getByText('High')).toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).queryByText('Medium')).not.toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).getByText('Open')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('Acknowledged')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('Resolved')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('Blocked')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('Suppressed')).toBeInTheDocument();
-    expect(within(findingsTable).queryByText(/Region unknown/i)).not.toBeInTheDocument();
-    expect(within(findingsTable).getAllByText('shared-function')).toHaveLength(2);
-    expect(within(findingsTable).getAllByText('Lambda function').length).toBeGreaterThanOrEqual(4);
-    expect(within(findingsTable).getByText('Account 123456789012 Â· Region eu-west-1')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('shared-function-colon')).toBeInTheDocument();
-    expect(within(findingsTable).getAllByText('payments')).toHaveLength(2);
-    expect(within(findingsTable).getByText('database-password-abc123')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('Production database secret', { exact: true })).toBeInTheDocument();
-    expect(within(findingsTable).getByText('Staging database secret', { exact: true })).toBeInTheDocument();
-
-    for (const [title, href] of [
-      ['Gov IAM role', 'https://console.amazonaws-us-gov.com/iam/home#/roles/gov-role'],
-      ['China IAM role', 'https://console.amazonaws.cn/iam/home#/roles/cn-role'],
-      ['ISO IAM role', 'https://console.c2s.ic.gov/iam/home#/roles/iso-role'],
-      ['ISO-B IAM role', 'https://console.sc2s.sgov.gov/iam/home#/roles/iso-b-role'],
-      ['IAM path role', 'https://console.aws.amazon.com/iam/home#/roles/payments']
-    ] as const) {
-      const row = within(findingsTable).getByText(title, { exact: true }).closest('tr');
-      expect(row).not.toBeNull();
-      fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'View details' }));
-      const partitionDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
-      expect(within(partitionDrawer).getByRole('link', { name: 'Open in AWS Console' })).toHaveAttribute('href', href);
-      fireEvent.click(within(partitionDrawer).getByRole('button', { name: 'Close detail drawer' }));
-      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
-    }
-    fireEvent.change(screen.getByLabelText('Remediation'), { target: { value: 'suppressed' } });
-    await waitFor(() => {
-      expect(within(findingsTable).getByText('Overprivileged IAM role')).toBeInTheDocument();
-      expect(within(findingsTable).queryByText('Public S3 bucket')).not.toBeInTheDocument();
-    });
-    expect(getScan).toHaveBeenCalledWith('scan-aws-complete', expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' }));
-    expect(listFindings).toHaveBeenCalledWith(
-      { scan_id: 'scan-aws-complete', limit: 500 },
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-    expect(listFindings).toHaveBeenCalledWith(
-      { scan_id: 'scan-aws-complete', limit: 500, cursor: 'aws-findings-page-2' },
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-    expect(getSecretPermissionEquivalence).not.toHaveBeenCalled();
-  });
-
-  it('loads historical AWS findings without requiring the current connector', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-connector-new',
-        account_id: '123456789012',
-        region: 'us-east-1'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
-      scan: {
-        id: 'scan-aws-history',
-        project_id: 'production',
-        connector_id: 'aws-connector-1',
-        provider: 'aws',
-        status: 'succeeded',
-        started_at: '2026-08-20T20:00:00Z',
-        finished_at: '2026-08-20T20:03:00Z',
-        asset_count: 1,
-        finding_count: 1
-      }
-    });
-    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({
-      items: [
-        {
-          id: 'finding-aws-history',
-          scan_id: 'scan-aws-history',
-          type: 'aws_iam_overprivileged_role',
-          severity: 'high',
-          title: 'Historical IAM finding',
-          human_summary: 'A persisted finding from the completed scan.',
-          remediation: 'Review the role policy.',
-          evidence: { account_id: '999999999999', region: 'us-west-2' },
-          created_at: '2026-08-20T20:03:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
-
-    const { ProductAWSFindingsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-history']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('AWS findings')).toBeInTheDocument();
-    expect(await screen.findByText('Historical IAM finding')).toBeInTheDocument();
-    const prioritySummary = await screen.findByRole('region', { name: 'Finding priority summary' });
-    expect(within(prioritySummary).getByText('Account 999999999999 Â· Global')).toBeInTheDocument();
-    expect(within(prioritySummary).queryByText(/123456789012/)).not.toBeInTheDocument();
-
-    const accountFilter = screen.getByRole('combobox', { name: 'Account' });
-    const regionFilter = screen.getByRole('combobox', { name: 'Region' });
-    expect(within(accountFilter).getByRole('option', { name: '999999999999' })).toHaveValue('999999999999');
-    expect(within(accountFilter).queryByRole('option', { name: '123456789012' })).not.toBeInTheDocument();
-    expect(within(regionFilter).getByRole('option', { name: 'Global resources' })).toHaveValue('global');
-    expect(within(regionFilter).queryByRole('option', { name: 'us-east-1' })).not.toBeInTheDocument();
-    fireEvent.change(accountFilter, { target: { value: '999999999999' } });
-    expect(await screen.findByText('Historical IAM finding')).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Severity' }), { target: { value: 'critical' } });
-    expect(await screen.findByText('No findings match these filters')).toBeInTheDocument();
-  });
-
-  it('names unavailable collectors and links partial findings to coverage details', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
-      scan: {
-        id: 'scan-aws-partial',
-        project_id: 'production',
-        connector_id: 'aws-connector-1',
-        provider: 'aws',
-        status: 'partial',
-        started_at: '2026-08-20T20:00:00Z',
-        finished_at: '2026-08-20T20:03:00Z',
-        asset_count: 1,
-        finding_count: 1
-      }
-    });
-    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({
-      items: [
-        {
-          id: 'finding-aws-partial',
-          scan_id: 'scan-aws-partial',
-          type: 'aws_s3_public_bucket',
-          severity: 'high',
-          title: 'Public bucket from partial scan',
-          human_summary: 'The bucket policy allows public access.',
-          remediation: 'Restrict the bucket policy.',
-          path: ['arn:aws:s3:::partial-scan-bucket'],
-          evidence: { account_id: '123456789012', region: 'us-east-1' },
-          created_at: '2026-08-20T20:03:00Z',
-          lifecycle_status: 'open'
-        }
-      ]
-    });
-    const listScanEvents = vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValueOnce({
-      items: [
-        {
-          id: 'event-aws-complete',
-          scan_id: 'scan-aws-partial',
-          level: 'info',
-          message: 'Discovery findings persisted.',
-          metadata: { state: 'complete' },
-          created_at: '2026-08-20T20:03:01Z'
-        }
-      ],
-      next_cursor: 'aws-events-page-2'
-    }).mockResolvedValueOnce({
-      items: [
-        {
-          id: 'event-aws-partial',
-          scan_id: 'scan-aws-partial',
-          level: 'warning',
-          message: 'Discovery completed with partial sources.',
-          metadata: {
-            state: 'partial',
-            source_error_count: 2,
-            source_errors: [
-              {
-                collector: 'lambda_execution_roles',
-                source_id: '123456789012/us-west-2/lambda',
-                code: 'permission_denied',
-                retryable: true
-              },
-              {
-                collector: 'cloudtrail_activity',
-                code: 'source_unavailable',
-                retryable: false
-              }
-            ]
-          },
-          created_at: '2026-08-20T20:03:00Z'
-        }
-      ]
-    });
-
-    const { ProductAWSFindingsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-partial']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('Public bucket from partial scan')).toBeInTheDocument();
-    const prioritySummary = await screen.findByRole('region', { name: 'Finding priority summary' });
-    expect(within(prioritySummary).getByText('2 unavailable or degraded')).toBeInTheDocument();
-    expect(within(prioritySummary).getByText(/Lambda Execution Roles Â· 123456789012\/us-west-2\/lambda Â· Permission Denied Â· retryable/)).toBeInTheDocument();
-    expect(within(prioritySummary).getByText(/Cloudtrail Activity Â· Source Unavailable/)).toBeInTheDocument();
-    expect(within(prioritySummary).getByRole('link', { name: 'View coverage details' })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/aws/coverage?environment=production'
-    );
-    const partialFindingRow = screen.getByText('Public bucket from partial scan').closest('tr');
-    expect(partialFindingRow).not.toBeNull();
-    fireEvent.click(within(partialFindingRow as HTMLElement).getByRole('button', { name: 'View details' }));
-    const partialFindingDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
-    expect(within(partialFindingDrawer).getByText(/incomplete or unverified evidence/i)).toBeInTheDocument();
-    expect(within(partialFindingDrawer).getByText(/Lambda Execution Roles Â· Permission Denied Â· Retryable/i)).toBeInTheDocument();
-    expect(listScanEvents).toHaveBeenNthCalledWith(
-      1,
-      'scan-aws-partial',
-      undefined,
-      500,
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' }),
-      undefined
-    );
-    expect(listScanEvents).toHaveBeenNthCalledWith(
-      2,
-      'scan-aws-partial',
-      undefined,
-      500,
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' }),
-      'aws-events-page-2'
-    );
-  });
-
-  it('rejects persisted AWS findings until the scan reaches a terminal result', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
-      scan: {
-        id: 'scan-aws-running',
-        project_id: 'production',
-        connector_id: 'aws-connector-1',
-        provider: 'aws',
-        status: 'running',
-        started_at: '2026-08-20T20:00:00Z',
-        asset_count: 0,
-        finding_count: 0
-      }
-    });
-    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
-
-    const { ProductAWSFindingsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-running']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('The requested AWS scan has not completed yet.');
-  });
-
-  it('rejects persisted AWS findings from another project or connector', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
-      scan: {
-        id: 'scan-aws-other-scope',
-        project_id: 'staging',
-        connector_id: 'aws-connector-2',
-        provider: 'aws',
-        status: 'succeeded',
-        started_at: '2026-08-20T20:00:00Z',
-        finished_at: '2026-08-20T20:03:00Z',
-        asset_count: 0,
-        finding_count: 0
-      }
-    });
-    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
-
-    const { ProductAWSFindingsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-other-scope']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('The requested AWS scan does not belong to this environment.');
-  });
-
-  it('marks an empty partial AWS scan as incomplete evidence', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
-      scan: {
-        id: 'scan-aws-partial',
-        project_id: 'production',
-        connector_id: 'aws-connector-1',
-        provider: 'aws',
-        status: 'partial',
-        started_at: '2026-08-20T20:00:00Z',
-        finished_at: '2026-08-20T20:03:00Z',
-        asset_count: 1,
-        finding_count: 0
-      }
-    });
-    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
-
-    const { ProductAWSFindingsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-partial']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('No findings in this AWS scan')).toBeInTheDocument();
-    expect(screen.getByText('Evidence incomplete')).toBeInTheDocument();
-    expect(screen.getByText(/sources that were available/i)).toBeInTheDocument();
-    const prioritySummary = screen.getByRole('region', { name: 'Finding priority summary' });
-    expect(within(prioritySummary).getByText('Completeness').closest('div')).toHaveTextContent('Partial');
-    expect(within(prioritySummary).getByText('Source health').closest('div')).toHaveTextContent('Degraded');
-    expect(within(prioritySummary).getByText(/Collector details were not retained for this partial result/)).toBeInTheDocument();
-    expect(within(prioritySummary).getByRole('link', { name: 'View coverage details' })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/aws/coverage?environment=production'
-    );
-  });
-
-  it('clears a completed scan context when switching AWS findings environments', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        },
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'staging',
-          name: 'Staging',
-          slug: 'staging',
-          description: 'Staging AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-03T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
-      scan: {
-        id: 'scan-aws-complete',
-        project_id: 'production',
-        connector_id: 'aws-connector-1',
-        provider: 'aws',
-        status: 'succeeded',
-        started_at: '2026-08-20T20:00:00Z',
-        finished_at: '2026-08-20T20:03:00Z',
-        asset_count: 12,
-        finding_count: 0
-      }
-    });
-    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockResolvedValue({
-      findings: {
-        status: 'ready',
-        findings: [],
-        summary: {},
-        caveats: [],
-        failure_reasons: [],
-        remediation_hints: [],
-        coverage_gaps: [],
-        diagnostics: []
-      } as any
-    });
-
-    const { ProductAWSFindingsPage } = await import('./productShell');
-    function LocationProbe() {
-      const currentLocation = useLocation();
-      return <output data-testid="aws-findings-location">{currentLocation.search}</output>;
-    }
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-complete&finding_id=finding-aws-complete&severity=high']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<><ProductAWSFindingsPage /><LocationProbe /></>} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
-    await waitFor(() => expect(screen.getByTestId('aws-findings-location')).toHaveTextContent('environment=staging&severity=high'));
-    expect(screen.getByTestId('aws-findings-location')).not.toHaveTextContent('scan_id=');
-    expect(screen.getByTestId('aws-findings-location')).not.toHaveTextContent('finding_id=');
-  });
-
-  it('shows AWS findings load errors separately from an empty result', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockRejectedValue(
-      new api.ApiError('forbidden', 403, { detail: 'forbidden' })
-    );
-
-    const { ProductAWSFindingsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load AWS findings");
-    expect(screen.getByText(/Identrail denied the findings request for this workspace/i)).toBeInTheDocument();
-    expect(screen.queryByText(/^forbidden$/i)).not.toBeInTheDocument();
-    expect(screen.queryByText('No AWS findings')).not.toBeInTheDocument();
-  });
-
-  it('uses a live-evidence message for a 404 from the current AWS findings endpoint', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: 'production',
-        name: 'Production',
-        slug: 'production',
-        description: 'Production AWS boundary.',
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockRejectedValue(
-      new api.ApiError('Request failed (404)', 404)
-    );
-
-    const { ProductAWSFindingsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load AWS findings");
-    expect(screen.getByText(/could not load live AWS secret-to-permission evidence/i)).toBeInTheDocument();
-    expect(screen.queryByText(/This AWS scan is no longer available/i)).not.toBeInTheDocument();
-  });
-
-  it('does not show findings as loading when the AWS connector is not ready', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-
-    const { ProductAWSFindingsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('Connect AWS to load operational context')).toBeInTheDocument();
-    expect(screen.queryByText('Loading AWS findings')).not.toBeInTheDocument();
-  });
-
-  it('keeps AWS resources inventory metadata-only when no environment exists', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
-    const getAWSProjectConnection = vi.spyOn(api.apiClient, 'getAWSProjectConnection');
-
-    const { ProductAWSResourcesPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/resources']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/resources" element={<ProductAWSResourcesPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 2, name: 'Resources' })).toBeInTheDocument();
-    expect(screen.getByText(/Create an environment before inventory can resolve/i)).toBeInTheDocument();
-    expect(screen.getByText(/No secret value reads/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Secrets Manager metadata/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole('link', { name: /Open environments/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/projects?source=aws'
-    );
-    expect(getAWSProjectConnection).not.toHaveBeenCalled();
-  });
-
-  it('renders SQS and SNS reachability in AWS resources inventory', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getAWSProjectSecretsManagerMetadata').mockResolvedValue({
-      inventory: { status: 'ready', records: [], diagnostics: [], failure_reasons: [], account_id: '123456789012', region: 'us-east-1' }
-    } as any);
-    vi.spyOn(api.apiClient, 'getAWSProjectSSMParameterMetadata').mockResolvedValue({
-      inventory: { status: 'ready', records: [], diagnostics: [], failure_reasons: [], account_id: '123456789012', region: 'us-east-1' }
-    } as any);
-    vi.spyOn(api.apiClient, 'getAWSProjectECRRepositoryMetadata').mockResolvedValue({
-      inventory: { status: 'ready', records: [], diagnostics: [], failure_reasons: [], account_id: '123456789012', region: 'us-east-1' }
-    } as any);
-    const getSQSSNSReachability = vi.spyOn(api.apiClient, 'getAWSProjectSQSSNSReachability').mockResolvedValue({
-      inventory: {
-        status: 'ready',
-        records: [
-          {
-            account_id: '123456789012',
-            region: 'us-east-1',
-            service: 'sns',
-            resource_arn: 'arn:aws:sns:us-east-1:123456789012:billing-events',
-            resource_name: 'billing-events',
-            resource_type: 'sns_topic',
-            fifo: false,
-            content_based_deduplication: false,
-            sqs_managed_sse: false,
-            subscription_count: 1,
-            subscriptions: [{ protocol: 'sqs', endpoint_resource_arn: 'arn:aws:sqs:us-east-1:123456789012:payments-worker', endpoint_present: true }],
-            has_resource_policy: true,
-            resource_policy_statement_count: 1,
-            identity_grants: [{ principal_arn: '*', effect: 'Allow', capabilities: ['publish'], is_public: true, wildcard_principal: true }],
-            exposure_classification: 'public',
-            source: 'sqs_sns_metadata',
-            evidence_ref: 'arn:aws:sns:us-east-1:123456789012:billing-events',
-            from_node_id: 'aws:resource:sns-topic:arn:aws:sns:us-east-1:123456789012:billing-events',
-            relationship_type: 'can_access',
-            confidence: 0.94,
-            collected_at: '2026-06-11T10:00:00Z',
-            status: 'ready'
-          },
-          {
-            account_id: '123456789012',
-            region: 'us-east-1',
-            service: 'sqs',
-            resource_arn: 'arn:aws:sqs:us-east-1:123456789012:partner-ingest',
-            resource_name: 'partner-ingest',
-            resource_type: 'sqs_queue',
-            queue_url: 'https://sqs.us-east-1.amazonaws.com/123456789012/partner-ingest',
-            fifo: false,
-            content_based_deduplication: false,
-            sqs_managed_sse: true,
-            dlq_arns: ['arn:aws:sqs:us-east-1:123456789012:partner-ingest-dlq'],
-            has_resource_policy: true,
-            resource_policy_statement_count: 1,
-            identity_grants: [{ principal_arn: 'arn:aws:iam::999999999999:role/partner-publisher', effect: 'Allow', capabilities: ['publish'], is_cross_account: true }],
-            exposure_classification: 'cross_account',
-            source: 'sqs_sns_metadata',
-            evidence_ref: 'arn:aws:sqs:us-east-1:123456789012:partner-ingest',
-            from_node_id: 'aws:resource:sqs-queue:arn:aws:sqs:us-east-1:123456789012:partner-ingest',
-            relationship_type: 'can_access',
-            confidence: 0.91,
-            collected_at: '2026-06-11T10:00:00Z',
-            status: 'ready'
-          }
-        ],
-        diagnostics: [],
-        failure_reasons: [],
-        account_id: '123456789012',
-        region: 'us-east-1'
-      }
-    } as any);
-
-    const { ProductAWSResourcesPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/resources?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/resources" element={<ProductAWSResourcesPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('billing-events')).toBeInTheDocument();
-    expect(screen.getByText('partner-ingest')).toBeInTheDocument();
-    expect(screen.getAllByText(/Payloads hidden/i).length).toBeGreaterThan(0);
-    expect(getSQSSNSReachability).toHaveBeenCalledWith(
-      'workspace-a',
-      'production',
-      'aws-connector-1',
-      undefined,
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-  });
-
-  it('keeps AWS connect on the domain page when no environment exists', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-    function LocationProbe() {
-      const location = useLocation();
-      return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
-    }
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect']}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/aws/connect"
-            element={
-              <>
-                <LocationProbe />
-                <ProductAWSConnectPage />
-              </>
-            }
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 2, name: 'Connect AWS' })).toBeInTheDocument();
-    expect(screen.getByTestId('location')).toHaveTextContent('/app/tenant-a/workspace-a/aws/connect');
-    expect(screen.getByRole('heading', { level: 3, name: /Pick an environment/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Open environments/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/projects?source=aws'
-    );
-  });
-
-  it('starts AWS connect with the single-account CloudFormation wizard', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-connector-1',
-        onboarding_status: 'launch_ready',
-        launch_url: 'https://console.aws.amazon.com/cloudformation'
-      },
-      connector_id: 'aws-connector-1',
-      external_id: 'external-id-hidden-from-default-screen',
-      launch_url: 'https://console.aws.amazon.com/cloudformation',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      policy_hash: 'sha256:example',
-      scope_type: 'single_account',
-      deployment_method: 'cloudformation',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: [],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: false,
-      setup_summary: 'Single AWS account read-only setup through CloudFormation.',
-      next_actions: ['launch_stack', 'validate_role', 'refresh_status'],
-      permission_preview: [
-        { service: 'IAM', actions: ['iam:GetRole'], resources: ['*'], reason: 'Inspect role metadata.' }
-      ],
-      permission_tiers: []
-    });
-    const validateAWSConnector = vi.spyOn(api.apiClient, 'validateAWSConnector').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-manual-1',
-        display_name: 'Production AWS',
-        scope_type: 'manual_role',
-        deployment_method: 'manual',
-        role_arn: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail',
-        onboarding_status: 'connected'
-      }
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what to cover/i })).toBeInTheDocument();
-    const coverageScope = screen.getByRole('radiogroup', { name: 'AWS coverage scope' });
-    expect(coverageScope).toHaveTextContent('This account');
-    expect(screen.getByRole('radiogroup', { name: 'AWS connection method' })).toHaveTextContent('Guided CloudFormation');
-    const thisAccount = within(coverageScope).getByRole('radio', { name: /This account/i });
-    const allAccounts = within(coverageScope).getByRole('radio', { name: /All accounts/i });
-    thisAccount.focus();
-    fireEvent.keyDown(thisAccount, { key: 'ArrowRight' });
-    expect(allAccounts).toHaveFocus();
-    fireEvent.keyDown(allAccounts, { key: 'Home' });
-    expect(thisAccount).toHaveFocus();
-    expect(thisAccount).toHaveAttribute('aria-checked', 'true');
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
-    expect(screen.getByRole('status', { name: /Disconnected/i })).toBeInTheDocument();
-    expect(screen.queryByText('Health')).not.toBeInTheDocument();
-    expect(screen.queryByText('Last validation')).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production AWS' } });
-    fireEvent.change(screen.getByLabelText('Home region'), { target: { value: 'ap-south-1' } });
-    fireEvent.click(screen.getAllByRole('button', { name: /Connect AWS/i })[0]);
-
-    await waitFor(() =>
-      expect(api.apiClient.startAWSConnector).toHaveBeenCalledWith(
-        expect.objectContaining({
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          display_name: 'Production AWS',
-          region: 'ap-south-1'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-  expect(await screen.findAllByRole('link', { name: /^Open AWS$/i })).toHaveLength(1);
-    expect(screen.getByLabelText('Role ARN')).toHaveValue('');
-  });
-
-  it('offers fresh onboarding after disconnect without reusing the terminal connector id', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-disconnected-terminal',
-        display_name: 'Production AWS',
-        status: 'disconnected',
-        onboarding_status: 'draft'
-      }
-    });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-fresh-connector',
-        onboarding_status: 'waiting_for_aws'
-      },
-      connector_id: 'aws-fresh-connector',
-      external_id: 'fresh-external-id',
-      launch_url: 'https://console.aws.amazon.com/cloudformation',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      policy_hash: 'sha256:example',
-      scope_type: 'single_account',
-      deployment_method: 'cloudformation',
-      onboarding_status: 'waiting_for_aws',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: [],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: false,
-      setup_summary: 'Fresh AWS account setup.',
-      next_actions: ['launch_stack', 'refresh_status'],
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const setup = await screen.findByRole('region', { name: 'AWS account setup' });
-    expect(screen.getByRole('region', { name: 'AWS connector disconnected' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Display name')).toHaveValue('');
-    fireEvent.click(within(setup).getByRole('button', { name: /^Connect AWS$/i }));
-
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
-    expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({
-      connector_id: undefined,
-      workspace_id: 'workspace-a',
-      project_id: 'production',
-      display_name: undefined
-    });
-    expect(startAWSConnector.mock.calls[0]?.[0]).not.toMatchObject({
-      connector_id: 'aws-disconnected-terminal'
-    });
-  });
-
-  it('allows a paused AWS connector to be disconnected without resuming it', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        disabled: true,
-        status: 'active'
-      }
-    });
-    const disconnectAWSConnector = vi.spyOn(api.apiClient, 'disconnectAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-paused-connector',
-        status: 'disconnected',
-        onboarding_status: 'draft'
-      }
-    });
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const paused = await screen.findByRole('region', { name: 'AWS connector paused' });
-    fireEvent.click(within(paused).getByRole('button', { name: /^Disconnect$/i }));
-
-    await waitFor(() =>
-      expect(disconnectAWSConnector).toHaveBeenCalledWith(
-        'aws-connector-1',
-        'workspace-a',
-        'production',
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(await screen.findByRole('region', { name: 'AWS connector disconnected' })).toBeInTheDocument();
-  });
-
-  it('ignores an in-flight AWS start after disconnect invalidates the lifecycle', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    const startResponse = deferred<AWSConnectorStartResponse>();
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockReturnValue(startResponse.promise);
-    const disconnectAWSConnector = vi.spyOn(api.apiClient, 'disconnectAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-disconnected-after-start',
-        status: 'disconnected',
-        onboarding_status: 'draft'
-      }
-    });
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const summary = await screen.findByRole('region', { name: 'AWS connected summary' });
-    fireEvent.click(within(summary).getByRole('button', { name: /Manage connection/i }));
-    const setup = await screen.findByRole('region', { name: 'AWS account setup' });
-    fireEvent.click(within(setup).getByRole('button', { name: /^Connect AWS$/i }));
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
-
-    fireEvent.click(within(screen.getByRole('region', { name: 'AWS connected summary' })).getByRole('button', { name: /^Disconnect$/i }));
-    await waitFor(() => expect(disconnectAWSConnector).toHaveBeenCalledTimes(1));
-    expect(await screen.findByRole('region', { name: 'AWS connector disconnected' })).toBeInTheDocument();
-
-    await act(async () => {
-      startResponse.resolve({
-        connection: {
-          ...connectedAWS,
-          connector_id: 'aws-stale-start',
-          display_name: 'Stale start response',
-          onboarding_status: 'waiting_for_aws'
-        },
-        connector_id: 'aws-stale-start',
-        external_id: 'stale-external-id',
-        launch_url: 'https://console.aws.amazon.com/cloudformation',
-        template_url: 'https://example.com/template.yaml',
-        role_name: 'IdentrailReadOnly',
-        stack_name: 'identrail-readonly-connector',
-        policy_hash: 'sha256:example',
-        template_checksum: 'sha256:example',
-        scope_type: 'single_account',
-        deployment_method: 'cloudformation',
-        onboarding_status: 'waiting_for_aws',
-        target_regions: ['us-east-1'],
-        target_account_ids: [],
-        target_ou_ids: [],
-        excluded_account_ids: [],
-        auto_onboard_new_accounts: false,
-        setup_summary: 'Stale start response.',
-        next_actions: ['launch_stack', 'refresh_status'],
-        permission_preview: [],
-        permission_tiers: []
-      });
-    });
-    expect(screen.getByRole('region', { name: 'AWS connector disconnected' })).toBeInTheDocument();
-    expect(screen.queryByText('Stale start response.')).not.toBeInTheDocument();
-  });
-
-  it('clears prepared CloudFormation state before starting manual AWS setup', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const startAWSConnector = vi
-      .spyOn(api.apiClient, 'startAWSConnector')
-      .mockResolvedValueOnce({
-        connection: {
-          ...disconnectedAWS,
-          connector_id: 'aws-cloudformation-1',
-          deployment_method: 'cloudformation',
-          onboarding_status: 'launch_ready',
-          launch_url: 'https://console.aws.amazon.com/cloudformation'
-        },
-        connector_id: 'aws-cloudformation-1',
-        external_id: 'cloudformation-external-id',
-        launch_url: 'https://console.aws.amazon.com/cloudformation',
-        template_url: 'https://example.com/template.yaml',
-        role_name: 'IdentrailReadOnly',
-        stack_name: 'identrail-readonly-connector',
-        policy_hash: 'sha256:example',
-        scope_type: 'single_account',
-        deployment_method: 'cloudformation',
-        onboarding_status: 'launch_ready',
-        target_regions: ['us-east-1'],
-        target_account_ids: [],
-        target_ou_ids: [],
-        excluded_account_ids: [],
-        auto_onboard_new_accounts: false,
-        setup_summary: 'Single AWS account read-only setup through CloudFormation.',
-        next_actions: ['launch_stack', 'validate_role', 'refresh_status'],
-        permission_preview: [],
-        permission_tiers: []
-      })
-      .mockResolvedValueOnce({
-        connection: {
-          ...disconnectedAWS,
-          connector_id: 'aws-manual-1',
-          deployment_method: 'manual',
-          scope_type: 'manual_role',
-          onboarding_status: 'draft'
-        },
-        connector_id: 'aws-manual-1',
-        external_id: 'manual-external-id-after-cloudformation',
-        launch_url: '',
-        template_url: '',
-        identrail_account_id: '999999999999',
-        role_name: '',
-        stack_name: '',
-        policy_hash: '',
-        scope_type: 'manual_role',
-        deployment_method: 'manual',
-        onboarding_status: 'draft',
-        target_regions: ['us-east-1'],
-        target_account_ids: [],
-        target_ou_ids: [],
-        excluded_account_ids: [],
-        auto_onboard_new_accounts: false,
-        setup_summary: 'Existing IAM role setup for one AWS account.',
-        next_actions: ['validate_role', 'refresh_status'],
-        permission_preview: [],
-        permission_tiers: []
-      });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS/i }))[0]);
-  expect(await screen.findAllByRole('link', { name: /^Open AWS$/i })).toHaveLength(1);
-
-    fireEvent.click(screen.getByRole('radio', { name: /Existing IAM role/i }));
-
-    expect(screen.getByRole('heading', { level: 4, name: /Use an existing IAM role/i })).toBeInTheDocument();
-    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
-    expect(screen.queryByDisplayValue('cloudformation-external-id')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /Generate External ID/i }));
-
-    await waitFor(() =>
-      expect(startAWSConnector).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          connector_id: undefined,
-          scope_type: 'manual_role',
-          deployment_method: 'manual'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(await screen.findByLabelText('External ID')).toHaveValue('manual-external-id-after-cloudformation');
-  });
-
-  it('supports advanced manual AWS role setup without making it the default path', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-manual-1',
-        display_name: 'Production AWS',
-        scope_type: 'manual_role',
-        deployment_method: 'manual',
-        onboarding_status: 'draft',
-        setup_summary: 'Existing IAM role setup for one AWS account.',
-        next_actions: ['validate_role', 'refresh_status']
-      },
-      connector_id: 'aws-manual-1',
-      external_id: 'manual-external-id-1234567890',
-      launch_url: '',
-      template_url: '',
-      identrail_account_id: '999999999999',
-      role_name: '',
-      stack_name: '',
-      policy_hash: '',
-      scope_type: 'manual_role',
-      deployment_method: 'manual',
-      onboarding_status: 'draft',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: [],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: false,
-      setup_summary: 'Existing IAM role setup for one AWS account.',
-      next_actions: ['validate_role', 'refresh_status'],
-      permission_preview: [
-        { service: 'IAM', actions: ['iam:GetRole'], resources: ['*'], reason: 'Inspect role metadata.' }
-      ],
-      permission_tiers: []
-    });
-    const validateAWSConnector = vi.spyOn(api.apiClient, 'validateAWSConnector').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-manual-1',
-        deployment_method: 'manual',
-        scope_type: 'manual_role',
-        role_arn: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail'
-      }
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what to cover/i })).toBeInTheDocument();
-    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('radio', { name: /Existing IAM role/i }));
-    expect(screen.getByRole('heading', { level: 4, name: /Use an existing IAM role/i })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /Generate External ID/i }));
-
-    await waitFor(() =>
-      expect(api.apiClient.startAWSConnector).toHaveBeenCalledWith(
-        expect.objectContaining({
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          scope_type: 'manual_role',
-          deployment_method: 'manual'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(await screen.findByLabelText('External ID')).toHaveValue('manual-external-id-1234567890');
-    const trustPolicy = String((screen.getByLabelText('Trust policy') as HTMLTextAreaElement).value);
-    expect(trustPolicy).toContain('arn:aws:iam::999999999999:root');
-    expect(trustPolicy).toContain('manual-external-id-1234567890');
-    expect(screen.getByLabelText('Role ARN')).toHaveValue('');
-
-    fireEvent.change(screen.getByLabelText('Role ARN'), {
-      target: { value: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail' }
-    });
-    fireEvent.click(screen.getByRole('button', { name: /Validate role/i }));
-
-    await waitFor(() =>
-      expect(validateAWSConnector).toHaveBeenCalledWith(
-        'aws-manual-1',
-        expect.objectContaining({
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          role_arn: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail',
-          external_id: 'manual-external-id-1234567890'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-  });
-
-  it('uses the selected AWS partition in manual trust policies', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-manual-1',
-        scope_type: 'manual_role',
-        deployment_method: 'manual',
-        onboarding_status: 'draft'
-      },
-      connector_id: 'aws-manual-1',
-      external_id: 'manual-govcloud-external-id',
-      launch_url: '',
-      template_url: '',
-      identrail_account_id: '999999999999',
-      role_name: '',
-      stack_name: '',
-      policy_hash: '',
-      scope_type: 'manual_role',
-      deployment_method: 'manual',
-      onboarding_status: 'draft',
-      target_regions: ['us-gov-west-1'],
-      target_account_ids: [],
-      target_ou_ids: [],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: false,
-      setup_summary: 'Existing IAM role setup for one AWS account.',
-      next_actions: ['validate_role', 'refresh_status'],
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /Existing IAM role/i }));
-    fireEvent.change(screen.getByLabelText('Home region'), { target: { value: 'us-gov-west-1' } });
-    fireEvent.click(screen.getByRole('button', { name: /Generate External ID/i }));
-
-    expect(await screen.findByLabelText('External ID')).toHaveValue('manual-govcloud-external-id');
-    const trustPolicy = String((screen.getByLabelText('Trust policy') as HTMLTextAreaElement).value);
-    expect(trustPolicy).toContain('arn:aws-us-gov:iam::999999999999:root');
-
-    fireEvent.change(screen.getByLabelText('Role ARN'), {
-      target: { value: 'arn:aws-cn:iam::123456789012:role/CustomerManagedIdentrail' }
-    });
-    expect(String((screen.getByLabelText('Trust policy') as HTMLTextAreaElement).value)).toContain(
-      'arn:aws-cn:iam::999999999999:root'
-    );
-  });
-
-  it('lets operators return to CloudFormation after generating a manual External ID', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-manual-1',
-        scope_type: 'manual_role',
-        deployment_method: 'manual',
-        onboarding_status: 'draft'
-      },
-      connector_id: 'aws-manual-1',
-      external_id: 'manual-external-id-to-clear',
-      launch_url: '',
-      template_url: '',
-      identrail_account_id: '999999999999',
-      role_name: '',
-      stack_name: '',
-      policy_hash: '',
-      scope_type: 'manual_role',
-      deployment_method: 'manual',
-      onboarding_status: 'draft',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: [],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: false,
-      setup_summary: 'Existing IAM role setup for one AWS account.',
-      next_actions: ['validate_role', 'refresh_status'],
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /Existing IAM role/i }));
-    const coverageScope = screen.getByRole('radiogroup', { name: 'AWS coverage scope' });
-    expect(within(coverageScope).getByRole('radio', { name: /This account/i })).toHaveAttribute('aria-checked', 'false');
-    expect(within(screen.getByRole('radiogroup', { name: 'AWS connection method' })).getByRole('radio', { name: /Existing IAM role/i })).toHaveAttribute(
-      'aria-checked',
-      'true'
-    );
-    fireEvent.click(screen.getByRole('button', { name: /Generate External ID/i }));
-    expect(await screen.findByLabelText('External ID')).toHaveValue('manual-external-id-to-clear');
-
-    fireEvent.click(screen.getByRole('radio', { name: /This account/i }));
-
-    expect(screen.getByRole('heading', { level: 4, name: /Create the connection/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Connect AWS/i })).toBeInTheDocument();
-    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
-    expect(screen.queryByDisplayValue('manual-external-id-to-clear')).not.toBeInTheDocument();
-  });
-
-  it('keeps generated manual AWS setup details after refreshing permission health', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    const getAWSProjectConnection = vi
-      .spyOn(api.apiClient, 'getAWSProjectConnection')
-      .mockResolvedValue({ connection: disconnectedAWS });
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-manual-1',
-        display_name: 'Production AWS',
-        scope_type: 'manual_role',
-        deployment_method: 'manual',
-        onboarding_status: 'draft',
-        setup_summary: 'Existing IAM role setup for one AWS account.',
-        next_actions: ['validate_role', 'refresh_status']
-      },
-      connector_id: 'aws-manual-1',
-      external_id: 'manual-external-id-to-keep',
-      launch_url: '',
-      template_url: '',
-      identrail_account_id: '999999999999',
-      role_name: '',
-      stack_name: '',
-      policy_hash: '',
-      scope_type: 'manual_role',
-      deployment_method: 'manual',
-      onboarding_status: 'draft',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: [],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: false,
-      setup_summary: 'Existing IAM role setup for one AWS account.',
-      next_actions: ['validate_role', 'refresh_status'],
-      permission_preview: [
-        { service: 'IAM', actions: ['iam:GetRole'], resources: ['*'], reason: 'Inspect role metadata.' }
-      ],
-      permission_tiers: []
-    });
-    const validateAWSConnector = vi.spyOn(api.apiClient, 'validateAWSConnector').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-manual-1',
-        display_name: 'Production AWS',
-        scope_type: 'manual_role',
-        deployment_method: 'manual',
-        role_arn: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail',
-        onboarding_status: 'connected'
-      }
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /Existing IAM role/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Generate External ID/i }));
-    expect(await screen.findByLabelText('External ID')).toHaveValue('manual-external-id-to-keep');
-    fireEvent.change(screen.getByLabelText('Role ARN'), {
-      target: { value: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail' }
-    });
-    fireEvent.click(screen.getByRole('button', { name: /Validate role/i }));
-    await waitFor(() =>
-      expect(validateAWSConnector).toHaveBeenCalledWith(
-        'aws-manual-1',
-        expect.objectContaining({
-          external_id: 'manual-external-id-to-keep',
-          role_arn: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    getAWSProjectConnection.mockResolvedValueOnce({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-manual-1',
-        display_name: 'Production AWS',
-        scope_type: 'manual_role',
-        deployment_method: 'manual',
-        role_arn: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail',
-        onboarding_status: 'connected',
-        setup_summary: 'Existing IAM role setup for one AWS account.',
-        next_actions: ['validate_role', 'refresh_status']
-      }
-    });
-    fireEvent.click(screen.getAllByRole('button', { name: /^Refresh status$/i })[0]);
-
-    await waitFor(() => expect(getAWSProjectConnection).toHaveBeenCalledTimes(2));
-    await openAWSConnectionManagement();
-    expect(screen.getByLabelText('External ID')).toHaveValue('manual-external-id-to-keep');
-    expect(screen.getByLabelText('Role ARN')).toHaveValue('arn:aws:iam::123456789012:role/CustomerManagedIdentrail');
-    expect(String((screen.getByLabelText('Trust policy') as HTMLTextAreaElement).value)).toContain(
-      'manual-external-id-to-keep'
-    );
-  });
-
-  it('keeps the advanced AWS manual path selected when initial status resolves late', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    const initialStatus = deferred<{ connection: AWSConnectionStatus }>();
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockReturnValue(initialStatus.promise);
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /Existing IAM role/i }));
-    expect(screen.getByRole('heading', { level: 4, name: /Use an existing IAM role/i })).toBeInTheDocument();
-
-    await act(async () => {
-      initialStatus.resolve({ connection: disconnectedAWS });
-    });
-
-    expect(screen.getByRole('heading', { level: 4, name: /Use an existing IAM role/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Generate External ID/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Connect AWS/i })).not.toBeInTheDocument();
-  });
-
-  it('clears manual AWS setup secrets when switching environments', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        },
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'staging',
-          name: 'Staging',
-          slug: 'staging',
-          description: 'Staging AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-03T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-manual-1',
-        scope_type: 'manual_role',
-        deployment_method: 'manual',
-        onboarding_status: 'draft'
-      },
-      connector_id: 'aws-manual-1',
-      external_id: 'manual-external-id-to-clear',
-      launch_url: '',
-      template_url: '',
-      identrail_account_id: '999999999999',
-      role_name: '',
-      stack_name: '',
-      policy_hash: '',
-      scope_type: 'manual_role',
-      deployment_method: 'manual',
-      onboarding_status: 'draft',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: [],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: false,
-      setup_summary: 'Existing IAM role setup for one AWS account.',
-      next_actions: ['validate_role', 'refresh_status'],
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /Existing IAM role/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Generate External ID/i }));
-    expect(await screen.findByDisplayValue('manual-external-id-to-clear')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Role ARN'), {
-      target: { value: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail' }
-    });
-
-    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
-
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
-    expect(screen.queryByDisplayValue('manual-external-id-to-clear')).not.toBeInTheDocument();
-    expect(screen.queryByDisplayValue('arn:aws:iam::123456789012:role/CustomerManagedIdentrail')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
-  });
-
-  it('shows a clear AWS connector setup error instead of falling back to manual role fields', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockRejectedValue(
-      new api.ApiError('Request failed (404)', 404)
-    );
-    const upsertAWSProjectConnection = vi.spyOn(api.apiClient, 'upsertAWSProjectConnection');
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 4, name: /Create the connection/i })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getAllByRole('button', { name: /Connect AWS/i })[0]);
-
-    expect(await screen.findAllByText(/AWS account connection is not enabled for this deployment/i)).toHaveLength(1);
-    expect(upsertAWSProjectConnection).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-  });
-
-  it('shows guided AWS repair blockers with safe action buttons', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connected: false,
-        status: 'degraded',
-        health_status: 'error',
-        onboarding_status: 'needs_fix',
-        diagnostics: [
-          {
-            code: 'missing_read_only_permission_tier',
-            severity: 'blocking',
-            affected_scope: 'account/123456789012',
-            message: 'IAM read-only permissions are missing for the connector role.',
-            operator_action: 'Refresh the expected policy, update the role, then revalidate.',
-            remediation: 'Refresh the expected policy, update the role, then revalidate.',
-            retryable: true,
-            evidence_ref: 'aws-permission-check:iam:ListRoles',
-            tradeoff: 'Identrail will not claim coverage for services it cannot read.',
-            actions: ['refresh_policy', 'validate_role', 'refresh_status']
-          },
-          {
-            code: 'delegated_admin_recommended',
-            severity: 'warning',
-            affected_scope: 'organization',
-            message: 'Delegated administration is recommended for StackSets.',
-            operator_action: 'Open the runbook and register a delegated admin.',
-            remediation: 'Open the runbook and register a delegated admin.',
-            retryable: true,
-            evidence_ref: 'aws-stackset:delegated-admin',
-            tradeoff: 'Delegated administration narrows the management-account blast radius.',
-            actions: ['open_docs']
-          }
-        ],
-        permission_checks: [
-          {
-            name: 'iam:ListRoles',
-            passed: false,
-            message: 'IAM read-only permissions are missing for the connector role.',
-            remediation: 'Refresh the expected policy, update the role, then revalidate.'
-          }
-        ]
-      }
-    });
-    const hydrateRepair = vi.spyOn(api.apiClient, 'startAWSConnector').mockRejectedValue(
-      new api.ApiError('Repair hydration unavailable', 503)
-    );
-    const refreshPolicy = vi.spyOn(api.apiClient, 'refreshAWSConnectorPolicy').mockResolvedValue({
-      policy_hash: 'sha256:updated',
-      policy_document: {},
-      permission_preview: [
-        { service: 'IAM', actions: ['iam:ListRoles'], resources: ['*'], reason: 'List IAM roles.' }
-      ],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { name: /Next setup action/i })).toBeInTheDocument();
-    expect(screen.getByText(/Primary blocker/i)).toBeInTheDocument();
-    const repairList = screen.getByLabelText('AWS guided repair actions');
-    expect(within(repairList).getAllByText(/Missing Read Only Permission Tier/i)).toHaveLength(1);
-    expect(screen.getByRole('link', { name: /Open runbook/i })).toHaveAttribute('href', '/docs');
-    expect(screen.getByText(/Identrail will not claim coverage/i)).toBeInTheDocument();
-    await waitFor(() =>
-      expect(hydrateRepair).toHaveBeenCalledWith(
-        expect.objectContaining({
-          connector_id: 'aws-connector-1',
-          repair_only: true,
-          scope_type: 'single_account',
-          deployment_method: 'cloudformation'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /Refresh policy/i }));
-
-    await waitFor(() =>
-      expect(refreshPolicy).toHaveBeenCalledWith(
-        'aws-connector-1',
-        { workspace_id: 'workspace-a', project_id: 'production' },
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-  });
-
-  it('labels warning-only AWS guided repair items as warnings', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        status: 'degraded',
-        health_status: 'warning',
-        diagnostics: [
-          {
-            code: 'partial_stackset_coverage',
-            severity: 'warning',
-            affected_scope: 'organization',
-            message: 'One StackSet instance is degraded.',
-            operator_action: 'Retry failed StackSet instances, then refresh status.',
-            remediation: 'Retry failed StackSet instances, then refresh status.',
-            retryable: true,
-            evidence_ref: 'aws-stackset:partial',
-            actions: ['refresh_status']
-          }
-        ],
-        permission_checks: []
-      }
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const repairList = await screen.findByLabelText('AWS guided repair actions');
-    expect(within(repairList).getByText(/Primary warning/i)).toBeInTheDocument();
-    expect(within(repairList).queryByText(/Primary blocker/i)).not.toBeInTheDocument();
-  });
-
-  it('preserves AWS connector 404 details for stale environments', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockRejectedValue(
-      new api.ApiError('project not found', 404)
-    );
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS/i }))[0]);
-
-    expect(await screen.findAllByText('project not found')).toHaveLength(1);
-    expect(screen.queryByText(/AWS account connection is not enabled for this deployment/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-  });
-
-  it('explains missing AWS CloudFormation connector configuration', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockRejectedValue(
-      new api.ApiError('aws connector cloudformation flow is not configured', 503)
-    );
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS/i }))[0]);
-
-    expect(await screen.findAllByText(/AWS CloudFormation setup is not configured for this deployment/i)).toHaveLength(1);
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
-  });
-
-  it('launches the organization StackSet path with target regions and auto-onboard toggle', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-org-1',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready',
-        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-        target_regions: ['us-east-1', 'us-west-2'],
-        auto_onboard_new_accounts: true
-      },
-      connector_id: 'aws-org-1',
-      external_id: 'org-external-id',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'IdentrailReadOnlyCoverage',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'organization',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1', 'us-west-2'],
-      target_account_ids: [],
-      target_ou_ids: [],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'AWS Organization service-managed StackSet setup.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      target_summary: {
-        account_count: 0,
-        account_count_known: false,
-        ou_count: 0,
-        region_count: 2,
-        excluded_account_count: 0,
-        expected_stack_instances: 0,
-        expected_stack_instances_known: false,
-        all_accounts: true
-      },
-      prerequisites: [
-        {
-          id: 'trusted-access',
-          title: 'Enable Organizations trusted access for CloudFormation',
-          severity: 'blocking',
-          satisfied: true,
-          reason: 'Organizations trusted access is enabled.'
-        }
-      ],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [
-        { service: 'IAM', actions: ['iam:GetRole'], resources: ['*'], reason: 'Inspect role metadata.' }
-      ],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
-    expect(screen.getByRole('heading', { level: 4, name: /Set the coverage scope/i })).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText(/Target regions/i), { target: { value: 'us-east-1, us-west-2' } });
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    const autoOnboard = screen.getByRole('checkbox', { name: /Auto-onboard new accounts/i });
-    expect(autoOnboard).toBeChecked();
-
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() =>
-      expect(startAWSConnector).toHaveBeenCalledWith(
-        expect.objectContaining({
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          scope_type: 'organization',
-          deployment_method: 'stackset_service_managed',
-          region: 'us-east-1',
-          target_regions: ['us-east-1', 'us-west-2'],
-          target_ou_ids: ['r-abcd'],
-          auto_onboard_new_accounts: true
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(screen.queryByLabelText('Home region')).not.toBeInTheDocument();
-    expect(await screen.findByRole('region', { name: /StackSet onboarding progress/i })).toBeInTheDocument();
-    expect(screen.getByRole('table', { name: /StackSet instance status/i })).toBeInTheDocument();
-    expect(screen.getByText(/Redeploy regional StackSet instance/i)).toBeInTheDocument();
-  });
-
-  it('launches the selected-OUs StackSet path with OU targets', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-ou-1',
-        scope_type: 'selected_ous',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready',
-        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-        target_regions: ['us-east-1'],
-        target_ou_ids: ['ou-1234-abcd5678']
-      },
-      connector_id: 'aws-ou-1',
-      external_id: 'selected-ou-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'IdentrailReadOnlyCoverage',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'selected_ous',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: ['ou-1234-abcd5678'],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'Selected OUs service-managed StackSet setup.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      target_summary: {
-        account_count: 0,
-        account_count_known: false,
-        ou_count: 1,
-        region_count: 1,
-        excluded_account_count: 0,
-        expected_stack_instances: 0,
-        expected_stack_instances_known: false,
-        all_accounts: false
-      },
-      prerequisites: [],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /Selected scope/i }));
-    fireEvent.change(screen.getByLabelText(/Target OU IDs/i), { target: { value: 'ou-1234-abcd5678' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() =>
-      expect(startAWSConnector).toHaveBeenCalledWith(
-        expect.objectContaining({
-          scope_type: 'selected_ous',
-          deployment_method: 'stackset_service_managed',
-          target_ou_ids: ['ou-1234-abcd5678']
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(await screen.findByRole('region', { name: /StackSet onboarding progress/i })).toBeInTheDocument();
-  });
-
-  it('launches the selected-accounts StackSet path with account IDs', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-accts-1',
-        scope_type: 'selected_accounts',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready',
-        target_regions: ['us-east-1'],
-        target_account_ids: ['111111111111', '222222222222']
-      },
-      connector_id: 'aws-accts-1',
-      external_id: 'selected-accounts-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'IdentrailReadOnlyCoverage',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'selected_accounts',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1'],
-      target_account_ids: ['111111111111', '222222222222'],
-      target_ou_ids: [],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: false,
-      setup_summary: 'Selected accounts StackSet setup.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      target_summary: {
-        account_count: 2,
-        account_count_known: true,
-        ou_count: 0,
-        region_count: 1,
-        excluded_account_count: 0,
-        expected_stack_instances: 2,
-        expected_stack_instances_known: true,
-        all_accounts: false
-      },
-      prerequisites: [],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /Selected scope/i }));
-    fireEvent.click(screen.getByRole('tab', { name: /Account IDs/i }));
-    fireEvent.change(screen.getByLabelText(/Target account IDs/i), {
-      target: { value: '111111111111, 222222222222' }
-    });
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() =>
-      expect(startAWSConnector).toHaveBeenCalledWith(
-        expect.objectContaining({
-          scope_type: 'selected_accounts',
-          target_account_ids: ['111111111111', '222222222222'],
-          target_ou_ids: ['r-abcd'],
-          auto_onboard_new_accounts: false
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    const calls = startAWSConnector.mock.calls;
-    const lastCall = calls[calls.length - 1];
-    expect((lastCall?.[0] as { excluded_account_ids?: string[] } | undefined)?.excluded_account_ids).toBeUndefined();
-  });
-
-  it('blocks empty StackSet targets before calling the API', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector');
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /Selected scope/i }));
-    fireEvent.click(screen.getByRole('tab', { name: /Account IDs/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    expect(await screen.findByText(/Add at least one 12-digit target AWS account ID/i)).toBeInTheDocument();
-    expect(startAWSConnector).not.toHaveBeenCalled();
-  });
-
-  it('disables StackSet launch while a blocking prerequisite is unresolved', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-org-1',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'waiting_for_aws',
-        target_regions: ['us-east-1']
-      },
-      connector_id: 'aws-org-1',
-      external_id: 'org-external',
-      launch_url: '',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'IdentrailReadOnlyCoverage',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'organization',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'waiting_for_aws',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: [],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'Trusted access needs to be enabled before deployment.',
-      next_actions: ['enable_trusted_access'],
-      target_summary: {
-        account_count: 0,
-        account_count_known: false,
-        ou_count: 0,
-        region_count: 1,
-        excluded_account_count: 0,
-        expected_stack_instances: 0,
-        expected_stack_instances_known: false,
-        all_accounts: true
-      },
-      prerequisites: [
-        {
-          id: 'trusted-access',
-          title: 'Enable Organizations trusted access for CloudFormation',
-          severity: 'blocking',
-          satisfied: false,
-          reason: 'Trusted access is not enabled for CloudFormation StackSets.',
-          remediation: 'Enable trusted access in the Organizations console.'
-        }
-      ],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /Launch StackSet setup/i })
-      ).toBeDisabled()
-    );
-    expect(screen.getByText(/Enable trusted access in the Organizations console/i)).toBeInTheDocument();
-  });
-
-  it('hides the StackSet launch link while a blocking prerequisite is unresolved', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    // The backend commonly returns a nonempty launch_url alongside a blocking
-    // stackset.trusted_access_enabled prerequisite: the URL exists but must
-    // not be opened until the prereq is satisfied.
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-org-blocked',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'waiting_for_aws',
-        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/blocked'
-      },
-      connector_id: 'aws-org-blocked',
-      external_id: 'org-blocked-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/blocked',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'IdentrailReadOnlyCoverage',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'organization',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'waiting_for_aws',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: ['r-abcd'],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'Trusted access needs to be enabled before deployment.',
-      next_actions: ['enable_trusted_access'],
-      prerequisites: [
-        {
-          id: 'stackset.trusted_access_enabled',
-          title: 'Enable Organizations trusted access for CloudFormation',
-          severity: 'blocking',
-          satisfied: false,
-          reason: 'Trusted access is not enabled for CloudFormation StackSets.',
-          remediation: 'Enable trusted access in the Organizations console.'
-        }
-      ],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    // The launch button stays disabled and the link to the AWS console does
-    // not render, even though the response contains a launch URL.
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /Prepare StackSet again|Launch StackSet setup/i })
-      ).toBeDisabled()
-    );
-    const links = screen.queryAllByRole('link', { name: /Open StackSet in AWS|Open AWS/i });
-    for (const link of links) {
-      expect(link.getAttribute('href') ?? '').not.toContain('stacksets/blocked');
-    }
-  });
-
-  it('cancels an in-flight StackSet start when the operator edits targets before it returns', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const pendingStart = deferred<AWSConnectorStartResponse>();
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockReturnValue(pendingStart.promise);
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    // While the start request is still pending, edit a scope-contract field.
-    fireEvent.change(screen.getByLabelText(/Target regions/i), {
-      target: { value: 'eu-west-1' }
-    });
-
-    // Now resolve the original start with the old targets and a launch URL.
-    // The invalidation should have bumped the start request ref so this
-    // response is treated as stale.
-    await act(async () => {
-      pendingStart.resolve({
-        connection: {
-          ...disconnectedAWS,
-          connector_id: 'aws-org-cancel',
-          scope_type: 'organization',
-          deployment_method: 'stackset_service_managed',
-          onboarding_status: 'launch_ready',
-          launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/cancel'
-        },
-        connector_id: 'aws-org-cancel',
-        external_id: 'cancel-external',
-        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/cancel',
-        template_url: 'https://example.com/template.yaml',
-        role_name: 'IdentrailReadOnly',
-        stack_name: 'identrail-readonly-connector',
-        stack_set_name: 'IdentrailReadOnlyCoverage',
-        policy_hash: 'sha256:example',
-        template_checksum: 'sha256:example',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready',
-        target_regions: ['us-east-1'],
-        target_account_ids: [],
-        target_ou_ids: ['r-abcd'],
-        excluded_account_ids: [],
-        auto_onboard_new_accounts: true,
-        setup_summary: 'Cancelled start.',
-        next_actions: ['open_stackset', 'refresh_status'],
-        stackset_onboarding: readyAWSStackSetOnboarding,
-        permission_preview: [],
-        permission_tiers: []
-      });
-    });
-
-    // The stale start must not restore old targets, render the progress
-    // panel, or expose the launch URL for accounts / regions the operator
-    // just removed.
-    expect(screen.getByLabelText(/Target regions/i)).toHaveValue('eu-west-1');
-    expect(screen.queryByRole('region', { name: /StackSet onboarding progress/i })).not.toBeInTheDocument();
-    const links = screen.queryAllByRole('link', { name: /Open StackSet in AWS|Open AWS/i });
-    for (const link of links) {
-      expect(link.getAttribute('href') ?? '').not.toContain('stacksets/cancel');
-    }
-    // Launch button should be re-enabled (submitting flag was cleared).
-    expect(screen.getByRole('button', { name: /Launch StackSet setup/i })).not.toBeDisabled();
-  });
-
-  it('ignores stale StackSet setup responses after switching environments', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        },
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'staging',
-          name: 'Staging',
-          slug: 'staging',
-          description: 'Staging AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-03T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const pendingStart = deferred<AWSConnectorStartResponse>();
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockReturnValue(pendingStart.promise);
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
-
-    await act(async () => {
-      pendingStart.resolve({
-        connection: {
-          ...disconnectedAWS,
-          connector_id: 'aws-org-stale',
-          scope_type: 'organization',
-          deployment_method: 'stackset_service_managed',
-          onboarding_status: 'launch_ready'
-        },
-        connector_id: 'aws-org-stale',
-        external_id: 'stale-external',
-        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/stale',
-        template_url: 'https://example.com/template.yaml',
-        role_name: 'IdentrailReadOnly',
-        stack_name: 'identrail-readonly-connector',
-        stack_set_name: 'IdentrailReadOnlyCoverage',
-        policy_hash: 'sha256:example',
-        template_checksum: 'sha256:example',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready',
-        target_regions: ['us-east-1'],
-        target_account_ids: [],
-        target_ou_ids: [],
-        excluded_account_ids: [],
-        auto_onboard_new_accounts: true,
-        setup_summary: 'Stale organization setup for a different environment.',
-        next_actions: ['open_stackset', 'refresh_status'],
-        stackset_onboarding: readyAWSStackSetOnboarding,
-        permission_preview: [],
-        permission_tiers: []
-      });
-    });
-
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
-    expect(screen.queryByRole('region', { name: /StackSet onboarding progress/i })).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: /Open StackSet in AWS/i })
-    ).not.toBeInTheDocument();
-  });
-
-  it('rejects an Organizations root ID on the Selected OUs path', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector');
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /Selected scope/i }));
-    fireEvent.change(screen.getByLabelText(/Target OU IDs/i), { target: { value: 'r-abcd' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    expect(
-      await screen.findByText(/Root ID "r-abcd" is not accepted for Selected OUs/i)
-    ).toBeInTheDocument();
-    expect(startAWSConnector).not.toHaveBeenCalled();
-  });
-
-  it('sends connector_id on retry so the StackSet start resumes existing setup', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const startResponse: AWSConnectorStartResponse = {
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-org-retry',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready',
-        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets'
-      },
-      connector_id: 'aws-org-retry',
-      external_id: 'org-retry-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'IdentrailReadOnlyCoverage',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'organization',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: ['r-abcd'],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'AWS Organization setup ready.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      target_summary: {
-        account_count: 0,
-        account_count_known: false,
-        ou_count: 0,
-        region_count: 1,
-        excluded_account_count: 0,
-        expected_stack_instances: 0,
-        expected_stack_instances_known: false,
-        all_accounts: true
-      },
-      prerequisites: [],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    };
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue(startResponse);
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
-    expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({ connector_id: undefined });
-
-    fireEvent.click(await screen.findByRole('button', { name: /Prepare StackSet again/i }));
-
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(2));
-    expect(startAWSConnector.mock.calls[1]?.[0]).toMatchObject({ connector_id: 'aws-org-retry' });
-  });
-
-  it('drops a pending StackSet start when the operator switches scope mode', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const pendingStart = deferred<AWSConnectorStartResponse>();
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockReturnValue(pendingStart.promise);
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    fireEvent.click(screen.getByRole('radio', { name: /Selected scope/i }));
-
-    await act(async () => {
-      pendingStart.resolve({
-        connection: {
-          ...disconnectedAWS,
-          connector_id: 'aws-org-abandoned',
-          scope_type: 'organization',
-          deployment_method: 'stackset_service_managed',
-          onboarding_status: 'launch_ready'
-        },
-        connector_id: 'aws-org-abandoned',
-        external_id: 'org-abandoned-external',
-        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/abandoned',
-        template_url: 'https://example.com/template.yaml',
-        role_name: 'IdentrailReadOnly',
-        stack_name: 'identrail-readonly-connector',
-        stack_set_name: 'IdentrailReadOnlyCoverage',
-        policy_hash: 'sha256:example',
-        template_checksum: 'sha256:example',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready',
-        target_regions: ['us-east-1'],
-        target_account_ids: [],
-        target_ou_ids: ['r-abcd'],
-        excluded_account_ids: [],
-        auto_onboard_new_accounts: true,
-        setup_summary: 'Abandoned org start.',
-        next_actions: ['open_stackset', 'refresh_status'],
-        stackset_onboarding: readyAWSStackSetOnboarding,
-        permission_preview: [],
-        permission_tiers: []
-      });
-    });
-
-    expect(await screen.findByLabelText(/Target OU IDs/i)).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: /StackSet onboarding progress/i })).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: /Open StackSet in AWS/i })
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Launch StackSet setup/i })).not.toBeDisabled();
-  });
-
-  it('loads persisted StackSet onboarding for an existing organization connector', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-existing',
-        organization_id: 'o-identrail',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'connected',
-        target_regions: ['us-east-1', 'us-west-2'],
-        target_ou_ids: ['r-abcd'],
-        auto_onboard_new_accounts: true
-      }
-    });
-    const getStackSetOnboarding = vi
-      .spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding')
-      .mockResolvedValue({ onboarding: readyAWSStackSetOnboarding });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await openAWSConnectionManagement();
-    expect(await screen.findByRole('region', { name: /StackSet onboarding progress/i })).toBeInTheDocument();
-    expect(getStackSetOnboarding).toHaveBeenCalledWith(
-      'workspace-a',
-      'production',
-      'aws-org-existing',
-      undefined,
-      undefined,
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-    expect(screen.getByRole('table', { name: /StackSet instance status/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start rollout' })).not.toBeDisabled();
-  });
-
-  it('renders the launch-response onboarding rather than the fixture-backed refresh endpoint', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const connectorOnboarding: AWSStackSetOnboardingResult = {
-      ...readyAWSStackSetOnboarding,
-      recovery_actions: [
-        {
-          id: 'connector-recovery',
-          title: 'Connector-specific recovery action',
-          description: 'This came from the start response, tied to the connector.',
-          targets: []
-        }
-      ]
-    };
-    const fixtureOnboarding: AWSStackSetOnboardingResult = {
-      ...readyAWSStackSetOnboarding,
-      recovery_actions: [
-        {
-          id: 'fixture-recovery',
-          title: 'Fixture recovery action',
-          description: 'This came from the synthetic refresh endpoint.',
-          targets: []
-        }
-      ]
-    };
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-org-refresh',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready'
-      },
-      connector_id: 'aws-org-refresh',
-      external_id: 'org-refresh-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'IdentrailReadOnlyCoverage',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'organization',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: ['r-abcd'],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'Organization setup.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      stackset_onboarding: connectorOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-    vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-org-refresh',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({ onboarding: fixtureOnboarding });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    // Refresh results supersede the launch snapshot so operators see the
-    // latest reconciled StackSet state after status polling completes.
-    expect(await screen.findByText(/Fixture recovery action/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Connector-specific recovery action/i)).not.toBeInTheDocument();
-  });
-
-  it('hydrates the StackSet name from the existing connection so resume matches stored setup', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-named',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'connected',
-        target_regions: ['us-east-1'],
-        target_ou_ids: ['r-abcd'],
-        stack_set_name: 'CustomerNamedStackSet'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
-      onboarding: readyAWSStackSetOnboarding
-    });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-named',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready',
-        stack_set_name: 'CustomerNamedStackSet'
-      },
-      connector_id: 'aws-org-named',
-      external_id: 'named-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'CustomerNamedStackSet',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'organization',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: ['r-abcd'],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'Named organization setup.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Wait for the connection to hydrate, then open setup management.
-    await openAWSConnectionManagement();
-    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
-    // On resume the wizard omits stack_set_name (and role_name) so the backend
-    // keeps whatever it stored for the connector; sending the wizard default
-    // would trip resumeAWSStackSetConnectorStart when the stored name differs.
-    expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({
-      connector_id: 'aws-org-named',
-      stack_set_name: undefined,
-      role_name: undefined
-    });
-  });
-
-  it('resets the hidden StackSet name when switching to an environment without a connector', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        },
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'staging',
-          name: 'Staging',
-          slug: 'staging',
-          description: 'Staging AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-03T00:00:00Z'
-        }
-      ]
-    });
-    const getConnection = vi
-      .spyOn(api.apiClient, 'getAWSProjectConnection')
-      .mockImplementation((_workspaceID: string, projectID: string) => {
-        if (projectID === 'production') {
-          return Promise.resolve({
-            connection: {
-              ...connectedAWS,
-              connector_id: 'aws-prod-named',
-              scope_type: 'organization',
-              deployment_method: 'stackset_service_managed',
-              onboarding_status: 'connected',
-              target_regions: ['us-east-1'],
-              target_ou_ids: ['r-abcd'],
-              stack_set_name: 'ProdCustomStackSet'
-            }
-          });
-        }
-        return Promise.resolve({ connection: disconnectedAWS });
-      });
-    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
-      onboarding: readyAWSStackSetOnboarding
-    });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-staging-new',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready'
-      },
-      connector_id: 'aws-staging-new',
-      external_id: 'staging-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'identrail-readonly-stackset',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'organization',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: ['r-abcd'],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'Fresh staging setup.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Wait for the production connector to hydrate the custom stack set name.
-    await openAWSConnectionManagement();
-    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
-
-    // Switch to the staging environment (no connector yet).
-    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
-    await waitFor(() => expect(getConnection).toHaveBeenCalledWith(
-      'workspace-a',
-      'staging',
-      expect.anything()
-    ));
-
-    // Kick off a fresh StackSet setup in staging â€” the hidden StackSet name
-    // must come from the wizard default, not leak from the production
-    // environment's custom name.
-    fireEvent.click(screen.getByRole('radio', { name: /AWS Organization/i }));
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalled());
-    const stagingCall = startAWSConnector.mock.calls[startAWSConnector.mock.calls.length - 1]?.[0] as {
-      stack_set_name?: string;
-      connector_id?: string;
-    };
-    expect(stagingCall?.connector_id).toBeUndefined();
-    expect(stagingCall?.stack_set_name).toBe('identrail-readonly-stackset');
-    expect(stagingCall?.stack_set_name).not.toBe('ProdCustomStackSet');
-  });
-
-  it('marks a persisted self-managed StackSet connector unsupported instead of resuming as service-managed', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-self-managed-1',
-        scope_type: 'selected_accounts',
-        deployment_method: 'stackset_self_managed',
-        onboarding_status: 'connected',
-        target_regions: ['us-east-1'],
-        target_account_ids: ['111111111111', '222222222222'],
-        target_ou_ids: [],
-        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/self-managed'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
-      onboarding: readyAWSStackSetOnboarding
-    });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector');
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Wait for the connector's scope to hydrate the wizard.
-    await openAWSConnectionManagement();
-    await screen.findByRole('heading', { level: 4, name: /Set the coverage scope/i });
-
-    // The wizard exposes an alert that says this setup is not relaunchable and
-    // disables the Launch button so we never send service-managed to a
-    // self-managed connector (which resumeAWSStackSetConnectorStart rejects
-    // via exact deployment_method match).
-    expect(await screen.findByText(/self-managed StackSet, which the wizard does not currently support/i)).toBeInTheDocument();
-    const launchButton = screen.getByRole('button', { name: /Launch StackSet setup|Prepare StackSet again/i });
-    expect(launchButton).toBeDisabled();
-    fireEvent.click(launchButton);
-    expect(startAWSConnector).not.toHaveBeenCalled();
-
-    // The persisted self-managed launch URL must not surface anywhere on the
-    // wizard, since the wizard cannot describe what it would open.
-    const links = screen.queryAllByRole('link', { name: /Open StackSet in AWS|Open AWS/i });
-    for (const link of links) {
-      expect(link.getAttribute('href') ?? '').not.toContain('stacksets/self-managed');
-    }
-  });
-
-  it('keeps a persisted Terraform single-account connector reachable from the wizard', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-terraform-single',
-        scope_type: 'single_account',
-        deployment_method: 'terraform',
-        onboarding_status: 'connected'
-      }
-    });
-    const pollAWSConnector = vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-terraform-single',
-        scope_type: 'single_account',
-        deployment_method: 'terraform',
-        onboarding_status: 'connected'
-      }
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Single-account mode covers both CloudFormation and Terraform deployment
-    // methods. The verify step (Refresh / Validate role) must
-    // still be reachable for a Terraform-provisioned connector â€” the wizard
-    // step's Refresh button clicks into pollAWSConnector, not the sidebar
-    // Permission health refresh action.
-    await openAWSConnectionManagement();
-    const wizardStep = await screen.findByRole('heading', { level: 4, name: /Finish in AWS/i });
-    const wizardStepBody = wizardStep.closest('.idt-aws-wizard-step') as HTMLElement | null;
-    expect(wizardStepBody).not.toBeNull();
-    const refreshButton = within(wizardStepBody!).getByRole('button', { name: /Refresh/i });
-    expect(refreshButton).not.toBeDisabled();
-
-    fireEvent.click(refreshButton);
-    await waitFor(() =>
-      expect(pollAWSConnector).toHaveBeenCalledWith(
-        'aws-terraform-single',
-        'workspace-a',
-        'production',
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-  });
-
-  it('omits role_name on resume for a pending StackSet connector with empty role_arn', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      // Pending API-created StackSet connector: no role_arn yet (StackSet
-      // hasn't deployed the role), so role_name cannot be derived from the
-      // ARN. AWSConnectionStatus doesn't currently expose role_name.
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-pending-role',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'waiting_for_aws',
-        target_regions: ['us-east-1'],
-        target_ou_ids: ['r-abcd'],
-        role_arn: undefined
-      }
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
-      onboarding: readyAWSStackSetOnboarding
-    });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-pending-role',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready'
-      },
-      connector_id: 'aws-pending-role',
-      external_id: 'pending-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'CustomRoleFromBackend',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'CustomerNamedStackSet',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'organization',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: ['r-abcd'],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'Pending setup.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
-    // Resume must not overwrite the stored custom role name with the wizard
-    // default â€” omit role_name entirely so the backend keeps its stored value.
-    expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({
-      connector_id: 'aws-pending-role',
-      role_name: undefined
-    });
-  });
-
-  it('drops connector_id from the retry payload when scope-target values are edited', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-org-drift',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready',
-        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets'
-      },
-      connector_id: 'aws-org-drift',
-      external_id: 'org-drift-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'IdentrailReadOnlyCoverage',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'organization',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: ['r-abcd'],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'Organization setup.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
-    expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({ connector_id: undefined });
-
-    // Edit a scope-target value after the connector has been prepared. The
-    // edit clears the prepared response (so the button reverts to Launch), and
-    // the next click submits a fresh connector â€” not a resume of the old one.
-    fireEvent.change(screen.getByLabelText(/Target regions/i), { target: { value: 'us-east-1, us-west-2' } });
-    expect(screen.queryByRole('button', { name: /Prepare StackSet again/i })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(2));
-    expect(startAWSConnector.mock.calls[1]?.[0]).toMatchObject({
-      connector_id: undefined,
-      target_regions: ['us-east-1', 'us-west-2']
-    });
-  });
-
-  it('clears persisted StackSet progress when switching mode on an existing StackSet connection', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-existing',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'connected',
-        target_regions: ['us-east-1'],
-        target_ou_ids: ['r-abcd']
-      }
-    });
-    const persistedOnboarding: AWSStackSetOnboardingResult = {
-      ...readyAWSStackSetOnboarding,
-      recovery_actions: [
-        {
-          id: 'org-persist-recovery',
-          title: 'Persisted organization recovery action',
-          description: 'Should not linger after switching modes.',
-          targets: []
-        }
-      ]
-    };
-    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({ onboarding: persistedOnboarding });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await openAWSConnectionManagement();
-    expect(await screen.findByText(/Persisted organization recovery action/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('radio', { name: /Selected scope/i }));
-    expect(screen.queryByText(/Persisted organization recovery action/i)).not.toBeInTheDocument();
-  });
-
-  it('drops connector_id when only the target region ordering changes', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-org-order',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready'
-      },
-      connector_id: 'aws-org-order',
-      external_id: 'org-order-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'IdentrailReadOnlyCoverage',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'organization',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1', 'us-west-2'],
-      target_account_ids: [],
-      target_ou_ids: ['r-abcd'],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'Organization setup.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(await screen.findByRole('radio', { name: /AWS Organization/i }));
-    fireEvent.change(screen.getByLabelText(/Organization root ID/i), { target: { value: 'r-abcd' } });
-    fireEvent.change(screen.getByLabelText(/Target regions/i), { target: { value: 'us-east-1, us-west-2' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
-
-    // Only swap region ordering â€” backend matcher is order-sensitive, and the
-    // first region becomes the StackSet home region. The edit also invalidates
-    // the prepared launch, so the button label goes back to Launch.
-    fireEvent.change(screen.getByLabelText(/Target regions/i), { target: { value: 'us-west-2, us-east-1' } });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(2));
-    expect(startAWSConnector.mock.calls[1]?.[0]).toMatchObject({
-      connector_id: undefined,
-      target_regions: ['us-west-2', 'us-east-1'],
-      region: 'us-west-2'
-    });
-  });
-
-  it('restores persisted StackSet progress when switching back to the connectors scope', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-return',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'connected',
-        target_regions: ['us-east-1'],
-        target_ou_ids: ['r-abcd']
-      }
-    });
-    const persisted: AWSStackSetOnboardingResult = {
-      ...readyAWSStackSetOnboarding,
-      recovery_actions: [
-        {
-          id: 'return-recovery',
-          title: 'Persisted recovery action to restore',
-          description: 'Should reappear when returning to the organization scope.',
-          targets: []
-        }
-      ]
-    };
-    const getStackSetOnboarding = vi
-      .spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding')
-      .mockResolvedValue({ onboarding: persisted });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Initial hydrate.
-    await openAWSConnectionManagement();
-    expect(await screen.findByText(/Persisted recovery action to restore/i)).toBeInTheDocument();
-    const initialCallCount = getStackSetOnboarding.mock.calls.length;
-
-    // Switch away from the connector's scope.
-    fireEvent.click(screen.getByRole('radio', { name: /Selected scope/i }));
-    expect(screen.queryByText(/Persisted recovery action to restore/i)).not.toBeInTheDocument();
-
-    // Switch back to the connector's scope â€” panel should reappear via a fresh refetch.
-    fireEvent.click(screen.getByRole('radio', { name: /AWS Organization/i }));
-    expect(await screen.findByText(/Persisted recovery action to restore/i)).toBeInTheDocument();
-    expect(getStackSetOnboarding.mock.calls.length).toBeGreaterThan(initialCallCount);
-  });
-
-  it('hides a persisted StackSet launch URL when the operator switches to Single account', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-launch',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'connected',
-        target_regions: ['us-east-1'],
-        target_ou_ids: ['r-abcd'],
-        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/persisted'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
-      onboarding: readyAWSStackSetOnboarding
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Panel shows a StackSet link initially.
-    await openAWSConnectionManagement();
-    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
-
-    fireEvent.click(screen.getByRole('radio', { name: /This account/i }));
-
-    // Under Single account, the persisted StackSet launch URL must not surface.
-    const links = screen.queryAllByRole('link', { name: /Open AWS|Open StackSet(?: in AWS)?/i });
-    for (const link of links) {
-      expect(link.getAttribute('href') ?? '').not.toContain('stacksets/persisted');
-    }
-  });
-
-  it('hides a persisted organization StackSet launch URL when switching to Selected OUs', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-cross-scope',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'connected',
-        target_regions: ['us-east-1'],
-        target_ou_ids: ['r-abcd'],
-        launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets/org-persisted'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
-      onboarding: readyAWSStackSetOnboarding
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await openAWSConnectionManagement();
-    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
-    fireEvent.click(screen.getByRole('radio', { name: /Selected scope/i }));
-
-    // Selected OUs shares the stackset_ deployment method with organization,
-    // but the scope type differs â€” the persisted URL must not leak through.
-    const links = screen.queryAllByRole('link', { name: /Open AWS|Open StackSet(?: in AWS)?/i });
-    for (const link of links) {
-      expect(link.getAttribute('href') ?? '').not.toContain('stacksets/org-persisted');
-    }
-  });
-
-  it('hydrates the role name from the stored role ARN so StackSet resume matches', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-role',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'connected',
-        target_regions: ['us-east-1'],
-        target_ou_ids: ['r-abcd'],
-        role_arn: 'arn:aws:iam::123456789012:role/CustomerReadOnlyIdentrail',
-        stack_set_name: 'CustomerNamedStackSet'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
-      onboarding: readyAWSStackSetOnboarding
-    });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-role',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready',
-        role_arn: 'arn:aws:iam::123456789012:role/CustomerReadOnlyIdentrail',
-        stack_set_name: 'CustomerNamedStackSet'
-      },
-      connector_id: 'aws-org-role',
-      external_id: 'role-hydrate-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'CustomerReadOnlyIdentrail',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'CustomerNamedStackSet',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'organization',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: ['r-abcd'],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'Organization setup.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await openAWSConnectionManagement();
-    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
-    // The role name and StackSet name are hydrated in the form for display,
-    // but the resume payload omits them so the backend keeps the stored
-    // values rather than overwriting them with the wizard defaults.
-    expect(startAWSConnector.mock.calls[0]?.[0]).toMatchObject({
-      connector_id: 'aws-org-role',
-      role_name: undefined,
-      stack_set_name: undefined
-    });
-  });
-
-  it('preserves the last good StackSet onboarding when a refresh fails', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-refresh-err',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'connected',
-        target_regions: ['us-east-1'],
-        target_ou_ids: ['r-abcd']
-      }
-    });
-    vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-refresh-err',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'connected',
-        target_regions: ['us-east-1'],
-        target_ou_ids: ['r-abcd']
-      }
-    });
-    const persisted: AWSStackSetOnboardingResult = {
-      ...readyAWSStackSetOnboarding,
-      recovery_actions: [
-        {
-          id: 'preserve-recovery',
-          title: 'Preserved recovery action',
-          description: 'Should remain visible after a transient refresh failure.',
-          targets: []
-        }
-      ]
-    };
-    let onboardingCallCount = 0;
-    const getStackSetOnboarding = vi
-      .spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding')
-      .mockImplementation(() => {
-        onboardingCallCount += 1;
-        if (onboardingCallCount === 1) {
-          return Promise.resolve({ onboarding: persisted });
-        }
-        return Promise.reject(new Error('temporary network error'));
-      });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await openAWSConnectionManagement();
-    expect(await screen.findByText(/Preserved recovery action/i)).toBeInTheDocument();
-    const priorCalls = getStackSetOnboarding.mock.calls.length;
-
-    fireEvent.click(screen.getByRole('button', { name: /Refresh StackSet status/i }));
-
-    // The refresh error surfaces, but the previous onboarding is retained so
-    // the panel keeps rendering with a retry action.
-    expect(await screen.findByText(/temporary network error/i)).toBeInTheDocument();
-    expect(screen.getByText(/Preserved recovery action/i)).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByText(/Retry StackSet status/i)).toBeInTheDocument()
-    );
-    expect(getStackSetOnboarding.mock.calls.length).toBeGreaterThan(priorCalls);
-  });
-
-  it('does not reuse an existing StackSet connector when the operator switches to a different scope', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-org-existing',
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'connected',
-        target_regions: ['us-east-1'],
-        target_ou_ids: ['r-abcd']
-      }
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding').mockResolvedValue({
-      onboarding: readyAWSStackSetOnboarding
-    });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: 'aws-ou-new',
-        scope_type: 'selected_ous',
-        deployment_method: 'stackset_service_managed',
-        onboarding_status: 'launch_ready'
-      },
-      connector_id: 'aws-ou-new',
-      external_id: 'selected-ou-external',
-      launch_url: 'https://console.aws.amazon.com/cloudformation/home#/stacksets',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      stack_set_name: 'IdentrailReadOnlyCoverage',
-      policy_hash: 'sha256:example',
-      template_checksum: 'sha256:example',
-      scope_type: 'selected_ous',
-      deployment_method: 'stackset_service_managed',
-      onboarding_status: 'launch_ready',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: ['ou-1234-abcd5678'],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: true,
-      setup_summary: 'Selected OUs setup.',
-      next_actions: ['open_stackset', 'refresh_status'],
-      stackset_onboarding: readyAWSStackSetOnboarding,
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Wait for the existing organization connector to hydrate.
-    await openAWSConnectionManagement();
-    await screen.findByRole('region', { name: /StackSet onboarding progress/i });
-
-    fireEvent.click(screen.getByRole('radio', { name: /Selected scope/i }));
-    fireEvent.change(await screen.findByLabelText(/Target OU IDs/i), {
-      target: { value: 'ou-1234-abcd5678' }
-    });
-    fireEvent.click(screen.getByRole('button', { name: /Launch StackSet setup/i }));
-
-    await waitFor(() => expect(startAWSConnector).toHaveBeenCalledTimes(1));
-    const startPayload = startAWSConnector.mock.calls[0]?.[0] as { connector_id?: string; scope_type?: string };
-    expect(startPayload?.scope_type).toBe('selected_ous');
-    expect(startPayload?.connector_id).toBeUndefined();
-  });
-
-  it('shows AWS operational panels when connector health is warning', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-connector-1',
-        health_status: 'warning',
-        diagnostics: [{ code: 'permission_warning', message: 'Permission checks need attention.' }]
-      }
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 3, name: /Permission health/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: /Platform readiness/i })).toBeInTheDocument();
-  });
-
-  it('shows connected AWS status as the default success state before setup management', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        target_summary: {
-          account_count: 1,
-          account_count_known: true,
-          ou_count: 0,
-          region_count: 1,
-          excluded_account_count: 0,
-          expected_stack_instances: 1,
-          expected_stack_instances_known: true,
-          all_accounts: false
-        }
-      }
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const summary = await screen.findByRole('region', { name: 'AWS connected summary' });
-    expect(within(summary).getByRole('heading', { level: 3, name: /Production AWS/i })).toBeInTheDocument();
-    expect(within(summary).getByText('Single account')).toBeInTheDocument();
-    expect(within(summary).getByText('1 account')).toBeInTheDocument();
-    expect(within(summary).getByText('1 region')).toBeInTheDocument();
-    expect(within(summary).getByRole('link', { name: /Start AWS intelligence/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/aws/discovery?environment=production&start=1'
-    );
-    expect(within(summary).getByRole('link', { name: /Review machine identities/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/aws/identities?environment=production'
-    );
-    expect(screen.queryByRole('region', { name: 'AWS account setup' })).not.toBeInTheDocument();
-
-    fireEvent.click(within(summary).getByRole('button', { name: /Manage connection/i }));
-
-    expect(await screen.findByRole('region', { name: 'AWS account setup' })).toBeInTheDocument();
-  });
-
-  it('retries an AWS discovery enqueue after a transient start failure', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    const scan = {
-      id: 'scan-retry',
-      project_id: 'production',
-      connector_id: 'aws-connector-1',
-      provider: 'aws',
-      status: 'queued',
-      started_at: '2026-08-20T20:00:00Z',
-      asset_count: 0,
-      finding_count: 0
-    };
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: 'production',
-        name: 'Production',
-        slug: 'production',
-        description: 'Production AWS boundary.',
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    const startScan = vi.spyOn(api.apiClient, 'startScan')
-      .mockRejectedValueOnce(new Error('temporary start failure'))
-      .mockResolvedValue({ scan });
-    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({ scan: { ...scan, status: 'running' } });
-    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
-
-    const { ProductAWSDiscoveryPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/discovery?environment=production&start=1']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/discovery" element={<ProductAWSDiscoveryPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 3, name: /Couldn't start AWS discovery/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Try again/i }));
-
-    await waitFor(() => expect(startScan).toHaveBeenCalledTimes(2));
-  });
-
-  it('allows a failed AWS discovery to start a replacement scan', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    const failedScan = {
-      id: 'scan-failed',
-      project_id: 'production',
-      connector_id: 'aws-connector-1',
-      provider: 'aws',
-      status: 'failed',
-      started_at: '2026-08-20T20:00:00Z',
-      asset_count: 0,
-      finding_count: 0,
-      error_message: 'AWS worker failed.'
-    };
-    const replacementScan = { ...failedScan, id: 'scan-replacement', status: 'queued', error_message: undefined };
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: 'production',
-        name: 'Production',
-        slug: 'production',
-        description: 'Production AWS boundary.',
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    const startScan = vi.spyOn(api.apiClient, 'startScan').mockResolvedValue({ scan: replacementScan });
-    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({ scan: failedScan });
-    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
-
-    const { ProductAWSDiscoveryPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/discovery?environment=production&scan_id=scan-failed']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/discovery" element={<ProductAWSDiscoveryPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 3, name: /Discovery failed/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('link', { name: /Start a new discovery/i }));
-
-    await waitFor(() => expect(startScan).toHaveBeenCalledWith(
-      { project_id: 'production', connector_id: 'aws-connector-1' },
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    ));
-  });
-
-  it('does not start AWS discovery with the previous environment connector', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    const stagingConnection = deferred<{ connection: AWSConnectionStatus }>();
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        },
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'staging',
-          name: 'Staging',
-          slug: 'staging',
-          description: 'Staging AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-03T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) =>
-      projectID === 'staging' ? stagingConnection.promise : Promise.resolve({ connection: connectedAWS })
-    );
-    const startScan = vi.spyOn(api.apiClient, 'startScan').mockResolvedValue({
-      scan: {
-        id: 'scan-staging',
-        project_id: 'staging',
-        connector_id: 'staging-connector',
-        provider: 'aws',
-        status: 'queued',
-        started_at: '2026-08-20T20:00:00Z',
-        asset_count: 0,
-        finding_count: 0
-      }
-    });
-
-    const { ProductAWSDiscoveryPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/discovery?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/discovery" element={<ProductAWSDiscoveryPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const environmentSelector = await screen.findByRole('combobox', { name: 'Environment' });
-    await waitFor(() => expect(api.apiClient.getAWSProjectConnection).toHaveBeenCalledWith(
-      'workspace-a',
-      'production',
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    ));
-    fireEvent.change(environmentSelector, { target: { value: 'staging' } });
-    await waitFor(() => expect(api.apiClient.getAWSProjectConnection).toHaveBeenCalledWith(
-      'workspace-a',
-      'staging',
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    ));
-    expect(startScan).not.toHaveBeenCalled();
-
-    await act(async () => {
-      stagingConnection.resolve({ connection: { ...connectedAWS, connector_id: 'staging-connector' } });
-    });
-    await waitFor(() => expect(startScan).toHaveBeenCalledWith(
-      { project_id: 'staging', connector_id: 'staging-connector' },
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    ));
-  });
-
-  it('ignores a late AWS discovery start response from the previous environment', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    const startProduction = deferred<{ scan: { id: string; project_id: string; connector_id: string; provider: string; status: string; started_at: string; asset_count: number; finding_count: number } }>();
-    const startStaging = deferred<{ scan: { id: string; project_id: string; connector_id: string; provider: string; status: string; started_at: string; asset_count: number; finding_count: number } }>();
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        },
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'staging',
-          name: 'Staging',
-          slug: 'staging',
-          description: 'Staging AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-03T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) => Promise.resolve({
-      connection: projectID === 'staging' ? { ...connectedAWS, connector_id: 'staging-connector' } : connectedAWS
-    }));
-    const startScan = vi.spyOn(api.apiClient, 'startScan')
-      .mockImplementationOnce(() => startProduction.promise)
-      .mockImplementationOnce(() => startStaging.promise);
-    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
-      scan: {
-        id: 'scan-staging',
-        project_id: 'staging',
-        connector_id: 'staging-connector',
-        provider: 'aws',
-        status: 'running',
-        started_at: '2026-08-20T20:00:00Z',
-        asset_count: 0,
-        finding_count: 0
-      }
-    });
-    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
-
-    const { ProductAWSDiscoveryPage } = await import('./productShell');
-    function LocationProbe() {
-      const currentLocation = useLocation();
-      return <output data-testid="aws-discovery-location">{currentLocation.search}</output>;
-    }
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/discovery?environment=production&start=1']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/discovery" element={<><ProductAWSDiscoveryPage /><LocationProbe /></>} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => expect(startScan).toHaveBeenCalledTimes(1));
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
-    await waitFor(() => expect(startScan).toHaveBeenCalledTimes(2));
-
-    await act(async () => {
-      startProduction.resolve({
-        scan: {
-          id: 'scan-production',
-          project_id: 'production',
-          connector_id: 'aws-connector-1',
-          provider: 'aws',
-          status: 'queued',
-          started_at: '2026-08-20T20:00:00Z',
-          asset_count: 0,
-          finding_count: 0
-        }
-      });
-    });
-    expect(screen.getByTestId('aws-discovery-location')).toHaveTextContent('environment=staging&start=1');
-
-    await act(async () => {
-      startStaging.resolve({
-        scan: {
-          id: 'scan-staging',
-          project_id: 'staging',
-          connector_id: 'staging-connector',
-          provider: 'aws',
-          status: 'queued',
-          started_at: '2026-08-20T20:00:00Z',
-          asset_count: 0,
-          finding_count: 0
-        }
-      });
-    });
-    await waitFor(() => expect(screen.getByTestId('aws-discovery-location')).toHaveTextContent('environment=staging&scan_id=scan-staging'));
-  });
-
-  it('keeps edited AWS role drafts when polling status returns older connection data', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        role_arn: 'arn:aws:iam::123456789012:role/OlderConnectorRole'
-      }
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Manage connection/i }));
-    const roleInput = await screen.findByLabelText('Role ARN');
-    fireEvent.change(roleInput, { target: { value: 'arn:aws:iam::123456789012:role/CorrectedConnectorRole' } });
-    fireEvent.click(within(screen.getByLabelText('AWS account setup')).getByRole('button', { name: /Refresh/i }));
-
-    await waitFor(() => expect(api.apiClient.pollAWSConnector).toHaveBeenCalled());
-    expect(screen.getByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-  });
-
-  it('keeps legacy role-only AWS connections out of connector validation', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        connector_id: undefined,
-        deployment_method: 'manual',
-        onboarding_status: 'connected',
-        setup_summary: 'Existing IAM role connection.'
-      }
-    });
-    const validateAWSConnector = vi.spyOn(api.apiClient, 'validateAWSConnector');
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Manage connection/i }));
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what to cover/i })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /^Validate role$/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/Start CloudFormation setup to move it onto the connector flow/i)).toBeInTheDocument();
-    expect(validateAWSConnector).not.toHaveBeenCalled();
-  });
-
-  it('renders the Kubernetes Control Center with connected cluster coverage', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production Kubernetes boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: connectedKubernetes });
-
-    const { ProductKubernetesControlCenterPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/kubernetes" element={<ProductKubernetesControlCenterPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 2, name: 'Kubernetes Control Center' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Kubernetes' })).toBeInTheDocument();
-    expect(screen.getAllByText('production-cluster').length).toBeGreaterThan(0);
-    expect(screen.getByText('2/2 allowed')).toBeInTheDocument();
-    const sectionTable = screen.getByRole('table', { name: 'Kubernetes section links' });
-    expect(within(sectionTable).getByRole('link', { name: 'Clusters' })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/kubernetes/clusters?environment=production'
-    );
-    expect(within(sectionTable).getByRole('link', { name: 'Service accounts / RBAC' })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/kubernetes/service-accounts?environment=production'
-    );
-  });
-
-  it('waits for Kubernetes feature metadata before loading connection state', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: undefined }, { loading: true });
-    const api = await import('./api/client');
-    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production Kubernetes boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    const getKubernetesProjectConnection = vi
-      .spyOn(api.apiClient, 'getKubernetesProjectConnection')
-      .mockResolvedValue({ connection: connectedKubernetes });
-
-    const { ProductKubernetesControlCenterPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/kubernetes" element={<ProductKubernetesControlCenterPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 2, name: 'Kubernetes Control Center' })).toBeInTheDocument();
-    await waitFor(() => expect(listProjects).toHaveBeenCalled());
-    expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
-  });
-
-  it('hides Kubernetes workload inventory when the connector is unavailable', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: false });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production Kubernetes boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    const getKubernetesProjectConnection = vi.spyOn(api.apiClient, 'getKubernetesProjectConnection');
-
-    const { ProductKubernetesWorkloadsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/workloads?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/kubernetes/workloads" element={<ProductKubernetesWorkloadsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('Kubernetes unavailable')).toBeInTheDocument();
-    expect(screen.queryByRole('table', { name: 'Workload identity' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Deployments')).not.toBeInTheDocument();
-    expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
-  });
-
-  it('hides Kubernetes workload inventory when no environment is selected', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
-    const getKubernetesProjectConnection = vi.spyOn(api.apiClient, 'getKubernetesProjectConnection');
-
-    const { ProductKubernetesWorkloadsPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/workloads']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/kubernetes/workloads" element={<ProductKubernetesWorkloadsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('Choose an environment')).toBeInTheDocument();
-    expect(screen.queryByRole('table', { name: 'Workload identity' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Deployments')).not.toBeInTheDocument();
-    expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
-  });
-
-  it('keeps Kubernetes connect on the domain page when no environment exists', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
-    const getKubernetesProjectConnection = vi.spyOn(api.apiClient, 'getKubernetesProjectConnection');
-
-    const { ProductKubernetesConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<ProductKubernetesConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 2, name: 'Connect Kubernetes' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: /Choose an environment/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Open environments/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/projects?source=kubernetes'
-    );
-    expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
-  });
-
-  it('disables Kubernetes connector submit while feature metadata loads', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: undefined }, { loading: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production Kubernetes boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    const getKubernetesProjectConnection = vi.spyOn(api.apiClient, 'getKubernetesProjectConnection');
-    const startKubernetesConnector = vi.spyOn(api.apiClient, 'startKubernetesConnector');
-
-    const { ProductKubernetesConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<ProductKubernetesConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const submitButton = await screen.findByRole('button', { name: /Generate token/i });
-    expect(submitButton).toBeDisabled();
-    fireEvent.click(submitButton);
-    expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
-    expect(startKubernetesConnector).not.toHaveBeenCalled();
-  });
-
-  it('starts Kubernetes agent enrollment with workspace and environment scope', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production Kubernetes boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    const getKubernetesProjectConnection = vi
-      .spyOn(api.apiClient, 'getKubernetesProjectConnection')
-      .mockResolvedValueOnce({ connection: disconnectedKubernetes })
-      .mockResolvedValueOnce({ connection: connectedKubernetes });
-    vi.spyOn(api.apiClient, 'startKubernetesConnector').mockResolvedValue({
-      connection: connectedKubernetes,
-      enrollment_token: 'enroll-token-123',
-      enrollment_expires_at: '2026-05-17T11:00:00Z',
-      helm_command: 'helm upgrade --install identrail-agent identrail/agent --set token=enroll-token-123'
-    });
-
-    const { ProductKubernetesConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<ProductKubernetesConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const submitButton = await screen.findByRole('button', { name: /Generate token/i });
-    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production K8s' } });
-    fireEvent.change(screen.getByLabelText('API URL'), { target: { value: 'https://k8s.example.com' } });
-    fireEvent.click(submitButton);
-
-    await waitFor(() =>
-      expect(api.apiClient.startKubernetesConnector).toHaveBeenCalledWith(
-        expect.objectContaining({
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          display_name: 'Production K8s',
-          api_url: 'https://k8s.example.com'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    await waitFor(() => expect(getKubernetesProjectConnection).toHaveBeenCalledTimes(2));
-    expect(await screen.findByDisplayValue('Production Kubernetes')).toBeInTheDocument();
-    expect(screen.getByText('enroll-token-123')).toBeInTheDocument();
-    expect(screen.getByText(/helm upgrade --install identrail-agent/i)).toBeInTheDocument();
-  });
-
-  it('ignores stale Kubernetes enrollment responses after switching environments', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production Kubernetes boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        },
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'staging',
-          name: 'Staging',
-          slug: 'staging',
-          description: 'Staging Kubernetes boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-03T00:00:00Z'
-        }
-      ]
-    });
-    const getKubernetesProjectConnection = vi
-      .spyOn(api.apiClient, 'getKubernetesProjectConnection')
-      .mockResolvedValue({ connection: disconnectedKubernetes });
-    const enrollment = deferred<KubernetesConnectorStartResponse>();
-    vi.spyOn(api.apiClient, 'startKubernetesConnector').mockReturnValue(enrollment.promise);
-
-    const { ProductKubernetesConnectPage } = await import('./productShell');
-    function KubernetesConnectHarness() {
-      const location = useLocation();
-      const navigate = useNavigate();
-      return (
-        <>
-          <p data-testid="location">{`${location.pathname}${location.search}`}</p>
-          <button
-            type="button"
-            onClick={() => navigate('/app/tenant-a/workspace-a/kubernetes/connect?environment=staging')}
-          >
-            Open staging
-          </button>
-          <ProductKubernetesConnectPage />
-        </>
-      );
-    }
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<KubernetesConnectHarness />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const submitButton = await screen.findByRole('button', { name: /Generate token/i });
-    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production K8s' } });
-    fireEvent.click(submitButton);
-    await waitFor(() =>
-      expect(api.apiClient.startKubernetesConnector).toHaveBeenCalledWith(
-        expect.objectContaining({ project_id: 'production' }),
-        expect.objectContaining({ workspaceID: 'workspace-a' })
-      )
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open staging' }));
-    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('environment=staging'));
-
-    await act(async () => {
-      enrollment.resolve({
-        connection: connectedKubernetes,
-        enrollment_token: 'stale-enroll-token',
-        enrollment_expires_at: '2026-05-17T11:00:00Z',
-        helm_command: 'helm upgrade --install identrail-agent identrail/agent --set token=stale-enroll-token'
-      });
-      await enrollment.promise;
-    });
-
-    expect(screen.queryByText('stale-enroll-token')).not.toBeInTheDocument();
-    expect(screen.queryByText(/Enrollment token ready/i)).not.toBeInTheDocument();
-    expect(
-      getKubernetesProjectConnection.mock.calls.filter(([, projectID]) => projectID === 'production')
-    ).toHaveLength(1);
-  });
-
-  it('does not prefill Kubernetes agent API URL from the cluster server', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production Kubernetes boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: connectedKubernetes });
-
-    const { ProductKubernetesConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<ProductKubernetesConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByDisplayValue('Production Kubernetes')).toBeInTheDocument();
-    expect(screen.getByLabelText('API URL')).toHaveValue('');
-    expect(screen.getByPlaceholderText('https://api.identrail.com')).toBeInTheDocument();
-    expect(screen.queryByDisplayValue('https://k8s.example.com')).not.toBeInTheDocument();
-    expect(screen.queryByPlaceholderText('https://kubernetes.default.svc')).not.toBeInTheDocument();
-  });
-
-  it('preserves existing Kubernetes kubeconfig mode when loading the connection', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production Kubernetes boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    const kubeconfigConnection: KubernetesConnectionStatus = {
-      ...connectedKubernetes,
-      connector_id: 'k8s-kubeconfig',
-      display_name: 'Production fallback',
-      context: 'production-admin',
-      connection_mode: 'kubeconfig'
-    };
-    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: kubeconfigConnection });
-    vi.spyOn(api.apiClient, 'upsertKubernetesKubeconfigConnector').mockResolvedValue({ connection: kubeconfigConnection });
-    const startKubernetesConnector = vi.spyOn(api.apiClient, 'startKubernetesConnector');
-
-    const { ProductKubernetesConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<ProductKubernetesConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('button', { name: /Save kubeconfig/i })).toBeInTheDocument();
-    expect(screen.getByLabelText('Mode')).toHaveValue('kubeconfig');
-    expect(screen.getByLabelText('Display name')).toHaveValue('Production fallback');
-    expect(screen.getByLabelText('Kubeconfig context')).toHaveValue('production-admin');
-    expect(screen.queryByLabelText('API URL')).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText('Kubeconfig'), { target: { value: 'apiVersion: v1\nclusters: []' } });
-    fireEvent.click(screen.getByRole('button', { name: /Save kubeconfig/i }));
-
-    await waitFor(() =>
-      expect(api.apiClient.upsertKubernetesKubeconfigConnector).toHaveBeenCalledWith(
-        expect.objectContaining({
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          connector_id: 'k8s-kubeconfig',
-          display_name: 'Production fallback',
-          context: 'production-admin',
-          kubeconfig: 'apiVersion: v1\nclusters: []'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(startKubernetesConnector).not.toHaveBeenCalled();
-  });
-
-  it('saves Kubernetes kubeconfig fallback with workspace and environment scope', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production Kubernetes boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({
-      connection: { ...disconnectedKubernetes, connector_id: 'k8s-existing', context: 'old-context' }
-    });
-    vi.spyOn(api.apiClient, 'upsertKubernetesKubeconfigConnector').mockResolvedValue({ connection: connectedKubernetes });
-
-    const { ProductKubernetesConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<ProductKubernetesConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await screen.findByRole('button', { name: /Generate token/i });
-    fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'kubeconfig' } });
-    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production fallback' } });
-    fireEvent.change(screen.getByLabelText('Kubeconfig context'), { target: { value: 'production-admin' } });
-    fireEvent.change(screen.getByLabelText('Kubeconfig'), { target: { value: 'apiVersion: v1\nclusters: []' } });
-    fireEvent.click(screen.getByRole('button', { name: /Save kubeconfig/i }));
-
-    await waitFor(() =>
-      expect(api.apiClient.upsertKubernetesKubeconfigConnector).toHaveBeenCalledWith(
-        expect.objectContaining({
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          connector_id: 'k8s-existing',
-          display_name: 'Production fallback',
-          context: 'production-admin',
-          kubeconfig: 'apiVersion: v1\nclusters: []'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(await screen.findByText('Kubeconfig active.')).toBeInTheDocument();
-  });
-
-  it('clears stale AWS connect form values when the selected environment changes', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        },
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'staging',
-          name: 'Staging',
-          slug: 'staging',
-          description: 'Staging AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-03T00:00:00Z'
-        }
-      ]
-    });
-    const productionStatus = deferred<{ connection: AWSConnectionStatus }>();
-    const stagingStatus = deferred<{ connection: AWSConnectionStatus }>();
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) =>
-      projectID === 'production' ? productionStatus.promise : stagingStatus.promise
-    );
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('production');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
-
-    await act(async () => {
-      stagingStatus.resolve({
-        connection: {
-          ...disconnectedAWS,
-          permission_checks: [],
-          diagnostics: []
-        }
-      });
-    });
-
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what to cover/i })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Display name')).toHaveValue('');
-    expect(screen.getByLabelText('Home region')).toHaveValue('us-east-1');
-
-    await act(async () => {
-      productionStatus.resolve({ connection: connectedAWS });
-    });
-    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
-    expect(screen.queryByDisplayValue('Production AWS')).not.toBeInTheDocument();
-  });
-
-  it('ignores stale AWS CloudFormation start responses after switching environments', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        },
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'staging',
-          name: 'Staging',
-          slug: 'staging',
-          description: 'Staging AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-03T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    const startResponse = deferred<AWSConnectorStartResponse>();
-    vi.spyOn(api.apiClient, 'startAWSConnector').mockReturnValue(startResponse.promise);
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const launchButton = (await screen.findAllByRole('button', { name: /Connect AWS/i }))[0];
-    fireEvent.click(launchButton);
-    await waitFor(() =>
-      expect(api.apiClient.startAWSConnector).toHaveBeenCalledWith(
-        expect.objectContaining({ project_id: 'production' }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
-
-    await act(async () => {
-      startResponse.resolve({
-        connection: connectedAWS,
-        connector_id: 'aws-connector-1',
-        external_id: 'stale-external-id',
-        launch_url: 'https://console.aws.amazon.com/cloudformation',
-        template_url: 'https://example.com/template.yaml',
-        role_name: 'IdentrailReadOnly',
-        stack_name: 'identrail-readonly-connector',
-        policy_hash: 'sha256:example',
-        scope_type: 'single_account',
-        deployment_method: 'cloudformation',
-        onboarding_status: 'launch_ready',
-        target_regions: ['us-east-1'],
-        target_account_ids: [],
-        target_ou_ids: [],
-        excluded_account_ids: [],
-        auto_onboard_new_accounts: false,
-        setup_summary: 'Single AWS account read-only setup through CloudFormation.',
-        next_actions: ['launch_stack', 'validate_role', 'refresh_status'],
-        permission_preview: [
-          { service: 'IAM', actions: ['iam:GetRole'], resources: ['*'], reason: 'Inspect role metadata.' }
-        ],
-        permission_tiers: []
-      });
-    });
-
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
-    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Open AWS/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/AWS CloudFormation launch is ready/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Preview permissions/i })).not.toBeInTheDocument();
-  });
-
-  it('ignores stale AWS poll responses after switching environments', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        },
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'staging',
-          name: 'Staging',
-          slug: 'staging',
-          description: 'Staging AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-03T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ connection: projectID === 'production' ? connectedAWS : disconnectedAWS })
-    );
-    const pollResponse = deferred<{ connection: AWSConnectionStatus }>();
-    vi.spyOn(api.apiClient, 'pollAWSConnector').mockReturnValue(pollResponse.promise);
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await openAWSConnectionManagement();
-    expect(await screen.findByRole('heading', { level: 3, name: /Choose what to cover/i })).toBeInTheDocument();
-    const refreshButton = within(screen.getByLabelText('AWS account setup')).getByRole('button', {
-      name: /Refresh/i
-    });
-    fireEvent.click(refreshButton);
-    await waitFor(() =>
-      expect(api.apiClient.pollAWSConnector).toHaveBeenCalledWith(
-        'aws-connector-1',
-        'workspace-a',
-        'production',
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
-
-    await act(async () => {
-      pollResponse.resolve({
-        connection: { ...connectedAWS, display_name: 'Production poll AWS', account_id: '111111111111' }
-      });
-    });
-
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
-    expect(screen.queryByText('AWS connector is active.')).not.toBeInTheDocument();
-    expect(screen.queryByText('Production poll AWS')).not.toBeInTheDocument();
-  });
-
-  it('automatically polls CloudFormation setup until AWS is connected', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-connector-1',
-        onboarding_status: 'waiting_for_aws'
-      }
-    });
-    vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
-        onboarding_status: 'connected'
-      }
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const roleInput = await screen.findByLabelText('Role ARN');
-    expect(roleInput).toHaveValue('');
-    expect(screen.getByRole('button', { name: /^Validate role$/i })).toBeDisabled();
-
-    await waitFor(() =>
-      expect(api.apiClient.pollAWSConnector).toHaveBeenCalledWith(
-        'aws-connector-1',
-        'workspace-a',
-        'production',
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      ),
-      { timeout: 4000 }
-    );
-    expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
-    expect(screen.queryByDisplayValue('arn:aws:iam::123456789012:role/IdentrailReadOnly')).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /^Validate role$/i })).not.toBeInTheDocument();
-  });
-
-  it('hydrates trust-policy repair material when automatic polling reaches needs-fix', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-connector-1',
-        deployment_method: 'cloudformation',
-        scope_type: 'single_account',
-        onboarding_status: 'waiting_for_aws'
-      }
-    });
-    vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-connector-1',
-        deployment_method: 'cloudformation',
-        scope_type: 'single_account',
-        onboarding_status: 'needs_fix',
-        status: 'degraded',
-        health_status: 'error'
-      }
-    });
-    const hydrateRepair = vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
-      connection: {
-        ...disconnectedAWS,
-        connector_id: 'aws-connector-1',
-        deployment_method: 'cloudformation',
-        scope_type: 'single_account',
-        onboarding_status: 'needs_fix',
-        status: 'degraded',
-        health_status: 'error'
-      },
-      connector_id: 'aws-connector-1',
-      external_id: 'repair-external-id',
-      launch_url: '',
-      template_url: 'https://example.com/template.yaml',
-      role_name: 'IdentrailReadOnly',
-      stack_name: 'identrail-readonly-connector',
-      policy_hash: 'sha256:example',
-      scope_type: 'single_account',
-      deployment_method: 'cloudformation',
-      onboarding_status: 'needs_fix',
-      target_regions: ['us-east-1'],
-      target_account_ids: [],
-      target_ou_ids: [],
-      excluded_account_ids: [],
-      auto_onboard_new_accounts: false,
-      setup_summary: 'The connection needs attention.',
-      next_actions: ['repair_permissions', 'validate_role', 'refresh_status'],
-      permission_preview: [],
-      permission_tiers: []
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => expect(api.apiClient.pollAWSConnector).toHaveBeenCalled(), { timeout: 4000 });
-    await waitFor(() =>
-      expect(hydrateRepair).toHaveBeenCalledWith(
-        expect.objectContaining({
-          connector_id: 'aws-connector-1',
-          repair_only: true,
-          scope_type: 'single_account',
-          deployment_method: 'cloudformation'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-  });
-
-  it('ignores stale AWS validation responses after switching environments', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        },
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'staging',
-          name: 'Staging',
-          slug: 'staging',
-          description: 'Staging AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-03T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ connection: projectID === 'production' ? connectedAWS : disconnectedAWS })
-    );
-    const validationResponse = deferred<{ connection: AWSConnectionStatus }>();
-    vi.spyOn(api.apiClient, 'validateAWSConnector').mockReturnValue(validationResponse.promise);
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Manage connection/i }));
-  const submitButton = await screen.findByRole('button', { name: /^Validate role$/i });
-    fireEvent.click(submitButton);
-    await waitFor(() =>
-      expect(api.apiClient.validateAWSConnector).toHaveBeenCalledWith(
-        'aws-connector-1',
-        expect.objectContaining({ project_id: 'production' }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
-
-    await act(async () => {
-      validationResponse.resolve({
-        connection: { ...connectedAWS, display_name: 'Validated production AWS', account_id: '111111111111' }
-      });
-    });
-
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
-    expect(screen.queryByText('AWS connector is active.')).not.toBeInTheDocument();
-    expect(screen.queryByText('Validated production AWS')).not.toBeInTheDocument();
-  });
-
-  it('loads AWS connect actions for the selected environment even when it is outside the first page', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: Array.from({ length: 50 }, (_, index) => ({
-        tenant_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: `recent-environment-${index + 1}`,
-        name: `Recent Environment ${index + 1}`,
-        slug: `recent-environment-${index + 1}`,
-        description: '',
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-02T00:00:00Z'
-      }))
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: 'older-production',
-        name: 'Older Production',
-        slug: 'older-production',
-        description: 'Long-lived production boundary.',
-        created_at: '2025-01-01T00:00:00Z',
-        updated_at: '2025-01-02T00:00:00Z'
-      }
-    });
-    const getAWSProjectConnection = vi
-      .spyOn(api.apiClient, 'getAWSProjectConnection')
-      .mockResolvedValue({ connection: connectedAWS });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=older-production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
-    expect(await screen.findByRole('region', { name: 'AWS connected summary' })).toBeInTheDocument();
-    // The connected-state primary CTA is the AWS overview link.
-    expect(screen.getByRole('link', { name: /AWS overview/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/aws?environment=older-production'
-    );
-    // The page must still have fetched the AWS connection for the
-    // requested environment (the engineering Setup payload / validation
-    // harness / collector contract panels have been removed from the
-    // customer UI but the connection fetch is unchanged).
-    expect(listProjects).toHaveBeenCalled();
-    expect(getAWSProjectConnection).toHaveBeenCalledWith(
-      'workspace-a',
-      'older-production',
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-  });
-
-  it('qualifies organization all-account summaries when accounts are excluded', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
-      connection: {
-        ...connectedAWS,
-        scope_type: 'organization',
-        deployment_method: 'stackset_service_managed',
-        target_account_ids: [],
-        target_ou_ids: ['r-abcd'],
-        excluded_account_ids: ['111111111111', '222222222222'],
-        auto_onboard_new_accounts: true,
-        target_summary: {
-          account_count: 0,
-          account_count_known: false,
-          ou_count: 0,
-          region_count: 1,
-          excluded_account_count: 2,
-          expected_stack_instances: 0,
-          expected_stack_instances_known: false,
-          all_accounts: true
-        }
-      }
-    });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const summary = await screen.findByRole('region', { name: 'AWS connected summary' });
-    expect(within(summary).getByText('Organization, all accounts except 2 excluded accounts')).toBeInTheDocument();
-    expect(within(summary).getByText('All organization accounts except 2 excluded accounts')).toBeInTheDocument();
-  });
-
-  it('keeps requested environment selected when getProject check fails for a transient error', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: Array.from({ length: 50 }, (_, index) => ({
-        tenant_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: `recent-environment-${index + 1}`,
-        name: `Recent Environment ${index + 1}`,
-        slug: `recent-environment-${index + 1}`,
-        description: '',
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-02T00:00:00Z'
-      }))
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockRejectedValue(new api.ApiError('temporary outage', 503));
-
-    const { ProductDomainRoutePage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=older-production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/repositories" element={<ProductDomainRoutePage domain="github" routeID="repositories" />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
-    expect(screen.getByRole('link', { name: /Connect GitHub/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/github/connect?environment=older-production'
-    );
-    expect(await screen.findByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
-  });
-
-  it('retries requested environment verification after transient getProject failures', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    const recentProjects = Array.from({ length: 50 }, (_, index) => ({
-      tenant_id: 'tenant-a',
-      workspace_id: 'workspace-a',
-      project_id: `recent-environment-${index + 1}`,
-      name: `Recent Environment ${index + 1}`,
-      slug: `recent-environment-${index + 1}`,
-      description: '',
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-02T00:00:00Z'
-    }));
-    const olderProduction = {
-      tenant_id: 'tenant-a',
-      workspace_id: 'workspace-a',
-      project_id: 'older-production',
-      name: 'Older Production',
-      slug: 'older-production',
-      description: 'Long-lived production boundary.',
-      created_at: '2025-01-01T00:00:00Z',
-      updated_at: '2025-01-02T00:00:00Z'
-    };
-    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: recentProjects });
-    const getProject = vi
-      .spyOn(api.apiClient, 'getProject')
-      .mockRejectedValueOnce(new api.ApiError('temporary outage', 503))
-      .mockResolvedValueOnce({ project: olderProduction });
-
-    const { ProductDomainRoutePage } = await import('./productShell');
-    const renderRepositoriesPage = () =>
-      render(
-        <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=older-production']}>
-          <Routes>
-            <Route
-              path="/app/:tenantID/:workspaceID/github/repositories"
-              element={<ProductDomainRoutePage domain="github" routeID="repositories" />}
-            />
-          </Routes>
-        </MemoryRouter>
-      );
-
-    const firstRender = renderRepositoriesPage();
-
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
-    expect(await screen.findByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
-    await waitFor(() => expect(getProject).toHaveBeenCalledTimes(1));
-    firstRender.unmount();
-
-    renderRepositoriesPage();
-
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
-    await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(getProject).toHaveBeenCalledTimes(2));
-    await waitFor(() =>
-      expect(screen.queryByText(/Unable to verify selected environment older-production/i)).not.toBeInTheDocument()
-    );
-  });
-
-  it('does not silently switch AWS connect to a fallback environment when getProject check fails transiently', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'active-production',
-          name: 'Active Production',
-          slug: 'active-production',
-          description: 'Active production boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockRejectedValue(new api.ApiError('temporary outage', 503));
-    const getAWSProjectConnection = vi
-      .spyOn(api.apiClient, 'getAWSProjectConnection')
-      .mockResolvedValue({ connection: disconnectedAWS });
-
-    const { ProductAWSConnectPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=older-production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 2, name: 'Connect AWS' })).toBeInTheDocument();
-    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
-    expect(screen.getByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
-    expect(listProjects).toHaveBeenCalled();
-    expect(getAWSProjectConnection).toHaveBeenCalledWith(
-      'workspace-a',
-      'older-production',
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-  });
-
-  it('falls back to an active environment when the requested environment is archived', async () => {
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'active-production',
-          name: 'Active Production',
-          slug: 'active-production',
-          description: 'Active production boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: 'archived-production',
-        name: 'Archived Production',
-        slug: 'archived-production',
-        description: 'Retired boundary.',
-        archived_at: '2026-01-03T00:00:00Z',
-        created_at: '2025-01-01T00:00:00Z',
-        updated_at: '2026-01-03T00:00:00Z'
-      }
-    });
-
-    const { ProductDomainRoutePage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/identities?environment=archived-production']}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/aws/identities"
-            element={<ProductDomainRoutePage domain="aws" routeID="identities" />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('active-production'));
-    expect(screen.getByRole('link', { name: /Connect AWS/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/aws/connect?environment=active-production'
-    );
-    expect(screen.getByRole('link', { name: /AWS findings/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/aws/findings?environment=active-production'
-    );
-  });
-
-  it('creates a new unique environment key instead of overwriting an existing environment', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    const firstPageProjects = Array.from({ length: 50 }, (_, index) => ({
-      tenant_id: 'tenant-a',
-      workspace_id: 'workspace-a',
-      project_id: `recent-environment-${index + 1}`,
-      name: `Recent Environment ${index + 1}`,
-      slug: `recent-environment-${index + 1}`,
-      description: '',
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-02T00:00:00Z'
-    }));
-    const existingProject = {
-      tenant_id: 'tenant-a',
-      workspace_id: 'workspace-a',
-      project_id: 'production-platform',
-      name: 'Production Platform',
-      slug: 'production-platform',
-      description: 'Existing production boundary.',
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-02T00:00:00Z'
-    };
-    vi.spyOn(api.apiClient, 'listProjects').mockImplementation(async (_workspaceID, filters: any) => {
-      if (filters?.limit === 50) {
-        return { items: firstPageProjects };
-      }
-      if (filters?.cursor === 'older-page') {
-        return { items: [existingProject] };
-      }
-      return { items: firstPageProjects, next_cursor: 'older-page' };
-    });
-    vi.spyOn(api.apiClient, 'upsertProject').mockImplementation(async (_workspaceID, payload: any) => ({
-      project: {
-        tenant_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: payload.project_id,
-        name: payload.name,
-        slug: payload.slug,
-        description: payload.description ?? '',
-        created_at: '2026-01-03T00:00:00Z',
-        updated_at: '2026-01-03T00:00:00Z'
-      }
-    }));
-
-    const { ProductProjectsPage } = await import('./productShell');
-    function LocationProbe() {
-      const location = useLocation();
-      return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
-    }
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/projects?source=aws']}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/projects"
-            element={
-              <>
-                <LocationProbe />
-                <ProductProjectsPage />
-              </>
-            }
-          />
-          <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<LocationProbe />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 2, name: 'Environments' })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText(/Environment name/i), { target: { value: 'Production Platform' } });
-    fireEvent.click(screen.getByRole('button', { name: /Create environment/i }));
-
-    await waitFor(() =>
-      expect(screen.getByTestId('location')).toHaveTextContent(
-        '/app/tenant-a/workspace-a/projects/production-platform-2?source=aws'
-      )
-    );
-    expect(api.apiClient.upsertProject).toHaveBeenCalledWith(
-      'workspace-a',
-      expect.objectContaining({ project_id: 'production-platform-2', slug: 'production-platform-2' }),
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-  });
-
-  it('creates stable hidden keys for non-ASCII environment names', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'upsertProject').mockImplementation(async (_workspaceID, payload: any) => ({
-      project: {
-        tenant_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: payload.project_id,
-        name: payload.name,
-        slug: payload.slug,
-        description: payload.description ?? '',
-        created_at: '2026-01-03T00:00:00Z',
-        updated_at: '2026-01-03T00:00:00Z'
-      }
-    }));
-
-    const { ProductProjectsPage } = await import('./productShell');
-    function LocationProbe() {
-      const location = useLocation();
-      return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
-    }
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/projects?source=github']}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/projects"
-            element={
-              <>
-                <LocationProbe />
-                <ProductProjectsPage />
-              </>
-            }
-          />
-          <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<LocationProbe />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 2, name: 'Environments' })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText(/Environment name/i), { target: { value: 'æœ¬ç•ªç’°å¢ƒ' } });
-    fireEvent.click(screen.getByRole('button', { name: /Create environment/i }));
-
-    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/projects/environment-'));
-    const payload = (api.apiClient.upsertProject as any).mock.calls[0][1];
-    expect(payload.project_id).toMatch(/^environment-[a-z0-9]+$/);
-    expect(payload.project_id).not.toBe('default-environment');
-  });
-
-  it('requires the environment key before deleting an environment', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    const project = {
-      tenant_id: 'tenant-a',
-      workspace_id: 'workspace-a',
-      project_id: 'production-platform',
-      name: 'Production Platform',
-      slug: 'production-platform',
-      description: 'Production boundary.',
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-02T00:00:00Z'
-    };
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [project] });
-    const deleteProject = vi.spyOn(api.apiClient, 'deleteProject').mockResolvedValue(undefined);
-
-    const { ProductProjectsPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/projects']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/projects" element={<ProductProjectsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 2, name: 'Environments' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete environment' }));
-
-    const modal = screen.getByRole('dialog', { name: 'Delete Production Platform' });
-    const continueButton = within(modal).getByTestId('idt-danger-modal-continue');
-    expect(continueButton).toBeDisabled();
-    fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), { target: { value: project.project_id } });
-    expect(continueButton).toBeEnabled();
-    fireEvent.click(continueButton);
-
-    await waitFor(() => expect(deleteProject).toHaveBeenCalledWith(
-      'workspace-a',
-      'production-platform',
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    ));
-    await waitFor(() => expect(screen.queryByText('Production Platform')).not.toBeInTheDocument());
-  });
-
-  it('does not apply a pending delete to the next workspace', async () => {
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    const workspaceAProject = {
-      tenant_id: 'tenant-a',
-      workspace_id: 'workspace-a',
-      project_id: 'shared-environment',
-      name: 'Workspace A Environment',
-      slug: 'shared-environment',
-      description: 'Workspace A boundary.',
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-02T00:00:00Z'
-    };
-    const workspaceBProject = {
-      ...workspaceAProject,
-      workspace_id: 'workspace-b',
-      name: 'Workspace B Environment',
-      description: 'Workspace B boundary.'
-    };
-    vi.spyOn(api.apiClient, 'listProjects').mockImplementation(async (workspaceID) => ({
-      items: [workspaceID === 'workspace-a' ? workspaceAProject : workspaceBProject]
-    }));
-    let resolveDelete!: () => void;
-    const deleteProject = vi.spyOn(api.apiClient, 'deleteProject').mockImplementation(
-      () => new Promise<void>((resolve) => {
-        resolveDelete = resolve;
-      })
-    );
-
-    const { ProductProjectsPage } = await import('./productShell');
-    function WorkspaceSwitcher() {
-      const navigate = useNavigate();
-      return (
-        <button type="button" onClick={() => navigate('/app/tenant-a/workspace-b/projects')}>
-          Switch workspace
-        </button>
-      );
-    }
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/projects']}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/projects"
-            element={
-              <>
-                <WorkspaceSwitcher />
-                <ProductProjectsPage />
-              </>
-            }
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('Workspace A Environment')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete environment' }));
-    const modal = screen.getByRole('dialog', { name: 'Delete Workspace A Environment' });
-    fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
-      target: { value: workspaceAProject.project_id }
-    });
-    fireEvent.click(within(modal).getByTestId('idt-danger-modal-continue'));
-
-    await waitFor(() => expect(deleteProject).toHaveBeenCalledWith(
-      'workspace-a',
-      'shared-environment',
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    ));
-    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }));
-
-    expect(await screen.findByText('Workspace B Environment')).toBeInTheDocument();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    resolveDelete();
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(deleteProject).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('Workspace B Environment')).toBeInTheDocument();
-  });
-
-  it('opens nested GitHub AI risk routes from the sidebar domain flyout', async () => {
-    mockConnectorFeatureFlags({ github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const { ProductShellLayout } = await import('./productShell');
-
-    const { container } = render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/agentic-risk/mcp-tools']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
-            <Route path="github/agentic-risk/mcp-tools" element={<h2>MCP tools content</h2>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByRole('heading', { level: 2, name: /MCP tools content/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
-
-    const githubFlyout = screen.getByRole('dialog', { name: 'GitHub' });
-    expect(within(githubFlyout).getAllByText('AI / Agentic Risk').length).toBeGreaterThan(0);
-    expect(within(githubFlyout).getByRole('link', { name: 'GitHub AI / Agentic Risk MCP / tools' })).toHaveAttribute(
-      'aria-current',
-      'page'
-    );
-    expect(container.querySelector('details.idt-domain-flyout-nested')).toHaveAttribute('open');
-  });
-});
-
-
-  async function renderFindings(
-    options: {
-      repoScans?: RepoScanRecord[];
-      repoFindings?: Finding[];
-      repoFindingSummary?: RepoFindingsSummary;
-      listRepoFindings?: (
-        params: unknown,
-        call: number
-      ) => { items: Finding[]; summary?: RepoFindingsSummary } | Promise<{ items: Finding[]; summary?: RepoFindingsSummary }>;
-      getRepoFindingsTrends?: (params: unknown) => { items: TrendPoint[] };
-      getRepoRiskGraph?: (params: unknown) => RepoRiskGraph;
-      role?: CurrentUserContext['role'];
-    } = {}
-  ) {
-    vi.resetModules();
-    vi.doMock('./hooks/useMe', () => ({
-      useMe: () => ({
-        me: { ...loggedInWithoutWorkspace, role: options.role ?? 'owner' } as CurrentUserContext,
-        loading: false,
-        error: '',
-        unauthenticated: false,
-        refresh: vi.fn()
-      })
-    }));
-
-    const api = await import('./api/client');
-    const listRepoScans = vi
-      .spyOn(api.apiClient, 'listRepoScans')
-      .mockResolvedValue({ items: options.repoScans ?? [] });
-    let listRepoFindingsCall = 0;
-    const listRepoFindings = vi
-      .spyOn(api.apiClient, 'listRepoFindings')
-      .mockImplementation(async (params) => {
-        listRepoFindingsCall += 1;
-        if (options.listRepoFindings) {
-          return options.listRepoFindings(params, listRepoFindingsCall);
-        }
-        // Apply the server-side filters (severity/type) the component passes so
-        // tests that exercise filtering observe a realistic empty result.
-        let items = options.repoFindings ?? [];
-        if (params?.severity) {
-          items = items.filter((finding) => finding.severity === params.severity);
-        }
-        if (params?.type) {
-          items = items.filter((finding) => finding.type === params.type);
-        }
-        return { items, summary: options.repoFindingSummary };
-      });
-    const triageFinding = vi.spyOn(api.apiClient, 'triageFinding').mockImplementation(async (findingID, payload, scanID) => {
-      const existing = options.repoFindings?.find((finding) => finding.id === findingID) ?? options.repoFindings?.[0];
-      return {
-        finding: {
-          ...(existing ?? {
-            id: findingID,
-            scan_id: scanID ?? 'repo-scan-default',
-            type: 'secret_exposure',
-            severity: 'high',
-            title: 'Default finding',
-            human_summary: 'Default finding summary.',
-            remediation: 'Rotate and remove the exposed secret.',
-            created_at: '2026-05-17T11:00:00Z'
-          }),
-          triage: {
-            status: payload.status ?? existing?.triage?.status ?? 'open',
-            assignee: payload.assignee ?? existing?.triage?.assignee,
-            suppression_expires_at: payload.suppression_expires_at ?? existing?.triage?.suppression_expires_at,
-            updated_at: '2026-05-17T11:12:00Z',
-            updated_by: 'test-operator'
-          }
-        }
-      };
-    });
-    const deleteRepoFinding = vi.spyOn(api.apiClient, 'deleteRepoFinding').mockResolvedValue(undefined);
-    const deleteRepoScan = vi.spyOn(api.apiClient, 'deleteRepoScan').mockResolvedValue(undefined);
-    const deleteRepoFindings = vi
-      .spyOn(api.apiClient, 'deleteRepoFindings')
-      .mockImplementation(async (items) => ({ deleted: items }));
-    const getRepoFindingsTrends = vi
-      .spyOn(api.apiClient, 'getRepoFindingsTrends')
-      .mockImplementation(async (params) => {
-        if (options.getRepoFindingsTrends) {
-          return { items: options.getRepoFindingsTrends(params).items };
-        }
-        return { items: [] };
-      });
-    const getRepoRiskGraph = vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockImplementation(async (params) => {
-      if (options.getRepoRiskGraph) {
-        return options.getRepoRiskGraph(params);
-      }
-      return {
-        repository: 'repo-a',
-        nodes: [],
-        edges: [],
-        scores: [],
-        summary: {
-          finding_count: 0,
-          node_count: 0,
-          edge_count: 0,
-          unknown_node_count: 0,
-          unknown_edge_count: 0,
-          high_risk_findings: 0,
-          critical_findings: 0
-        }
-      };
-    });
-
-    const { ProductFindingsPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/findings']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/findings" element={<ProductFindingsPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    return {
-      listRepoScans,
-      listRepoFindings,
-      triageFinding,
-      deleteRepoFinding,
-      deleteRepoScan,
-      deleteRepoFindings,
-      getRepoFindingsTrends,
-      getRepoRiskGraph
-    };
-  }
-
-describe('ProductFindingsPage states', () => {
-  afterEach(() => {
-    window.localStorage.clear();
-    vi.restoreAllMocks();
-    vi.doUnmock('./hooks/useMe');
-    vi.resetModules();
-  });
-
-  it('shows a first-scan onboarding state when no scans have run', async () => {
-    await renderFindings({ repoScans: [] });
-
-    expect(await screen.findByText('Run your first repository scan')).toBeInTheDocument();
-    // The zero-filled dashboard chrome must not render in the empty state.
-    expect(screen.queryByText('Completed scans')).not.toBeInTheDocument();
-  });
-
-  it('surfaces a failure state instead of zeros when every scan failed', async () => {
-    const failedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-failed',
-      status: 'failed',
-      finished_at: '2026-05-17T11:05:00Z',
-      error_message: 'Repository not found or access revoked'
-    };
-
-    await renderFindings({ repoScans: [failedScan] });
-
-    expect(await screen.findByText('Your last repository scan failed')).toBeInTheDocument();
-    expect(screen.getByText(/Repository not found or access revoked/i)).toBeInTheDocument();
-    expect(screen.queryByText('Completed scans')).not.toBeInTheDocument();
-  });
-
-  it('shows a clean "no exposure" state when a scan succeeded with zero findings', async () => {
-    const succeededScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-succeeded',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:05:00Z',
-      finding_count: 0
-    };
-
-    await renderFindings({ repoScans: [succeededScan] });
-
-    expect(await screen.findByText('No exposure found')).toBeInTheDocument();
-    // The consolidated KPI strip renders for a succeeded scan.
-    expect(screen.getByText('Completed scans')).toBeInTheDocument();
-    // With no findings and no active filters, the filter panel and the empty
-    // detail pane are gated out (no redundant empty placeholders).
-    expect(screen.queryByText('Filters and sorting')).not.toBeInTheDocument();
-    expect(screen.queryByText('Select a finding')).not.toBeInTheDocument();
-  });
-
-  it('does not show failed state when a canceled scan is the latest', async () => {
-    const failedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-failed-legacy',
-      status: 'failed',
-      finished_at: '2026-05-17T11:00:00Z',
-      error_message: 'Repository not found or access revoked'
-    };
-    const canceledScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-canceled-latest',
-      status: 'canceled',
-      finished_at: '2026-05-17T11:05:00Z',
-      error_message: 'User canceled scan from API'
-    };
-
-    await renderFindings({ repoScans: [canceledScan, failedScan] });
-
-    expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
-    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
-  });
-
-  it('shows "No completed scan results" while an active scan is still running', async () => {
-    const failedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-failed-in-flight',
-      status: 'failed',
-      finished_at: '2026-05-17T11:03:00Z',
-      error_message: 'Repository access revoked'
-    };
-    const queuedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-queued-in-flight',
-      status: 'queued',
-      finished_at: undefined
-    };
-
-    await renderFindings({ repoScans: [queuedScan, failedScan] });
-
-    expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
-    expect(screen.queryByText('No exposure found')).not.toBeInTheDocument();
-    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
-  });
-
-  it('keeps findings visible when failed scans still return historical findings', async () => {
-    const failedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-failed-latest',
-      status: 'failed',
-      started_at: '2026-05-17T12:00:00Z',
-      finished_at: '2026-05-17T12:01:00Z',
-      error_message: 'Repository not found or access revoked'
-    };
-    const oldSucceededScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-succeeded-older',
-      status: 'succeeded',
-      started_at: '2026-05-17T11:00:00Z',
-      finished_at: '2026-05-17T11:30:00Z',
-      finding_count: 2
-    };
-    const historicFinding: Finding = {
-      id: 'finding-legacy',
-      scan_id: 'repo-scan-succeeded-older',
-      type: 'secrets',
-      severity: 'high',
-      title: 'Legacy finding',
-      human_summary: 'Legacy risky secret exposure',
-      remediation: 'Rotate and clean up repository secret.',
-      created_at: '2026-05-17T11:10:00Z'
-    };
-
-    await renderFindings({
-      repoScans: [failedScan, oldSucceededScan],
-      repoFindings: [historicFinding]
-    });
-
-    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
-    expect(await screen.findByText('Completed scans')).toBeInTheDocument();
-    expect(await screen.findByText('Legacy finding')).toBeInTheDocument();
-  });
-
-  it('lets operators remove a failed scan banner without hiding findings', async () => {
-    const failedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-failed-dismissible',
-      status: 'failed',
-      started_at: '2026-05-17T12:00:00Z',
-      finished_at: '2026-05-17T12:01:00Z',
-      error_message: 'Repository not found or access revoked'
-    };
-    const oldSucceededScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-dismissible-succeeded',
-      status: 'succeeded',
-      started_at: '2026-05-17T11:00:00Z',
-      finished_at: '2026-05-17T11:30:00Z',
-      finding_count: 1
-    };
-    const finding: Finding = {
-      id: 'finding-dismissible',
-      scan_id: oldSucceededScan.id,
-      type: 'workflow_permission',
-      severity: 'high',
-      title: 'Historical workflow finding',
-      human_summary: 'A workflow grants broad repository permissions.',
-      remediation: 'Limit workflow permissions.',
-      created_at: '2026-05-17T11:07:00Z'
-    };
-
-    const { deleteRepoScan } = await renderFindings({
-      repoScans: [failedScan, oldSucceededScan],
-      repoFindings: [finding]
-    });
-
-    expect(await screen.findByText(/Last scan failed:/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /^Remove$/i }));
-
-    await waitFor(() => {
-      expect(deleteRepoScan).toHaveBeenCalledWith(
-        failedScan.id,
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      );
-      expect(screen.queryByText(/Last scan failed:/i)).not.toBeInTheDocument();
-    });
-    expect(await screen.findByText('Historical workflow finding')).toBeInTheDocument();
-  });
-
-  it('clears a selected failed scan filter before refreshing after removal', async () => {
-    const failedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-failed-selected-filter',
-      status: 'failed',
-      started_at: '2026-05-17T12:00:00Z',
-      finished_at: '2026-05-17T12:01:00Z',
-      error_message: 'Repository not found or access revoked'
-    };
-    const oldSucceededScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-selected-filter-succeeded',
-      status: 'succeeded',
-      started_at: '2026-05-17T11:00:00Z',
-      finished_at: '2026-05-17T11:30:00Z',
-      finding_count: 1
-    };
-    const finding: Finding = {
-      id: 'finding-selected-filter',
-      scan_id: oldSucceededScan.id,
-      type: 'workflow_permission',
-      severity: 'high',
-      title: 'Historical selected-filter finding',
-      human_summary: 'A workflow grants broad repository permissions.',
-      remediation: 'Limit workflow permissions.',
-      created_at: '2026-05-17T11:07:00Z'
-    };
-
-    const { deleteRepoScan, listRepoFindings, getRepoRiskGraph } = await renderFindings({
-      repoScans: [failedScan, oldSucceededScan],
-      repoFindings: [finding]
-    });
-
-    expect(await screen.findByText(/Last scan failed:/i)).toBeInTheDocument();
-    const repositoryScanFilter = screen.getByLabelText(/Repository scan/i) as HTMLSelectElement;
-    fireEvent.change(repositoryScanFilter, { target: { value: failedScan.id } });
-    await waitFor(() => {
-      expect(
-        listRepoFindings.mock.calls.some(
-          ([params]) => (params as { repo_scan_id?: string } | undefined)?.repo_scan_id === failedScan.id
-        )
-      ).toBe(true);
-    });
-
-    listRepoFindings.mockClear();
-    getRepoRiskGraph.mockClear();
-    fireEvent.click(screen.getByRole('button', { name: /^Remove$/i }));
-
-    await waitFor(() => {
-      expect(deleteRepoScan).toHaveBeenCalledWith(
-        failedScan.id,
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      );
-      expect((screen.getByLabelText(/Repository scan/i) as HTMLSelectElement).value).toBe('');
-      expect(screen.queryByText(/Last scan failed:/i)).not.toBeInTheDocument();
-    });
-    expect(
-      listRepoFindings.mock.calls.some(
-        ([params]) => (params as { repo_scan_id?: string } | undefined)?.repo_scan_id === failedScan.id
-      )
-    ).toBe(false);
-    expect(
-      getRepoRiskGraph.mock.calls.some(
-        ([params]) => (params as { repo_scan_id?: string } | undefined)?.repo_scan_id === failedScan.id
-      )
-    ).toBe(false);
-  });
-
-  it('clears a failed scan filter selected while removal is in flight', async () => {
-    const failedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-failed-live-filter',
-      status: 'failed',
-      started_at: '2026-05-17T12:00:00Z',
-      finished_at: '2026-05-17T12:01:00Z',
-      error_message: 'Repository not found or access revoked'
-    };
-    const oldSucceededScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-live-filter-succeeded',
-      status: 'succeeded',
-      started_at: '2026-05-17T11:00:00Z',
-      finished_at: '2026-05-17T11:30:00Z',
-      finding_count: 1
-    };
-    const finding: Finding = {
-      id: 'finding-live-filter',
-      scan_id: oldSucceededScan.id,
-      type: 'workflow_permission',
-      severity: 'high',
-      title: 'Historical live-filter finding',
-      human_summary: 'A workflow grants broad repository permissions.',
-      remediation: 'Limit workflow permissions.',
-      created_at: '2026-05-17T11:07:00Z'
-    };
-    const deleteCompletion = deferred<void>();
-
-    const { deleteRepoScan, listRepoFindings, getRepoRiskGraph } = await renderFindings({
-      repoScans: [failedScan, oldSucceededScan],
-      repoFindings: [finding]
-    });
-    deleteRepoScan.mockImplementation(() => deleteCompletion.promise);
-
-    expect(await screen.findByText(/Last scan failed:/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /^Remove$/i }));
-    await waitFor(() => {
-      expect(deleteRepoScan).toHaveBeenCalledWith(
-        failedScan.id,
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      );
-    });
-
-    const repositoryScanFilter = screen.getByLabelText(/Repository scan/i) as HTMLSelectElement;
-    fireEvent.change(repositoryScanFilter, { target: { value: failedScan.id } });
-    await waitFor(() => {
-      expect(
-        listRepoFindings.mock.calls.some(
-          ([params]) => (params as { repo_scan_id?: string } | undefined)?.repo_scan_id === failedScan.id
-        )
-      ).toBe(true);
-    });
-
-    listRepoFindings.mockClear();
-    getRepoRiskGraph.mockClear();
-    await act(async () => {
-      deleteCompletion.resolve();
-      await deleteCompletion.promise;
-    });
-
-    await waitFor(() => {
-      expect((screen.getByLabelText(/Repository scan/i) as HTMLSelectElement).value).toBe('');
-      expect(screen.queryByText(/Last scan failed:/i)).not.toBeInTheDocument();
-    });
-    expect(
-      listRepoFindings.mock.calls.some(
-        ([params]) => (params as { repo_scan_id?: string } | undefined)?.repo_scan_id === failedScan.id
-      )
-    ).toBe(false);
-    expect(
-      getRepoRiskGraph.mock.calls.some(
-        ([params]) => (params as { repo_scan_id?: string } | undefined)?.repo_scan_id === failedScan.id
-      )
-    ).toBe(false);
-  });
-
-  it('uses live finding filters when failed scan removal refreshes', async () => {
-    const failedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-failed-live-finding-filters',
-      status: 'failed',
-      started_at: '2026-05-17T12:00:00Z',
-      finished_at: '2026-05-17T12:01:00Z',
-      error_message: 'Repository not found or access revoked'
-    };
-    const oldSucceededScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-live-finding-filter-succeeded',
-      status: 'succeeded',
-      started_at: '2026-05-17T11:00:00Z',
-      finished_at: '2026-05-17T11:30:00Z',
-      finding_count: 1
-    };
-    const finding: Finding = {
-      id: 'finding-live-finding-filter',
-      scan_id: oldSucceededScan.id,
-      type: 'workflow_permission',
-      severity: 'critical',
-      title: 'Historical live finding-filter finding',
-      human_summary: 'A workflow grants broad repository permissions.',
-      remediation: 'Limit workflow permissions.',
-      created_at: '2026-05-17T11:07:00Z'
-    };
-    const deleteCompletion = deferred<void>();
-
-    const { deleteRepoScan, listRepoFindings, getRepoFindingsTrends, getRepoRiskGraph } = await renderFindings({
-      repoScans: [failedScan, oldSucceededScan],
-      repoFindings: [finding]
-    });
-    deleteRepoScan.mockImplementation(() => deleteCompletion.promise);
-
-    expect(await screen.findByText(/Last scan failed:/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /^Remove$/i }));
-    await waitFor(() => {
-      expect(deleteRepoScan).toHaveBeenCalledWith(
-        failedScan.id,
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      );
-    });
-
-    fireEvent.change(screen.getByLabelText(/Severity/i), { target: { value: 'critical' } });
-    await waitFor(() => {
-      expect(
-        listRepoFindings.mock.calls.some(
-          ([params]) => (params as { severity?: string } | undefined)?.severity === 'critical'
-        )
-      ).toBe(true);
-    });
-
-    listRepoFindings.mockClear();
-    getRepoFindingsTrends.mockClear();
-    getRepoRiskGraph.mockClear();
-    await act(async () => {
-      deleteCompletion.resolve();
-      await deleteCompletion.promise;
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByText(/Last scan failed:/i)).not.toBeInTheDocument();
-      expect(listRepoFindings).toHaveBeenCalled();
-      expect(getRepoFindingsTrends).toHaveBeenCalled();
-      expect(getRepoRiskGraph).toHaveBeenCalled();
-    });
-    expect(
-      listRepoFindings.mock.calls.every(
-        ([params]) => (params as { severity?: string } | undefined)?.severity === 'critical'
-      )
-    ).toBe(true);
-    expect(
-      getRepoFindingsTrends.mock.calls.every(
-        ([params]) => (params as { severity?: string } | undefined)?.severity === 'critical'
-      )
-    ).toBe(true);
-    expect(
-      getRepoRiskGraph.mock.calls.every(
-        ([params]) => (params as { severity?: string } | undefined)?.severity === 'critical'
-      )
-    ).toBe(true);
-  });
-
-  it('lets viewers dismiss a failed scan banner without deleting the scan', async () => {
-    const failedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-failed-viewer-dismissible',
-      status: 'failed',
-      started_at: '2026-05-17T12:00:00Z',
-      finished_at: '2026-05-17T12:01:00Z',
-      error_message: 'Repository not found or access revoked'
-    };
-    const oldSucceededScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-viewer-dismissible-succeeded',
-      status: 'succeeded',
-      started_at: '2026-05-17T11:00:00Z',
-      finished_at: '2026-05-17T11:30:00Z',
-      finding_count: 1
-    };
-    const finding: Finding = {
-      id: 'finding-viewer-dismissible',
-      scan_id: oldSucceededScan.id,
-      type: 'workflow_permission',
-      severity: 'high',
-      title: 'Historical viewer workflow finding',
-      human_summary: 'A workflow grants broad repository permissions.',
-      remediation: 'Limit workflow permissions.',
-      created_at: '2026-05-17T11:07:00Z'
-    };
-
-    const { deleteRepoScan } = await renderFindings({
-      repoScans: [failedScan, oldSucceededScan],
-      repoFindings: [finding],
-      role: 'viewer'
-    });
-
-    expect(await screen.findByText(/Last scan failed:/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /^Dismiss$/i }));
-
-    await waitFor(() => {
-      expect(deleteRepoScan).not.toHaveBeenCalled();
-      expect(screen.queryByText(/Last scan failed:/i)).not.toBeInTheDocument();
-    });
-    expect(await screen.findByText('Historical viewer workflow finding')).toBeInTheDocument();
-  });
-
-  it('lets operators remove a failed-only scan state', async () => {
-    const failedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-failed-only-dismissible',
-      status: 'failed',
-      finished_at: '2026-05-17T11:05:00Z',
-      error_message: 'Repository not found or access revoked'
-    };
-
-    const { deleteRepoScan } = await renderFindings({ repoScans: [failedScan] });
-
-    expect(await screen.findByText('Your last repository scan failed')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /^Remove$/i }));
-
-    await waitFor(() => {
-      expect(deleteRepoScan).toHaveBeenCalledWith(
-        failedScan.id,
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      );
-      expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
-    });
-    expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
-  });
-
-  it('falls back to hiding failed scan banners when scan removal is not deployed yet', async () => {
-    const failedScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-failed-remove-unsupported',
-      status: 'failed',
-      started_at: '2026-05-17T12:00:00Z',
-      finished_at: '2026-05-17T12:01:00Z',
-      error_message: 'Repository not found or access revoked'
-    };
-    const oldSucceededScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-remove-unsupported-succeeded',
-      status: 'succeeded',
-      started_at: '2026-05-17T11:00:00Z',
-      finished_at: '2026-05-17T11:30:00Z',
-      finding_count: 1
-    };
-    const finding: Finding = {
-      id: 'finding-remove-unsupported',
-      scan_id: oldSucceededScan.id,
-      type: 'workflow_permission',
-      severity: 'high',
-      title: 'Historical unsupported remove finding',
-      human_summary: 'A workflow grants broad repository permissions.',
-      remediation: 'Limit workflow permissions.',
-      created_at: '2026-05-17T11:07:00Z'
-    };
-
-    const { deleteRepoScan } = await renderFindings({
-      repoScans: [failedScan, oldSucceededScan],
-      repoFindings: [finding]
-    });
-    const { ApiError } = await import('./api/client');
-    deleteRepoScan.mockRejectedValueOnce(new ApiError('Request failed (404)', 404));
-
-    expect(await screen.findByText(/Last scan failed:/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /^Remove$/i }));
-
-    await waitFor(() => {
-      expect(deleteRepoScan).toHaveBeenCalledTimes(1);
-      expect(screen.queryByText(/Last scan failed:/i)).not.toBeInTheDocument();
-    });
-    expect(await screen.findByText('Historical unsupported remove finding')).toBeInTheDocument();
-  });
-
-  it('does not report cancellation as a failed scan', async () => {
-    const canceledScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-canceled',
-      status: 'canceled',
-      finished_at: '2026-05-17T11:09:00Z',
-      error_message: 'User canceled scan from API'
-    };
-
-    await renderFindings({ repoScans: [canceledScan] });
-
-    expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
-    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
-  });
-
-  it('restores focus to the triggering row when the finding detail dialog closes', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-with-findings',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-
-    const finding: Finding = {
-      id: 'finding-1',
-      scan_id: scan.id,
-      type: 'aws_access_key',
-      severity: 'critical',
-      title: 'IAM role with wildcard trust',
-      human_summary: 'AssumeRole trust policy allows any principal.',
-      remediation: 'Tighten trust policy principals.',
-      source_url: 'https://github.com/identrail/identrail/blob/main/policy.tf#L7',
-      line_snippet: '@@ -1 +1 @@\n+ allow = true\n- allow = false',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-
-    await renderFindings({ repoScans: [scan], repoFindings: [finding] });
-
-    const rowButton = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('IAM role with wildcard trust')
-    ) as HTMLButtonElement | undefined;
-    expect(rowButton).toBeDefined();
-    if (!rowButton) return;
-    rowButton.focus();
-    fireEvent.click(rowButton);
-
-    const addedLine = await screen.findByText((_, element) =>
-      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '+ allow = true')
-    );
-    const removedLine = await screen.findByText((_, element) =>
-      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '- allow = false')
-    );
-    expect(screen.getByText('Evidence line')).toHaveClass('idt-repo-finding-code-label');
-    expect(screen.getByText('@@ -1 +1 @@')).toHaveClass('idt-repo-finding-code-line');
-    expect(addedLine).toHaveClass('idt-repo-finding-code-line', 'is-add');
-    expect(removedLine).toHaveClass('idt-repo-finding-code-line', 'is-remove');
-    expect(addedLine).not.toHaveClass('idt-repo-finding-code-label');
-    expect(removedLine).not.toHaveClass('idt-repo-finding-code-label');
-    expect(within(addedLine).getByText('+')).toHaveClass('idt-repo-finding-code-marker');
-    expect(within(removedLine).getByText('-')).toHaveClass('idt-repo-finding-code-marker');
-
-    const closeButton = await screen.findByRole('button', { name: /Close finding detail/i });
-    fireEvent.click(closeButton);
-
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /Close finding detail/i })).not.toBeInTheDocument();
-    });
-    await waitFor(() => {
-      expect(document.activeElement).toBe(rowButton);
-    });
-  });
-
-  it('deletes repository findings from the row overflow menu', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-with-actionable-finding',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-
-    const finding: Finding = {
-      id: 'finding-action-1',
-      scan_id: scan.id,
-      type: 'secret_exposure',
-      severity: 'critical',
-      title: 'Potential token exposed in workflow history',
-      human_summary: 'A token-like value appears in a committed workflow.',
-      remediation: 'Rotate the credential and remove the committed value.',
-      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/deploy.yml#L12',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-
-    const { deleteRepoFinding } = await renderFindings({
-      repoScans: [scan],
-      repoFindings: [finding],
-      listRepoFindings: (_params, call) => {
-        if (call === 1) {
-          return { items: [finding] };
-        }
-        return { items: [] };
-      }
-    });
-
-    const row = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('Potential token exposed in workflow history')
-    ) as HTMLElement | undefined;
-    expect(row).toBeDefined();
-    if (!row) return;
-
-    const actionButton = within(row).getByRole('button', { name: /Open actions for Potential token exposed/i });
-    fireEvent.click(actionButton);
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
-
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
-    expect(within(confirmDialog).getByText(/Remove/i)).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Finding actions' })).not.toBeInTheDocument();
-
-    const confirmCancelButton = within(confirmDialog).getByRole('button', { name: /Cancel/i });
-    await waitFor(() => {
-      expect(document.activeElement).toBe(confirmCancelButton);
-    });
-
-    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: /Delete finding/i })).not.toBeInTheDocument();
-    });
-    await waitFor(() => {
-      expect(document.activeElement).toBe(actionButton);
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /Open actions for Potential token exposed/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
-
-    const reopenConfirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
-    expect(reopenConfirmDialog).toBeInTheDocument();
-    fireEvent.click(within(reopenConfirmDialog).getByRole('button', { name: /Delete/i }));
-
-    await waitFor(() => {
-      expect(deleteRepoFinding).toHaveBeenCalledWith(
-        finding.id,
-        scan.id,
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      );
-    });
-    await waitFor(() => {
-      expect(screen.queryByText('Potential token exposed in workflow history')).not.toBeInTheDocument();
-    });
-  });
-
-  it('refreshes trend and risk graphs after deleting a finding', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-with-actionable-finding-refresh',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-
-    const finding: Finding = {
-      id: 'finding-refresh-1',
-      scan_id: scan.id,
-      type: 'secret_exposure',
-      severity: 'high',
-      title: 'Potential token exposed in stale trend data',
-      human_summary: 'A token-like value appears in a stale workflow file.',
-      remediation: 'Rotate the credential and remove the stale evidence.',
-      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/stale.yml#L12',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-
-      const { deleteRepoFinding, getRepoFindingsTrends, getRepoRiskGraph } = await renderFindings({
-      repoScans: [scan],
-      repoFindings: [finding],
-      getRepoFindingsTrends: () => ({
-        items: [
-          {
-            scan_id: 'repo-scan-with-actionable-finding-refresh',
-            started_at: '2026-05-17T11:06:00Z',
-            total: 1,
-            by_severity: {
-              critical: 0,
-              high: 1,
-              medium: 0,
-              low: 0
-            }
-          }
-        ]
-      }),
-      getRepoRiskGraph: () => ({
-        repository: 'repo-a',
-        nodes: [],
-        edges: [],
-        scores: [],
-        summary: {
-          finding_count: 1,
-          node_count: 0,
-          edge_count: 0,
-          unknown_node_count: 0,
-          unknown_edge_count: 0,
-          high_risk_findings: 0,
-          critical_findings: 0
-        }
-      })
-    });
-
-    const row = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('Potential token exposed in stale trend data')
-    ) as HTMLElement | undefined;
-    expect(row).toBeDefined();
-    if (!row) return;
-
-    await waitFor(() => {
-      expect(getRepoFindingsTrends).toHaveBeenCalled();
-      expect(getRepoRiskGraph).toHaveBeenCalled();
-    });
-    const initialTrendCalls = getRepoFindingsTrends.mock.calls.length;
-    const initialRiskCalls = getRepoRiskGraph.mock.calls.length;
-    expect(initialTrendCalls).toBeGreaterThanOrEqual(1);
-    expect(initialRiskCalls).toBeGreaterThanOrEqual(1);
-
-    fireEvent.click(within(row).getByRole('button', { name: /Open actions for Potential token exposed/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete/i }));
-
-    await waitFor(() => {
-      expect(deleteRepoFinding).toHaveBeenCalledWith(
-        finding.id,
-        scan.id,
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      );
-    });
-    await waitFor(() => {
-      expect(getRepoFindingsTrends).toHaveBeenCalledTimes(initialTrendCalls + 1);
-      expect(getRepoRiskGraph).toHaveBeenCalledTimes(initialRiskCalls + 1);
-    });
-  });
-
-  it('hides the risk graph when unsupported finding filters are active', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-risk-graph-source-filter',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-    const finding: Finding = {
-      id: 'finding-risk-graph-source-filter',
-      scan_id: scan.id,
-      type: 'workflow_permission',
-      severity: 'high',
-      title: 'Source-filtered workflow permission',
-      human_summary: 'A workflow grants broad repository permissions.',
-      remediation: 'Limit workflow permissions.',
-      adapter_source: 'github_code_scanning',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-
-    await renderFindings({
-      repoScans: [scan],
-      repoFindings: [finding],
-      getRepoRiskGraph: () => ({
-        repository: 'identrail/identrail',
-        nodes: [
-          {
-            id: 'node-1',
-            kind: 'finding',
-            label: 'Finding',
-            repository: 'identrail/identrail',
-            evidence_state: 'known'
-          }
-        ],
-        edges: [],
-        scores: [
-          {
-            finding_id: finding.id,
-            finding_node_id: 'node-1',
-            score: 92,
-            severity: 'high',
-            confidence: 0.92,
-            factors: {
-              severity: 80,
-              confidence: 92,
-              exploitability: 80,
-              privilege: 70,
-              exposure: 70,
-              environment_criticality: 60,
-              freshness: 90,
-              posture_amplifier: 0
-            },
-            unknowns: []
-          }
-        ],
-        summary: {
-          finding_count: 1,
-          node_count: 1,
-          edge_count: 0,
-          unknown_node_count: 0,
-          unknown_edge_count: 0,
-          high_risk_findings: 1,
-          critical_findings: 0
-        }
-      })
-    });
-
-    expect(await screen.findByText('1 nodes Â· 0 paths Â· identrail/identrail')).toBeInTheDocument();
-
-    fireEvent.change(screen.getByPlaceholderText('Source name'), { target: { value: 'github_code_scanning' } });
-
-    expect(await screen.findByText('Hidden for current filters')).toBeInTheDocument();
-    expect(screen.getByText('Clear source, assignee, or lifecycle filters to view the graph.')).toBeInTheDocument();
-    expect(screen.queryByText('High-risk findings')).not.toBeInTheDocument();
-  });
-
-  it('ignores stale finding delete completions after refreshing the findings list', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-with-actionable-finding',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-
-    const finding: Finding = {
-      id: 'finding-action-2',
-      scan_id: scan.id,
-      type: 'secret_exposure',
-      severity: 'critical',
-      title: 'Potential token exposed in release artifacts',
-      human_summary: 'A token-like value appears in release metadata.',
-      remediation: 'Rotate the credential and remove the exposed value.',
-      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/release.yml#L22',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-    const deleteCompletion = deferred<void>();
-
-    const { deleteRepoFinding } = await renderFindings({ repoScans: [scan], repoFindings: [finding] });
-    deleteRepoFinding.mockImplementation(() => deleteCompletion.promise);
-
-    const row = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('Potential token exposed in release artifacts')
-    ) as HTMLElement | undefined;
-    expect(row).toBeDefined();
-    if (!row) return;
-
-    fireEvent.click(within(row).getByRole('button', { name: /Open actions for Potential token exposed in release artifacts/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
-
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
-    expect(within(confirmDialog).getByText(/Remove/i)).toBeInTheDocument();
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete/i }));
-
-    fireEvent.click(screen.getByRole('button', { name: /^Refresh$/i }));
-    await waitFor(() => {
-      expect(deleteRepoFinding).toHaveBeenCalledWith(
-        finding.id,
-        scan.id,
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      );
-    });
-
-    await act(async () => {
-      deleteCompletion.resolve();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Potential token exposed in release artifacts')).toBeInTheDocument();
-    });
-  });
-
-  it('reconciles all-scan deduped rows after deleting a finding', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-with-actionable-finding',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 2
-    };
-
-    const deletedFinding: Finding = {
-      id: 'finding-action-1',
-      scan_id: scan.id,
-      type: 'secret_exposure',
-      severity: 'critical',
-      title: 'Potential token exposed in workflow history',
-      human_summary: 'A token-like value appears in a committed workflow.',
-      remediation: 'Rotate the credential and remove the committed value.',
-      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/deploy.yml#L12',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-
-    const promotedFinding: Finding = {
-      id: 'finding-action-promoted',
-      scan_id: 'repo-scan-older-evidence',
-      type: 'secret_exposure',
-      severity: 'critical',
-      title: 'Promoted token exposure finding',
-      human_summary: 'A token-like value appears in an older scan lifecycle result.',
-      remediation: 'Rotate the credential and remove the committed value.',
-      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/deploy.yml#L13',
-      created_at: '2026-05-17T10:00:00Z'
-    };
-
-    await renderFindings({
-      repoScans: [scan],
-      listRepoFindings: (_params, call) => {
-        if (call === 1) {
-          return { items: [deletedFinding] };
-        }
-        return { items: [promotedFinding] };
-      }
-    });
-
-    const row = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('Potential token exposed in workflow history')
-    ) as HTMLElement | undefined;
-    expect(row).toBeDefined();
-    if (!row) return;
-
-    fireEvent.click(within(row).getByRole('button', { name: /Open actions for Potential token exposed/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete/i }));
-
-    await waitFor(() => {
-      expect(screen.queryByText('Potential token exposed in workflow history')).not.toBeInTheDocument();
-    });
-    await waitFor(() => {
-      expect(screen.getByText('Promoted token exposure finding')).toBeInTheDocument();
-    });
-  });
-
-  it('preserves server finding summary totals after deleting a paginated row', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-with-many-findings',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 230
-    };
-
-    const finding: Finding = {
-      id: 'finding-visible-page-1',
-      scan_id: scan.id,
-      type: 'secret_exposure',
-      severity: 'critical',
-      detector: 'github_secret_scanning',
-      title: 'Visible paginated token finding',
-      human_summary: 'A token-like value appears in a committed workflow.',
-      remediation: 'Rotate the credential and remove the committed value.',
-      owner: 'platform',
-      first_seen_at: '2026-05-01T11:06:00Z',
-      created_at: '2026-05-01T11:06:00Z'
-    };
-
-    await renderFindings({
-      repoScans: [scan],
-      listRepoFindings: (_params, call) => {
-        if (call === 1) {
-          return { items: [finding], summary: {
-            total_open: 230,
-            fixed_count: 4,
-            reopened_count: 3,
-            suppressed_count: 2,
-            sla_aged_count: 8,
-            mttr_ready_resolved_count: 4,
-            mean_time_to_resolve_seconds: 60 * 60 * 24,
-            oldest_open_first_seen_at: '2026-05-01T11:06:00Z',
-            by_owner: { platform: 12 },
-            by_detector: { github_secret_scanning: 17 },
-            by_severity: { critical: 11 }
-          }};
-        }
-        return { items: [], summary: {
-          total_open: 229,
-          fixed_count: 3,
-          reopened_count: 3,
-          suppressed_count: 2,
-          sla_aged_count: 8,
-          mttr_ready_resolved_count: 4,
-          mean_time_to_resolve_seconds: 60 * 60 * 24,
-          oldest_open_first_seen_at: '2026-05-01T11:06:00Z',
-          by_owner: { platform: 11 },
-          by_detector: { github_secret_scanning: 16 },
-          by_severity: { critical: 10 }
-        }};
-      },
-      repoFindingSummary: {
-        total_open: 230,
-        fixed_count: 4,
-        reopened_count: 3,
-        suppressed_count: 2,
-        sla_aged_count: 8,
-        mttr_ready_resolved_count: 4,
-        mean_time_to_resolve_seconds: 60 * 60 * 24,
-        oldest_open_first_seen_at: '2026-05-01T11:06:00Z',
-        by_owner: { platform: 12 },
-        by_detector: { github_secret_scanning: 17 },
-        by_severity: { critical: 11 }
-      }
-    });
-
-    const summary = (await screen.findAllByLabelText('Repository finding summary')).find((node) =>
-      node.classList.contains('idt-repo-finding-stats')
-    ) as HTMLElement | undefined;
-    expect(summary).toBeDefined();
-    if (!summary) return;
-    expect(within(summary).getByText('230')).toBeInTheDocument();
-
-    const row = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('Visible paginated token finding')
-    ) as HTMLElement | undefined;
-    expect(row).toBeDefined();
-    if (!row) return;
-
-    fireEvent.click(within(row).getByRole('button', { name: /Open actions for Visible paginated token finding/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete/i }));
-
-    await waitFor(() => {
-      expect(screen.queryByText('Visible paginated token finding')).not.toBeInTheDocument();
-    });
-    await waitFor(() => {
-      expect(within(summary).getByText('229')).toBeInTheDocument();
-    });
-  });
-
-  it('clears all visible repository findings and updates loaded counts', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-clear-all-findings',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 2
-    };
-
-    const findings: Finding[] = [
-      {
-        id: 'finding-clear-all-1',
-        scan_id: scan.id,
-        type: 'secret_exposure',
-        severity: 'critical',
-        title: 'First clearable token finding',
-        human_summary: 'A token-like value appears in a committed workflow.',
-        remediation: 'Rotate the credential and remove the committed value.',
-        created_at: '2026-05-17T11:06:00Z'
-      },
-      {
-        id: 'finding-clear-all-2',
-        scan_id: scan.id,
-        type: 'workflow_permission',
-        severity: 'high',
-        title: 'Second clearable workflow finding',
-        human_summary: 'A workflow grants broad repository permissions.',
-        remediation: 'Limit workflow permissions.',
-        created_at: '2026-05-17T11:07:00Z'
-      }
-    ];
-
-    const { deleteRepoFinding, deleteRepoFindings } = await renderFindings({
-      repoScans: [scan],
-      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [] })
-    });
-
-    expect(await screen.findByText('First clearable token finding')).toBeInTheDocument();
-    expect(await screen.findByText('Second clearable workflow finding')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /^Clear all$/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
-    expect(within(confirmDialog).getByText(/2 visible findings/i)).toBeInTheDocument();
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
-
-    await waitFor(() => {
-      expect(deleteRepoFindings).toHaveBeenCalledWith(
-        [
-          { finding_id: findings[0].id, repo_scan_id: scan.id },
-          { finding_id: findings[1].id, repo_scan_id: scan.id }
-        ],
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      );
-    });
-    expect(deleteRepoFinding).not.toHaveBeenCalled();
-    await waitFor(() => {
-      expect(screen.queryByText('First clearable token finding')).not.toBeInTheDocument();
-      expect(screen.queryByText('Second clearable workflow finding')).not.toBeInTheDocument();
-    });
-    expect(await screen.findByText('No exposure found')).toBeInTheDocument();
-  });
-
-  it('does not report clear all success when the bulk endpoint is not deployed yet', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-clear-all-bulk-missing',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 2
-    };
-    const findings: Finding[] = [
-      {
-        id: 'finding-clear-fallback-first',
-        scan_id: scan.id,
-        type: 'secret_exposure',
-        severity: 'critical',
-        title: 'Fallback clearable token finding',
-        human_summary: 'A token-like value appears in a committed workflow.',
-        remediation: 'Rotate the credential and remove the committed value.',
-        created_at: '2026-05-17T11:06:00Z'
-      },
-      {
-        id: 'finding-clear-fallback-second',
-        scan_id: scan.id,
-        type: 'workflow_permission',
-        severity: 'high',
-        title: 'Fallback clearable workflow finding',
-        human_summary: 'A workflow grants broad repository permissions.',
-        remediation: 'Limit workflow permissions.',
-        created_at: '2026-05-17T11:07:00Z'
-      }
-    ];
-
-    const { deleteRepoFinding, deleteRepoFindings } = await renderFindings({
-      repoScans: [scan],
-      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[1]] })
-    });
-    const { ApiError } = await import('./api/client');
-    deleteRepoFindings.mockRejectedValueOnce(new ApiError('Request failed (404)', 404));
-
-    expect(await screen.findByText('Fallback clearable token finding')).toBeInTheDocument();
-    expect(await screen.findByText('Fallback clearable workflow finding')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /^Clear all$/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
-
-    await waitFor(() => {
-      expect(deleteRepoFindings).toHaveBeenCalledTimes(1);
-      expect(deleteRepoFinding).not.toHaveBeenCalled();
-    });
-    expect(await screen.findByText(/Clear all requires the bulk delete API/i)).toBeInTheDocument();
-    expect(await screen.findByText('Fallback clearable token finding')).toBeInTheDocument();
-    expect(await screen.findByText('Fallback clearable workflow finding')).toBeInTheDocument();
-    expect(screen.queryByText('No exposure found')).not.toBeInTheDocument();
-    expect(within(confirmDialog).getByText(/2 visible findings/i)).toBeInTheDocument();
-  });
-
-  it('reloads repository findings after clearing a paged list', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-clear-all-paged',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 2
-    };
-    const firstPageFinding: Finding = {
-      id: 'finding-clear-paged-first',
-      scan_id: scan.id,
-      type: 'secret_exposure',
-      severity: 'critical',
-      title: 'First page clearable token finding',
-      human_summary: 'A token-like value appears in a committed workflow.',
-      remediation: 'Rotate the credential and remove the committed value.',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-    const nextPageFinding: Finding = {
-      id: 'finding-clear-paged-next',
-      scan_id: scan.id,
-      type: 'workflow_permission',
-      severity: 'high',
-      title: 'Next page workflow finding',
-      human_summary: 'A workflow grants broad repository permissions.',
-      remediation: 'Limit workflow permissions.',
-      created_at: '2026-05-17T11:07:00Z'
-    };
-
-    const { listRepoFindings } = await renderFindings({
-      repoScans: [scan],
-      listRepoFindings: (_params, call) => ({ items: call === 1 ? [firstPageFinding] : [nextPageFinding] })
-    });
-
-    expect(await screen.findByText('First page clearable token finding')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /^Clear all$/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
-
-    await waitFor(() => {
-      expect(listRepoFindings).toHaveBeenCalledTimes(2);
-    });
-    expect(screen.queryByText('First page clearable token finding')).not.toBeInTheDocument();
-    expect(await screen.findByText('Next page workflow finding')).toBeInTheDocument();
-  });
-
-  it('chunks clear all targets at the repository finding bulk limit', async () => {
-    const { chunkRepoFindingDeleteTargets, REPO_FINDING_BULK_DELETE_BATCH_SIZE } = await import('./productShell');
-    const targets = Array.from({ length: REPO_FINDING_BULK_DELETE_BATCH_SIZE + 1 }, (_, index) => ({
-      finding_id: `finding-bulk-limit-${index}`,
-      repo_scan_id: 'repo-scan-bulk-limit'
-    }));
-
-    const batches = chunkRepoFindingDeleteTargets(targets);
-
-    expect(batches).toHaveLength(2);
-    expect(batches[0]).toHaveLength(REPO_FINDING_BULK_DELETE_BATCH_SIZE);
-    expect(batches[1]).toEqual([{ finding_id: 'finding-bulk-limit-5000', repo_scan_id: 'repo-scan-bulk-limit' }]);
-  });
-
-  it('preserves completed clear all batches when a later batch request fails', async () => {
-    const { deleteRepoFindingTargetsInBatches } = await import('./productShell');
-    const targets = Array.from({ length: 3 }, (_, index) => ({
-      finding_id: `finding-bulk-partial-${index}`,
-      repo_scan_id: 'repo-scan-bulk-partial'
-    }));
-    const deleteTargets = vi
-      .fn()
-      .mockResolvedValueOnce({ deleted: targets.slice(0, 2) })
-      .mockRejectedValueOnce(new Error('rate limit exceeded'));
-
-    const result = await deleteRepoFindingTargetsInBatches(targets, deleteTargets, 2);
-
-    expect(deleteTargets).toHaveBeenCalledTimes(2);
-    expect(result.response.deleted).toEqual(targets.slice(0, 2));
-    expect(result.response.failed).toEqual([]);
-    expect(result.errorMessage).toBe('rate limit exceeded');
-  });
-
-  it('sends large clear all requests below the server limit as one repository finding bulk operation', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-clear-all-large',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 101
-    };
-    const findings: Finding[] = Array.from({ length: 101 }, (_, index) => ({
-      id: `finding-clear-all-large-${index}`,
-      scan_id: scan.id,
-      type: 'workflow_permission',
-      severity: 'high',
-      title: `Large clear all finding ${index}`,
-      human_summary: 'A workflow grants broad repository permissions.',
-      remediation: 'Limit workflow permissions.',
-      created_at: '2026-05-17T11:07:00Z'
-    }));
-
-    const { deleteRepoFindings } = await renderFindings({
-      repoScans: [scan],
-      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[100]] })
-    });
-
-    expect(await screen.findByText('Large clear all finding 0')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /^Clear all$/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
-
-    await waitFor(() => {
-      expect(deleteRepoFindings).toHaveBeenCalledTimes(1);
-    });
-    const targets = deleteRepoFindings.mock.calls[0]?.[0] ?? [];
-    expect(targets).toHaveLength(101);
-    expect(targets[0]).toEqual({ finding_id: findings[0].id, repo_scan_id: scan.id });
-    expect(targets[100]).toEqual({ finding_id: findings[100].id, repo_scan_id: scan.id });
-  });
-
-  it('preserves completed clear all deletes when the bulk response is partial', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-clear-all-batch-failure',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 3
-    };
-    const findings: Finding[] = Array.from({ length: 3 }, (_, index) => ({
-      id: `finding-clear-all-batch-failure-${index}`,
-      scan_id: scan.id,
-      type: 'workflow_permission',
-      severity: 'high',
-      title: `Batch failure finding ${index}`,
-      human_summary: 'A workflow grants broad repository permissions.',
-      remediation: 'Limit workflow permissions.',
-      created_at: '2026-05-17T11:07:00Z'
-    }));
-
-    const { deleteRepoFindings } = await renderFindings({
-      repoScans: [scan],
-      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[2]] })
-    });
-    deleteRepoFindings.mockResolvedValueOnce({
-      deleted: findings.slice(0, 2).map((finding) => ({
-        finding_id: finding.id,
-        repo_scan_id: finding.scan_id
-      })),
-      failed: [{ finding_id: findings[2].id, repo_scan_id: findings[2].scan_id, error: 'repo finding not found' }]
-    });
-
-    expect(await screen.findByText('Batch failure finding 0')).toBeInTheDocument();
-    expect(await screen.findByText('Batch failure finding 2')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /^Clear all$/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
-
-    await waitFor(() => {
-      expect(deleteRepoFindings).toHaveBeenCalledTimes(1);
-    });
-    expect(await screen.findByText('2 deleted. 1 remaining.')).toBeInTheDocument();
-    expect(screen.queryByText('Batch failure finding 0')).not.toBeInTheDocument();
-    expect(await screen.findByText('Batch failure finding 2')).toBeInTheDocument();
-    expect(within(confirmDialog).getByText(/1 visible finding/i)).toBeInTheDocument();
-  });
-
-  it('keeps only failed repository findings in the clear all dialog', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-clear-all-partial',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 2
-    };
-
-    const findings: Finding[] = [
-      {
-        id: 'finding-clear-partial-deleted',
-        scan_id: scan.id,
-        type: 'secret_exposure',
-        severity: 'critical',
-        title: 'Deleted bulk token finding',
-        human_summary: 'A token-like value appears in a committed workflow.',
-        remediation: 'Rotate the credential and remove the committed value.',
-        created_at: '2026-05-17T11:06:00Z'
-      },
-      {
-        id: 'finding-clear-partial-remaining',
-        scan_id: scan.id,
-        type: 'workflow_permission',
-        severity: 'high',
-        title: 'Remaining bulk workflow finding',
-        human_summary: 'A workflow grants broad repository permissions.',
-        remediation: 'Limit workflow permissions.',
-        created_at: '2026-05-17T11:07:00Z'
-      }
-    ];
-
-  const { deleteRepoFindings } = await renderFindings({
-    repoScans: [scan],
-    listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[1]] })
-  });
-    deleteRepoFindings.mockResolvedValueOnce({
-      deleted: [{ finding_id: findings[0].id, repo_scan_id: scan.id }],
-      failed: [{ finding_id: findings[1].id, repo_scan_id: scan.id, error: 'repo finding not found' }]
-    });
-
-    expect(await screen.findByText('Deleted bulk token finding')).toBeInTheDocument();
-    expect(await screen.findByText('Remaining bulk workflow finding')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /Clear all/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
-
-    await waitFor(() => {
-      expect(screen.queryByText('Deleted bulk token finding')).not.toBeInTheDocument();
-    });
-    expect(await screen.findByText('Remaining bulk workflow finding')).toBeInTheDocument();
-    expect(await screen.findByText('1 deleted. 1 remaining.')).toBeInTheDocument();
-    expect(within(confirmDialog).getByText(/1 visible finding/i)).toBeInTheDocument();
-  });
-
-  it('disables clear all while repository findings are refreshing', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-clear-all-refreshing',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-
-    const finding: Finding = {
-      id: 'finding-clear-all-refreshing',
-      scan_id: scan.id,
-      type: 'secret_exposure',
-      severity: 'critical',
-      title: 'Refresh-protected token finding',
-      human_summary: 'A token-like value appears in a committed workflow.',
-      remediation: 'Rotate the credential and remove the committed value.',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-    const refreshFindings = deferred<{ items: Finding[] }>();
-
-    const { deleteRepoFinding } = await renderFindings({
-      repoScans: [scan],
-      listRepoFindings: (_params, call) => (call === 1 ? { items: [finding] } : refreshFindings.promise)
-    });
-
-    expect(await screen.findByText('Refresh-protected token finding')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /^Refresh$/i }));
-    const clearAllButton = screen.getByRole('button', { name: /Clear all/i });
-    await waitFor(() => {
-      expect(clearAllButton).toBeDisabled();
-    });
-
-    fireEvent.click(clearAllButton);
-    expect(screen.queryByRole('dialog', { name: /Clear findings/i })).not.toBeInTheDocument();
-    expect(deleteRepoFinding).not.toHaveBeenCalled();
-
-    await act(async () => {
-      refreshFindings.resolve({ items: [] });
-    });
-    await waitFor(() => {
-      expect(screen.queryByText('Refresh-protected token finding')).not.toBeInTheDocument();
-    });
-  });
-
-  it('closes open finding delete menus while repository findings are refreshing', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-row-menu-refreshing',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-
-    const finding: Finding = {
-      id: 'finding-row-menu-refreshing',
-      scan_id: scan.id,
-      type: 'secret_exposure',
-      severity: 'critical',
-      title: 'Refresh-protected row menu finding',
-      human_summary: 'A token-like value appears in a committed workflow.',
-      remediation: 'Rotate the credential and remove the committed value.',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-    const refreshFindings = deferred<{ items: Finding[] }>();
-
-    const { deleteRepoFinding } = await renderFindings({
-      repoScans: [scan],
-      listRepoFindings: (_params, call) => (call === 1 ? { items: [finding] } : refreshFindings.promise)
-    });
-
-    expect(await screen.findByText('Refresh-protected row menu finding')).toBeInTheDocument();
-
-    const row = screen
-      .getAllByRole('listitem')
-      .find((node) => node.textContent?.includes('Refresh-protected row menu finding')) as HTMLElement | undefined;
-    expect(row).toBeDefined();
-    if (!row) return;
-
-    const actionButton = within(row).getByRole('button', { name: /Open actions for Refresh-protected row menu finding/i });
-    fireEvent.click(actionButton);
-    expect(screen.getByRole('menuitem', { name: /Delete/i })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /^Refresh$/i }));
-    await waitFor(() => {
-      expect(actionButton).toBeDisabled();
-    });
-    expect(screen.queryByRole('menuitem', { name: /Delete/i })).not.toBeInTheDocument();
-
-    fireEvent.click(actionButton);
-    expect(screen.queryByRole('dialog', { name: /Delete finding/i })).not.toBeInTheDocument();
-    expect(deleteRepoFinding).not.toHaveBeenCalled();
-
-    await act(async () => {
-      refreshFindings.resolve({ items: [] });
-    });
-  });
-
-  it('recomputes mean time to fix after deleting fixed findings', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-with-fixed-finding',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-
-    const fixedFinding: Finding = {
-      id: 'finding-fixed-1',
-      scan_id: scan.id,
-      type: 'secret_exposure',
-      severity: 'critical',
-      lifecycle_status: 'fixed',
-      title: 'Fixed token exposure finding',
-      human_summary: 'This finding was resolved last week.',
-      remediation: 'No action required.',
-      created_at: '2026-05-17T10:00:00Z'
-    };
-
-    const initialSummary: RepoFindingsSummary = {
-      total_open: 0,
-      fixed_count: 1,
-      reopened_count: 0,
-      suppressed_count: 0,
-      sla_aged_count: 0,
-      mttr_ready_resolved_count: 1,
-      mean_time_to_resolve_seconds: 3600,
-      by_owner: {},
-      by_detector: { github_secret_scanning: 1 },
-      by_severity: { critical: 1 },
-      oldest_open_first_seen_at: '2026-05-17T10:00:00Z'
-    };
-
-    const refreshedSummary: RepoFindingsSummary = {
-      total_open: 0,
-      fixed_count: 0,
-      reopened_count: 0,
-      suppressed_count: 0,
-      sla_aged_count: 0,
-      mttr_ready_resolved_count: 0,
-      mean_time_to_resolve_seconds: 1800,
-      by_owner: {},
-      by_detector: {},
-      by_severity: {},
-      oldest_open_first_seen_at: '2026-05-17T10:00:00Z'
-    };
-
-    await renderFindings({
-      repoScans: [scan],
-      listRepoFindings: (_params, call) => {
-        if (call === 1) {
-          return { items: [fixedFinding], summary: initialSummary };
-        }
-        return { items: [], summary: refreshedSummary };
-      }
-    });
-
-    const summary = (await screen.findAllByLabelText('Repository finding summary')).find((node) =>
-      node.classList.contains('idt-repo-finding-stats')
-    ) as HTMLElement | undefined;
-    expect(summary).toBeDefined();
-    if (!summary) return;
-    const mttrCard = within(summary).getByText('Mean time to fix').closest('article');
-    expect(mttrCard).toBeTruthy();
-    expect(within(mttrCard!).getByText('1h')).toBeInTheDocument();
-
-    const row = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('Fixed token exposure finding')
-    ) as HTMLElement | undefined;
-    expect(row).toBeDefined();
-    if (!row) return;
-
-    fireEvent.click(within(row).getByRole('button', { name: /Open actions for Fixed token exposure finding/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete/i }));
-
-    await waitFor(() => {
-      expect(screen.queryByText('Fixed token exposure finding')).not.toBeInTheDocument();
-    });
-    await waitFor(() => {
-      expect(within(mttrCard!).getByText('30m')).toBeInTheDocument();
-    });
-  });
-
-  it('decrements unknown detector/severity buckets when deleting findings without those values', async () => {
-    const { decrementRepoFindingsSummaryForDeletedFinding } = await import('./productShell');
-    const summary: RepoFindingsSummary = {
-      total_open: 1,
-      fixed_count: 0,
-      reopened_count: 0,
-      suppressed_count: 0,
-      sla_aged_count: 0,
-      mttr_ready_resolved_count: 0,
-      by_owner: { platform: 1 },
-      by_detector: { unknown: 1 },
-      by_severity: { unknown: 1 },
-      oldest_open_first_seen_at: '2026-05-01T11:00:00Z'
-    };
-    const finding: Finding = {
-      id: 'finding-unknown-summary',
-      scan_id: 'repo-scan-summary-unknown',
-      type: 'secret_exposure',
-      severity: '',
-      owner: 'platform',
-      title: 'Finding with unknown metadata',
-      human_summary: 'A finding with unset detector and severity.',
-      remediation: 'Treat as a non-actionable placeholder.',
-      created_at: '2026-05-01T11:00:00Z'
-    };
-
-    const nextSummary = decrementRepoFindingsSummaryForDeletedFinding(summary, finding);
-    expect(nextSummary).toBeTruthy();
-    expect(nextSummary).toMatchObject({
-      by_detector: { unknown: 0 },
-      by_severity: { unknown: 0 },
-      total_open: 0,
-      by_owner: { platform: 0 }
-    });
-  });
-
-  it('invalidates GitHub domain cache epochs without revisiting reinserted keys', async () => {
-    const productShell = await import('./productShell');
-    productShell.clearProductAuthSessionCacheForTests();
-    const matchingKey = productShell.primeGitHubDomainDataCacheEpochForTests(
-      { tenantID: 'tenant-a', workspaceID: 'workspace-a' },
-      'project-a',
-      50,
-      2
-    );
-    const secondMatchingKey = productShell.primeGitHubDomainDataCacheEpochForTests(
-      { tenantID: 'tenant-a', workspaceID: 'workspace-a' },
-      'project-b',
-      50,
-      4
-    );
-    const unrelatedKey = productShell.primeGitHubDomainDataCacheEpochForTests(
-      { tenantID: 'tenant-b', workspaceID: 'workspace-b' },
-      'project-a',
-      50,
-      7
-    );
-
-    productShell.invalidateGitHubDomainDataCacheForScopeForTests({ tenantID: 'tenant-a', workspaceID: 'workspace-a' });
-
-    expect(productShell.readGitHubDomainDataCacheEpochForTests(matchingKey)).toBe(3);
-    expect(productShell.readGitHubDomainDataCacheEpochForTests(secondMatchingKey)).toBe(5);
-    expect(productShell.readGitHubDomainDataCacheEpochForTests(unrelatedKey)).toBe(7);
-  });
-
-  it('hides the repository finding delete menu from read-only users', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-read-only-finding',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-
-    const finding: Finding = {
-      id: 'finding-read-only-action',
-      scan_id: scan.id,
-      type: 'secret_exposure',
-      severity: 'critical',
-      title: 'Viewer-visible token finding',
-      human_summary: 'A token-like value appears in a committed workflow.',
-      remediation: 'Rotate the credential and remove the committed value.',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-
-    await renderFindings({ repoScans: [scan], repoFindings: [finding], role: 'viewer' });
-
-    const row = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('Viewer-visible token finding')
-    );
-    expect(row).toBeDefined();
-    expect(screen.queryByRole('button', { name: /Open actions for Viewer-visible token finding/i })).not.toBeInTheDocument();
-  });
-
-  it('keeps keyboard interaction on the row overflow menu out of the detail dialog', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-keyboard-action',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-
-    const finding: Finding = {
-      id: 'finding-keyboard-action',
-      scan_id: scan.id,
-      type: 'secret_exposure',
-      severity: 'critical',
-      title: 'Keyboard menu finding',
-      human_summary: 'A token-like value appears in a committed workflow.',
-      remediation: 'Rotate the credential and remove the committed value.',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-
-    await renderFindings({ repoScans: [scan], repoFindings: [finding] });
-
-    const trigger = await screen.findByRole('button', { name: /Open actions for Keyboard menu finding/i });
-    trigger.focus();
-    fireEvent.keyDown(trigger, { key: 'Enter' });
-
-    expect(screen.queryByRole('dialog', { name: /Keyboard menu finding/i })).not.toBeInTheDocument();
-
-    fireEvent.click(trigger);
-    expect(screen.getByRole('menuitem', { name: /Delete/i })).toBeInTheDocument();
-
-    fireEvent.keyDown(trigger, { key: 'Escape' });
-    expect(screen.queryByRole('menuitem', { name: /Delete/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('dialog', { name: /Keyboard menu finding/i })).not.toBeInTheDocument();
-  });
-
-  it('does not mark ordinary source lines that start with plus or dash prefixes as diffs', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-with-yaml-source',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-
-    const finding: Finding = {
-      id: 'finding-yaml-list',
-      scan_id: scan.id,
-      type: 'workflow_permission',
-      severity: 'medium',
-      title: 'Workflow grants broad permissions',
-      human_summary: 'A workflow permission entry needs review.',
-      remediation: 'Limit workflow permissions.',
-      source_url: 'https://github.com/identrail/identrail/blob/main/workflow.yml#L12',
-      line_snippet: '+enabled\n- name: prod',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-
-    await renderFindings({ repoScans: [scan], repoFindings: [finding] });
-
-    const rowButton = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('Workflow grants broad permissions')
-    ) as HTMLButtonElement | undefined;
-    expect(rowButton).toBeDefined();
-    if (!rowButton) return;
-    fireEvent.click(rowButton);
-
-    const plusSourceLine = await screen.findByText((_, element) =>
-      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '+enabled')
-    );
-    const yamlSourceLine = await screen.findByText((_, element) =>
-      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '- name: prod')
-    );
-    expect(plusSourceLine).not.toHaveClass('is-add');
-    expect(yamlSourceLine).not.toHaveClass('is-remove');
-    expect(plusSourceLine.querySelector('.idt-repo-finding-code-marker')).toBeNull();
-    expect(yamlSourceLine.querySelector('.idt-repo-finding-code-marker')).toBeNull();
-  });
-
-  it('marks one-sided repository diff hunks as changed lines', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-with-one-sided-diff',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 2
-    };
-
-    const additionFinding: Finding = {
-      id: 'finding-add-only-diff',
-      scan_id: scan.id,
-      type: 'workflow_permission',
-      severity: 'medium',
-      title: 'Workflow adds broad permissions',
-      human_summary: 'A workflow permission entry was added.',
-      remediation: 'Limit workflow permissions.',
-      source_url: 'https://github.com/identrail/identrail/blob/main/workflow.yml#L12',
-      line_snippet: [
-        'diff --git a/workflow.yml b/workflow.yml',
-        'new file mode 100644',
-        'index 0000000..1111111',
-        '--- /dev/null',
-        '+++ b/workflow.yml',
-        '@@ -0,0 +1 @@',
-        '+++count'
-      ].join('\n'),
-      created_at: '2026-05-17T11:06:00Z'
-    };
-    const removalFinding: Finding = {
-      ...additionFinding,
-      id: 'finding-remove-only-diff',
-      title: 'Workflow removes guardrail',
-      human_summary: 'A workflow guardrail was removed.',
-      line_snippet: '@@ -1 +0,0 @@\n---count'
-    };
-
-    await renderFindings({ repoScans: [scan], repoFindings: [additionFinding, removalFinding] });
-
-    const addRow = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('Workflow adds broad permissions')
-    ) as HTMLButtonElement | undefined;
-    expect(addRow).toBeDefined();
-    if (!addRow) return;
-    fireEvent.click(addRow);
-
-    const addedLine = await screen.findByText((_, element) =>
-      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '+++count')
-    );
-    expect(addedLine).toHaveClass('is-add');
-    expect(within(addedLine).getByText('+')).toHaveClass('idt-repo-finding-code-marker');
-
-    fireEvent.click(await screen.findByRole('button', { name: /Close finding detail/i }));
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /Close finding detail/i })).not.toBeInTheDocument();
-    });
-
-    const removeRow = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('Workflow removes guardrail')
-    ) as HTMLButtonElement | undefined;
-    expect(removeRow).toBeDefined();
-    if (!removeRow) return;
-    fireEvent.click(removeRow);
-
-    const removedLine = await screen.findByText((_, element) =>
-      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '---count')
-    );
-    expect(removedLine).toHaveClass('is-remove');
-    expect(within(removedLine).getByText('-')).toHaveClass('idt-repo-finding-code-marker');
-  });
-
-  it('keeps visible filters when active filters match no findings', async () => {
-    const scan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-with-findings',
-      status: 'succeeded',
-      finished_at: '2026-05-17T11:06:00Z',
-      finding_count: 1
-    };
-
-    const finding: Finding = {
-      id: 'finding-1',
-      scan_id: scan.id,
-      type: 'aws_access_key',
-      severity: 'critical',
-      title: 'IAM role with wildcard trust',
-      human_summary: 'AssumeRole trust policy allows any principal.',
-      remediation: 'Tighten trust policy principals.',
-      created_at: '2026-05-17T11:06:00Z'
-    };
-
-    await renderFindings({
-      repoScans: [scan],
-      repoFindings: [finding]
-    });
-
-    expect((await screen.findAllByText('IAM role with wildcard trust')).length).toBeGreaterThan(0);
-
-    expect(await screen.findByText('Filters and sorting')).toBeInTheDocument();
-
-    const severityFilter = screen.getByLabelText('Severity');
-    fireEvent.change(severityFilter, { target: { value: 'high' } });
-
-    expect(await screen.findByRole('heading', { name: 'No findings match these filters' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Repository finding filters and sorting')).toBeInTheDocument();
-    expect(screen.queryByRole('dialog', { name: /IAM role with wildcard trust/i })).not.toBeInTheDocument();
-  });
-});
-
-describe('GitHub domain pages (#1382)', () => {
-  const productionProject = {
-    tenant_id: 'tenant-a',
-    workspace_id: 'workspace-a',
-    project_id: 'production-platform',
-    name: 'Production Platform',
-    slug: 'production-platform',
-    description: 'Production identity boundary.',
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-02T00:00:00Z'
-  };
-
-  const succeededRepoScan: RepoScanRecord = {
-    id: 'repo-scan-succeeded',
-    repository: 'identrail/identrail',
-    status: 'succeeded',
-    started_at: '2026-05-17T10:50:00Z',
-    finished_at: '2026-05-17T10:55:00Z',
-    commits_scanned: 12,
-    files_scanned: 340,
-    finding_count: 3,
-    truncated: false,
-    scan_mode: 'quick'
-  };
-
-  const defaultScanPolicy: ScanPolicyRecord = {
-    tenant_id: 'tenant-a',
-    workspace_id: 'workspace-a',
-    project_id: 'production-platform',
-    policy_id: 'default',
-    name: 'Default policy',
-    enabled: true,
-    trigger_mode: 'event',
-    max_concurrent_scans: 1,
-    history_limit: 500,
-    max_findings: 200,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-02T00:00:00Z'
-  };
-
-  const defaultRepositoryPosture: GitHubRepositoryPosture = {
-    repository: 'identrail/identrail',
-    installation_id: 12345,
-    collected_at: '2026-05-17T10:55:00Z',
-    rate_limit: { limit: 5000, remaining: 4990 },
-    checks: [
-      {
-        id: 'branch-protection',
-        category: 'branch protection',
-        state: 'insecure',
-        reason: 'missing_required_reviews',
-        summary: 'Default branch is missing required pull request reviews.'
-      },
-      {
-        id: 'secret-scanning',
-        category: 'security',
-        state: 'secure',
-        summary: 'Secret scanning is enabled.'
-      }
-    ]
-  };
-
-  const defaultOrganizationPosture: GitHubOrganizationPosture = {
-    organization: 'identrail',
-    installation_id: 12345,
-    collected_at: '2026-05-17T10:56:00Z',
-    checks: [
-      {
-        id: 'org-two-factor',
-        category: 'organization security',
-        state: 'secure',
-        summary: 'Organization two-factor authentication is enforced.'
-      }
-    ]
-  };
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.doUnmock('./hooks/useBackendFeatures');
-    vi.doUnmock('./pages/onboarding/onboardingUtils');
-    vi.resetModules();
-  });
-
-  async function renderGitHubPage(
-    pageName: 'control-center' | 'connect' | 'repositories' | 'actions' | 'remediation',
-    options: {
-      githubConnection?: GitHubConnectionStatus | null;
-      scans?: RepoScanRecord[];
-      scanPolicies?: ScanPolicyRecord[];
-      repositoryPosture?: GitHubRepositoryPosture;
-      organizationPosture?: GitHubOrganizationPosture;
-      repoFindings?: Finding[];
-      remediationPreview?: RepoFindingRemediationPreview;
-      remediationPublish?: RepoFindingRemediationPublishResponse;
-      listRepoScans?: () => Promise<{ items: RepoScanRecord[]; next_cursor?: string }>;
-      githubFeatureFlag?: boolean;
-      githubBackend?: BackendFeatureState;
-      runRepoScanError?: { message: string; status: number };
-      cancelRepoScanError?: { message: string; status: number };
-      initialEntry?: string;
-      projects?: Array<typeof productionProject>;
-    } = {}
-  ) {
-    mockConnectorFeatureFlags({ aws: false, github: options.githubFeatureFlag ?? true, kubernetes: false });
-    mockBackendFeatures({ github: options.githubBackend ?? true });
-
-    const api = await import('./api/client');
-    const projects = options.projects ?? [productionProject];
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: projects });
-    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ project: projects.find((project) => project.project_id === projectID) ?? projects[0] ?? productionProject })
-    );
-    const getGitHubConnectorStatus = vi
-      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
-      .mockResolvedValue({ connection: options.githubConnection ?? connectedGitHub });
-    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans');
-    if (options.listRepoScans) {
-      listRepoScans.mockImplementation(() => options.listRepoScans?.() ?? Promise.resolve({ items: [] }));
-    } else {
-      listRepoScans.mockResolvedValue({ items: options.scans ?? [] });
-    }
-    const listProjectScanPolicies = vi
-      .spyOn(api.apiClient, 'listProjectScanPolicies')
-      .mockResolvedValue({ items: options.scanPolicies ?? [] });
-    const upsertProjectScanPolicy = vi
-      .spyOn(api.apiClient, 'upsertProjectScanPolicy')
-      .mockResolvedValue({ policy: options.scanPolicies?.[0] ?? defaultScanPolicy });
-    const deleteProjectScanPolicy = vi.spyOn(api.apiClient, 'deleteProjectScanPolicy').mockResolvedValue(undefined);
-    const getGitHubConnectorRepositoryPosture = vi
-      .spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture')
-      .mockResolvedValue({
-        connector_id: 'github-app',
-        provider: 'github_app',
-        posture: options.repositoryPosture ?? defaultRepositoryPosture,
-        organization_posture: options.organizationPosture ?? defaultOrganizationPosture
-      });
-    const listRepoFindings = vi
-      .spyOn(api.apiClient, 'listRepoFindings')
-      .mockResolvedValue({ items: options.repoFindings ?? [], summary: undefined });
-    const previewRepoFindingRemediation = vi
-      .spyOn(api.apiClient, 'previewRepoFindingRemediation')
-      .mockResolvedValue(
-        options.remediationPreview ?? {
-          finding: options.repoFindings?.[0] ?? {
-            id: 'finding-default',
-            scan_id: 'repo-scan-default',
-            type: 'secret_exposure',
-            severity: 'high',
-            title: 'Default remediation finding',
-            human_summary: 'Default remediation finding summary.',
-            remediation: 'Rotate and remove the exposed secret.',
-            created_at: '2026-05-17T11:00:00Z'
-          },
-          remediation: {
-            detector: 'secret_exposure',
-            summary: 'Rotate and remove the exposed secret',
-            risk_summary: 'The exposed credential can be replayed outside GitHub.',
-            steps: ['Rotate the exposed credential', 'Remove the committed value'],
-            safety_notes: ['Confirm the replacement secret is available before merging'],
-            validation: ['Run the repository scan again'],
-            secret_rotation: true,
-            publishable: true,
-            evidence: { finding_id: 'finding-default', scan_id: 'repo-scan-default' }
-          },
-          fix_pr_plan: {
-            base_branch: 'main',
-            branch_name: 'identrail/fix/finding-default',
-            commit_message: 'Remove exposed secret',
-            pr_title: 'Remove exposed secret',
-            pr_body: 'Remediates the exposed repository secret.',
-            files: [{ path: '.github/workflows/deploy.yml', content: 'env: {}' }],
-            finding_id: 'finding-default',
-            finding_type: 'secret_exposure'
-          }
-        }
-      );
-    const publishRepoFindingRemediation = vi
-      .spyOn(api.apiClient, 'publishRepoFindingRemediation')
-      .mockResolvedValue(
-        options.remediationPublish ?? {
-          finding: options.repoFindings?.[0] ?? {
-            id: 'finding-default',
-            scan_id: 'repo-scan-default',
-            type: 'secret_exposure',
-            severity: 'high',
-            title: 'Default remediation finding',
-            human_summary: 'Default remediation finding summary.',
-            remediation: 'Rotate and remove the exposed secret.',
-            created_at: '2026-05-17T11:00:00Z'
-          },
-          remediation: {
-            detector: 'secret_exposure',
-            summary: 'Rotate and remove the exposed secret',
-            risk_summary: 'The exposed credential can be replayed outside GitHub.',
-            steps: ['Rotate the exposed credential'],
-            safety_notes: ['Confirm the replacement secret is available before merging'],
-            validation: ['Run the repository scan again'],
-            secret_rotation: true,
-            publishable: true,
-            evidence: { finding_id: 'finding-default', scan_id: 'repo-scan-default' }
-          },
-          publish: {
-            pr_number: 42,
-            pr_url: 'https://github.com/identrail/identrail/pull/42',
-            branch_name: 'identrail/fix/finding-default',
-            commit_sha: 'abc1234'
-          }
-        }
-      );
-    const runRepoScan = vi.spyOn(api.apiClient, 'runRepoScan');
-    if (options.runRepoScanError) {
-      runRepoScan.mockRejectedValue(new api.ApiError(options.runRepoScanError.message, options.runRepoScanError.status));
-    } else {
-      runRepoScan.mockResolvedValue({ repo_scan: queuedRepoScan });
-    }
-    const cancelRepoScan = vi.spyOn(api.apiClient, 'cancelRepoScan');
-    if (options.cancelRepoScanError) {
-      cancelRepoScan.mockRejectedValue(
-        new api.ApiError(options.cancelRepoScanError.message, options.cancelRepoScanError.status)
-      );
-    } else {
-      cancelRepoScan.mockResolvedValue({ repo_scan: canceledRepoScan });
-    }
-    const startGitHubConnector = vi.spyOn(api.apiClient, 'startGitHubConnector').mockResolvedValue({
-      connection: {
-        provider: 'github_app',
-        connected: false,
-        connector_id: 'github-app',
-        display_name: 'Identrail',
-        status: 'pending',
-        health_status: 'unknown',
-        webhook_secret_rotation_required: false,
-        selected_repositories: []
-      },
-      connector_id: 'github-app',
-      state: 'github-state',
-      install_url: 'https://github.com/apps/identrail/installations/select_target?state=github-state',
-      install_account_type: 'any',
-      webhook_url: '/auth/webhooks/github',
-      expires_at: '2026-05-17T10:10:00Z'
-    });
-    const upsertGitHubPATConnector = vi
-      .spyOn(api.apiClient, 'upsertGitHubPATConnector')
-      .mockResolvedValue({ connection: connectedGitHubPAT });
-
-    const productShell = await import('./productShell');
-    const page =
-      pageName === 'control-center' ? <productShell.ProductGitHubControlCenterPage /> :
-      pageName === 'connect' ? <productShell.ProductGitHubConnectPage /> :
-      pageName === 'repositories' ? <productShell.ProductGitHubRepositoriesPage /> :
-      pageName === 'remediation' ? <productShell.ProductGitHubRemediationPage /> :
-      <productShell.ProductGitHubActionsPage />;
-
-    const routePath =
-      pageName === 'control-center' ? 'github' :
-      pageName === 'connect' ? 'github/connect' :
-      pageName === 'repositories' ? 'github/repositories' :
-      pageName === 'remediation' ? 'github/remediation' :
-      'github/actions';
-
-    render(
-      <MemoryRouter initialEntries={[options.initialEntry ?? `/app/tenant-a/workspace-a/${routePath}`]}>
-        <Routes>
-          <Route path={`/app/:tenantID/:workspaceID/${routePath}`} element={page} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    return {
-      getGitHubConnectorStatus,
-      listRepoScans,
-      listRepoFindings,
-      previewRepoFindingRemediation,
-      publishRepoFindingRemediation,
-      runRepoScan,
-      cancelRepoScan,
-      startGitHubConnector,
-      listProjectScanPolicies,
-      upsertProjectScanPolicy,
-      deleteProjectScanPolicy,
-      upsertGitHubPATConnector,
-      getGitHubConnectorRepositoryPosture
-    };
-  }
-
-  it('GitHub callback shows a polished handoff and redirects to the clean connection page', async () => {
-    const api = await import('./api/client');
-    const completion = deferred<Awaited<ReturnType<typeof api.apiClient.completeGitHubConnector>>>();
-    const completeGitHubConnector = vi
-      .spyOn(api.apiClient, 'completeGitHubConnector')
-      .mockImplementation(() => completion.promise);
-
-    const productShell = await import('./productShell');
-    function LocationCapture() {
-      const location = useLocation();
-      return <p data-testid="location">{location.pathname + location.search}</p>;
-    }
-
-    render(
-      <MemoryRouter initialEntries={['/app/github/callback?state=github-state&installation_id=12345&code=oauth-code&setup_action=install']}>
-        <Routes>
-          <Route path="/app/github/callback" element={<productShell.ProductGitHubCallbackPage />} />
-          <Route path="*" element={<LocationCapture />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText(/Finishing GitHub connection/i)).toBeInTheDocument();
-    expect(screen.getByText(/saved appearance settings/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
-    await waitFor(() =>
-      expect(completeGitHubConnector).toHaveBeenCalledWith({
-        state: 'github-state',
-        installation_id: 12345,
-        code: 'oauth-code',
-        setup_action: 'install'
-      })
-    );
-
-    await act(async () => {
-      completion.resolve({
-        connection: connectedGitHub,
-        tenant_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: 'production-platform',
-        redirect_path: '/app/tenant-a/workspace-a/github/connect?environment=production-platform'
-      });
-      await completion.promise;
-    });
-
-    await waitFor(() =>
-      expect(screen.getByTestId('location')).toHaveTextContent(
-        '/app/tenant-a/workspace-a/github/connect?environment=production-platform'
-      )
-    );
-  });
-
-  it('Control Center loads the GitHub connection and surfaces connection status', async () => {
-    const mocks = await renderGitHubPage('control-center', { scans: [succeededRepoScan] });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    await waitFor(() => expect(mocks.getGitHubConnectorStatus).toHaveBeenCalledWith(
-      'workspace-a',
-      'production-platform',
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    ));
-    await screen.findByText(/Installation 12345/i);
-    await waitFor(() => {
-      const repos = screen
-        .getAllByRole('link', { name: /^Repositories$/ })
-        .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/repositories'));
-      expect(repos).toBeDefined();
-    });
-    expect(screen.getByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
-    await waitFor(() =>
-      expect(mocks.listRepoScans).toHaveBeenCalledWith(
-        expect.objectContaining({ limit: 50, sort_by: 'started_at', sort_order: 'desc' }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-  });
-
-  it('Control Center distinguishes partial repository source collection', async () => {
-    const partialScan: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'repo-scan-partial',
-      finding_count: 0,
-      source_health: 'partial',
-      source_health_details: [
-        {
-          source: 'github_secret_scanning',
-          status: 'permission_limited',
-          code: 'alert_list_error',
-          message: 'resource not accessible by integration'
-        }
-      ]
-    };
-
-    await renderGitHubPage('control-center', { scans: [partialScan] });
-
-    expect(await screen.findByText(/Partial source collection/i)).toBeInTheDocument();
-    expect(screen.getByText(/0 findings/i)).toBeInTheDocument();
-  });
-
-  it('Control Center clears cached dashboard data when the auth session resets', async () => {
-    const firstRender = await renderGitHubPage('control-center', { scans: [succeededRepoScan] });
-
-    await screen.findByText(/Installation 12345/i);
-    await waitFor(() => expect(firstRender.listRepoScans).toHaveBeenCalledTimes(1));
-    cleanup();
-    vi.restoreAllMocks();
-
-    const productShell = await import('./productShell');
-    productShell.clearProductAuthSessionCacheForTests();
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
-    const nextSessionStatus = deferred<{ connection: GitHubConnectionStatus }>();
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockReturnValue(nextSessionStatus.promise);
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github" element={<productShell.ProductGitHubControlCenterPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    expect(screen.queryByText(/Installation 12345/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Loading GitHub status/i)).not.toBeInTheDocument();
-
-    await act(async () => {
-      nextSessionStatus.resolve({
-        connection: {
-          ...connectedGitHub,
-          installation_id: 67890,
-          selected_repositories: []
-        }
-      });
-    });
-
-    expect(await screen.findByText(/Installation 67890/i)).toBeInTheDocument();
-  });
-
-  it('Control Center fetches additional scan pages until selected-repository activity is available', async () => {
-    const unrelatedRepoScans: RepoScanRecord[] = Array.from({ length: 3 }).map((_, index) => ({
-      ...succeededRepoScan,
-      id: `repo-scan-control-center-unrelated-${index}`,
-      repository: `team-${index + 1}/unrelated`
-    }));
-    const selectedRepoScan: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'repo-scan-control-center-selected',
-      repository: 'identrail/identrail',
-      started_at: '2026-05-18T10:00:00Z',
-      finished_at: '2026-05-18T10:05:00Z',
-      finding_count: 2,
-      files_scanned: 17
-    };
-
-    let pageCalls = 0;
-    const mocks = await renderGitHubPage('control-center', {
-      listRepoScans: () => {
-        pageCalls += 1;
-        if (pageCalls === 1) {
-          return Promise.resolve({
-            items: unrelatedRepoScans,
-            next_cursor: 'repo-page-2'
-          });
-        }
-        return Promise.resolve({
-          items: [selectedRepoScan]
-        });
-      }
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(2));
-    expect(mocks.listRepoScans).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ cursor: 'repo-page-2', limit: 50 }),
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-    expect(screen.getByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
-    expect(screen.getByText(/identrail\/identrail/i)).toBeInTheDocument();
-  });
-
-  it('Control Center prompts to connect when not connected', async () => {
-    await renderGitHubPage('control-center', {
-      githubConnection: {
-        ...connectedGitHub,
-        connected: false,
-        account_login: undefined,
-        installation_id: undefined,
-        selected_repositories: []
-      },
-      scans: []
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    await screen.findByText(/Not connected for this environment\./i);
-    await waitFor(() => {
-      const heroConnect = screen
-        .getAllByRole('link', { name: /Connect GitHub/i })
-        .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/connect'));
-      expect(heroConnect).toBeDefined();
-    });
-  });
-
-  it('Control Center does not flash a disconnected state while the connection is still loading', async () => {
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
-    let resolveStatus: ((value: { connection: GitHubConnectionStatus }) => void) | undefined;
-    const pendingStatus = new Promise<{ connection: GitHubConnectionStatus }>((resolve) => {
-      resolveStatus = resolve;
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockReturnValue(pendingStatus);
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github" element={<productShell.ProductGitHubControlCenterPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    // While loading, the page must not claim the user is disconnected.
-    expect(screen.queryByText(/Not connected for this environment\./i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('GitHub action recommendation')).not.toBeInTheDocument();
-    // The primary CTA in the header is omitted during the initial load â€”
-    // the Sections grid still renders its own "Connect GitHub" navigation
-    // card, which is fine.
-    expect(document.querySelector('.idt-domain-header-actions')).toBeNull();
-    expect(screen.queryByText(/Loading GitHub status/i)).not.toBeInTheDocument();
-
-    // Resolve as disconnected; the page should now show the real disconnected UI.
-    resolveStatus?.({
-      connection: {
-        ...connectedGitHub,
-        connected: false,
-        account_login: undefined,
-        installation_id: undefined,
-        selected_repositories: []
-      }
-    });
-    await screen.findByText(/Not connected for this environment\./i);
-    await waitFor(() => {
-      const banner = screen.getByLabelText('GitHub action recommendation');
-      expect(banner).toHaveAttribute('data-banner-id', 'connect');
-    });
-  });
-
-  it('Control Center shows the unavailable shell when the GitHub connector is gated off', async () => {
-    await renderGitHubPage('control-center', { githubFeatureFlag: false, githubBackend: false });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
-    await screen.findByRole('heading', { level: 3, name: /GitHub is not available on this API/i });
-  });
-
-  it('Connect page calls startGitHubConnector and opens the install URL', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-    const mocks = await renderGitHubPage('connect', {
-      githubConnection: {
-        ...connectedGitHub,
-        connected: false,
-        account_login: undefined,
-        installation_id: undefined,
-        selected_repositories: []
-      }
-    });
-
-    const installButton = (await screen.findAllByRole('button', { name: 'Install GitHub App' }))[0];
-    fireEvent.click(installButton);
-
-    await waitFor(() =>
-      expect(mocks.startGitHubConnector).toHaveBeenCalledWith(
-        expect.objectContaining({
-          project_id: 'production-platform',
-          install_account_type: 'any',
-          redirect_uri: expect.stringMatching(/\/app\/github\/callback$/)
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    await waitFor(() =>
-      expect(openSpy).toHaveBeenCalledWith(
-        'https://github.com/apps/identrail/installations/select_target?state=github-state',
-        '_blank',
-        'noopener,noreferrer'
-      )
-    );
-
-    // Enterprise/PAT management now lives inline on the connect page (the
-    // legacy per-project page was retired); the control opens the fallback form.
-    const enterpriseButtons = screen.getAllByRole('button', { name: /Manage Enterprise \/ PAT/i });
-    expect(enterpriseButtons.length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: /Save enterprise fallback/i })).toBeInTheDocument();
-    openSpy.mockRestore();
-  });
-
-  it('Connect page ignores stale GitHub App install starts after environment changes', async () => {
-    vi.resetModules();
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-    const stagingProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-    const installStart = deferred<{
-      connection: GitHubConnectionStatus;
-      connector_id: string;
-      state: string;
-      install_url: string;
-      install_account_type: 'any';
-      webhook_url: string;
-      expires_at: string;
-    }>();
-
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
-    );
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({
-      connection: {
-        ...connectedGitHub,
-        connected: false,
-        account_login: undefined,
-        installation_id: undefined,
-        selected_repositories: []
-      }
-    });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockResolvedValue({ items: [] });
-    const startGitHubConnector = vi
-      .spyOn(api.apiClient, 'startGitHubConnector')
-      .mockImplementation(() => installStart.promise);
-
-    const { ProductGitHubConnectPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Install GitHub App' }))[0]);
-    await waitFor(() =>
-      expect(startGitHubConnector).toHaveBeenCalledWith(
-        expect.objectContaining({ project_id: 'production-platform' }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
-      target: { value: 'staging-platform' }
-    });
-    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('staging-platform'));
-
-    await act(async () => {
-      installStart.resolve({
-        connection: connectedGitHub,
-        connector_id: 'github-app',
-        state: 'production-state',
-        install_url: 'https://github.com/apps/identrail/installations/select_target?state=production-state',
-        install_account_type: 'any',
-        webhook_url: '/auth/webhooks/github',
-        expires_at: '2026-05-17T10:10:00Z'
-      });
-    });
-
-    expect(openSpy).not.toHaveBeenCalled();
-    expect(screen.queryByRole('link', { name: 'Open GitHub' })).not.toBeInTheDocument();
-    expect(screen.queryByText(/production-state/i)).not.toBeInTheDocument();
-    openSpy.mockRestore();
-  });
-
-  it('Connect page resets Enterprise PAT drafts when environments change before submit', async () => {
-    vi.resetModules();
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    const stagingProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
-    );
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockResolvedValue({ items: [] });
-    const upsertGitHubPATConnector = vi
-      .spyOn(api.apiClient, 'upsertGitHubPATConnector')
-      .mockResolvedValue({ connection: connectedGitHubPAT });
-
-    const { ProductGitHubConnectPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click((await screen.findAllByRole('button', { name: /Manage Enterprise \/ PAT/i }))[0]);
-    fireEvent.change(await screen.findByLabelText(/Enterprise base URL/i), {
-      target: { value: 'https://github.production.example' }
-    });
-    fireEvent.change(screen.getByLabelText(/Display name/i), { target: { value: 'Production GHES' } });
-    fireEvent.change(screen.getByLabelText(/Personal access token/i), { target: { value: 'production-token' } });
-    fireEvent.change(screen.getByLabelText(/Repository allowlist/i), { target: { value: 'prod/repo' } });
-
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
-      target: { value: 'staging-platform' }
-    });
-
-    await waitFor(() => expect(screen.getByLabelText(/Personal access token/i)).toHaveValue(''));
-    expect(screen.getByLabelText(/Enterprise base URL/i)).toHaveValue('');
-    expect(screen.getByLabelText(/Display name/i)).toHaveValue('');
-    expect(screen.getByLabelText(/Repository allowlist/i)).toHaveValue('');
-
-    fireEvent.click(screen.getByRole('button', { name: /Save enterprise fallback/i }));
-
-    expect(upsertGitHubPATConnector).not.toHaveBeenCalled();
-  });
-
-  it('Connect page ignores stale Enterprise PAT saves after environment changes', async () => {
-    vi.resetModules();
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    const stagingProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-    const patSave = deferred<{ connection: GitHubConnectionStatus }>();
-
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
-    );
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockResolvedValue({ items: [] });
-    const upsertGitHubPATConnector = vi
-      .spyOn(api.apiClient, 'upsertGitHubPATConnector')
-      .mockImplementation(() => patSave.promise);
-
-    const { ProductGitHubConnectPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click((await screen.findAllByRole('button', { name: /Manage Enterprise \/ PAT/i }))[0]);
-    fireEvent.change(await screen.findByLabelText(/Enterprise base URL/i), {
-      target: { value: 'https://github.production.example' }
-    });
-    fireEvent.change(screen.getByLabelText(/Display name/i), { target: { value: 'Production GHES' } });
-    fireEvent.change(screen.getByLabelText(/Personal access token/i), { target: { value: 'production-token' } });
-    fireEvent.change(screen.getByLabelText(/Repository allowlist/i), { target: { value: 'prod/repo' } });
-    fireEvent.click(screen.getByRole('button', { name: /Save enterprise fallback/i }));
-
-    await waitFor(() =>
-      expect(upsertGitHubPATConnector).toHaveBeenCalledWith(
-        expect.objectContaining({
-          project_id: 'production-platform',
-          base_url: 'https://github.production.example',
-          token: 'production-token',
-          selected_repositories: ['prod/repo']
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
-      target: { value: 'staging-platform' }
-    });
-    await waitFor(() => expect(screen.getByLabelText(/Personal access token/i)).toHaveValue(''));
-
-    await act(async () => {
-      patSave.resolve({ connection: connectedGitHubPAT });
-    });
-
-    expect(screen.queryByText(/GitHub Enterprise connector validated and saved/i)).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/Personal access token/i)).toHaveValue('');
-  });
-
-  it('Repositories page launches a scan via the existing API', async () => {
-    const mocks = await renderGitHubPage('repositories', { scans: [] });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    const queueButton = await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' });
-    fireEvent.click(queueButton);
-
-    await waitFor(() =>
-      expect(mocks.runRepoScan).toHaveBeenCalledWith(
-        expect.objectContaining({
-          repository: 'identrail/identrail',
-          project_id: 'production-platform',
-          connector_id: 'github-app'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    await screen.findByText(/Repository scan queued for identrail\/identrail/i);
-  });
-
-  it('Repositories page runs one-off scans with explicit limits when no repositories are selected', async () => {
-    const mocks = await renderGitHubPage('repositories', {
-      githubConnection: { ...connectedGitHubPAT, selected_repositories: [] },
-      scans: []
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/private-repo' } });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/Scan mode/i), { target: { value: 'quick' } });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '75' } });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/Max findings/i), { target: { value: '25' } });
-    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
-
-    await waitFor(() =>
-      expect(mocks.runRepoScan).toHaveBeenCalledWith(
-        expect.objectContaining({
-          repository: 'acme/private-repo',
-          scan_mode: 'quick',
-          history_limit: 75,
-          max_findings: 25
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(mocks.runRepoScan.mock.calls[0][0]).not.toHaveProperty('project_id');
-    expect(mocks.runRepoScan.mock.calls[0][0]).not.toHaveProperty('connector_id');
-    await screen.findByText(/Repository scan queued for acme\/private-repo/i);
-  });
-
-  it('Repositories page scopes one-off scans to the GitHub App connector when available', async () => {
-    const mocks = await renderGitHubPage('repositories', { scans: [] });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'identrail/identrail' } });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '125' } });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/Max findings/i), { target: { value: '50' } });
-    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
-
-    await waitFor(() =>
-      expect(mocks.runRepoScan).toHaveBeenCalledWith(
-        expect.objectContaining({
-          repository: 'identrail/identrail',
-          scan_mode: 'deep',
-          history_limit: 125,
-          max_findings: 50,
-          project_id: 'production-platform',
-          connector_id: 'github-app'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    await screen.findByText(/Repository scan queued for identrail\/identrail/i);
-  });
-
-  it('Repositories page resets one-off scan drafts when environments change', async () => {
-    const stagingProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-    await renderGitHubPage('repositories', {
-      projects: [productionProject, stagingProject],
-      scans: [],
-      initialEntry: '/app/tenant-a/workspace-a/github/repositories?environment=production-platform'
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/production-repo' } });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/Scan mode/i), { target: { value: 'quick' } });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '75' } });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/Max findings/i), { target: { value: '25' } });
-
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
-      target: { value: 'staging-platform' }
-    });
-
-    const resetPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
-    await waitFor(() => expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue(''));
-    expect(within(resetPanel).getByLabelText(/Scan mode/i)).toHaveValue('deep');
-    expect(within(resetPanel).getByLabelText(/History limit/i)).toHaveValue('500');
-    expect(within(resetPanel).getByLabelText(/Max findings/i)).toHaveValue('200');
-  });
-
-  it('Repositories page ignores stale one-off scan completions after environment changes', async () => {
-    const stagingProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-    const mocks = await renderGitHubPage('repositories', {
-      projects: [productionProject, stagingProject],
-      scans: [],
-      initialEntry: '/app/tenant-a/workspace-a/github/repositories?environment=production-platform'
-    });
-    const oneOffScan = deferred<{ repo_scan: RepoScanRecord }>();
-    mocks.runRepoScan.mockImplementation(() => oneOffScan.promise);
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/production-repo' } });
-    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
-
-    await waitFor(() =>
-      expect(mocks.runRepoScan).toHaveBeenCalledWith(
-        expect.objectContaining({
-          repository: 'acme/production-repo',
-          project_id: 'production-platform',
-          connector_id: 'github-app'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
-      target: { value: 'staging-platform' }
-    });
-    const resetPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
-    await waitFor(() => expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue(''));
-
-    await act(async () => {
-      oneOffScan.resolve({ repo_scan: queuedRepoScan });
-    });
-
-    expect(screen.queryByText(/Repository scan queued for acme\/production-repo/i)).not.toBeInTheDocument();
-    expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue('');
-  });
-
-  it('Repositories page resets one-off scan state when the workspace scope changes', async () => {
-    vi.resetModules();
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app',
-      provider: 'github_app',
-      posture: defaultRepositoryPosture,
-      organization_posture: defaultOrganizationPosture
-    });
-    const oneOffScan = deferred<{ repo_scan: RepoScanRecord }>();
-    const runRepoScan = vi.spyOn(api.apiClient, 'runRepoScan').mockImplementation(() => oneOffScan.promise);
-
-    const { ProductGitHubRepositoriesPage } = await import('./productShell');
-    function WorkspaceSwitchHarness() {
-      const navigate = useNavigate();
-      return (
-        <>
-          <button
-            type="button"
-            onClick={() => navigate('/app/tenant-a/workspace-b/github/repositories?environment=production-platform')}
-          >
-            Switch workspace
-          </button>
-          <ProductGitHubRepositoriesPage />
-        </>
-      );
-    }
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/repositories" element={<WorkspaceSwitchHarness />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/workspace-a-repo' } });
-    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '75' } });
-    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
-
-    await waitFor(() =>
-      expect(runRepoScan).toHaveBeenCalledWith(
-        expect.objectContaining({
-          repository: 'acme/workspace-a-repo',
-          project_id: 'production-platform',
-          connector_id: 'github-app'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }));
-    const resetPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
-    await waitFor(() => expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue(''));
-    expect(within(resetPanel).getByLabelText(/History limit/i)).toHaveValue('500');
-
-    await act(async () => {
-      oneOffScan.resolve({ repo_scan: queuedRepoScan });
-    });
-
-    expect(screen.queryByText(/Repository scan queued for acme\/workspace-a-repo/i)).not.toBeInTheDocument();
-    expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue('');
-  });
-
-  it('Repositories page keeps repository posture checks reachable', async () => {
-    const mocks = await renderGitHubPage('repositories', { scans: [succeededRepoScan] });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    const posturePanel = await screen.findByRole('region', { name: 'Repository posture' });
-    expect(within(posturePanel).getByText('No repository posture collected yet')).toBeInTheDocument();
-    expect(mocks.getGitHubConnectorRepositoryPosture).not.toHaveBeenCalled();
-
-    const reviewButton = within(posturePanel).getByRole('button', { name: /Review posture/i });
-    await waitFor(() => expect(reviewButton).not.toBeDisabled());
-    fireEvent.click(reviewButton);
-
-    expect(await within(posturePanel).findByText('Default branch is missing required pull request reviews.')).toBeInTheDocument();
-    expect(within(posturePanel).getByLabelText('GitHub posture summary')).toHaveTextContent('Secure1');
-    expect(within(posturePanel).getByText('Organization posture')).toBeInTheDocument();
-    expect(within(posturePanel).getByText('Review 1 check').closest('details')).not.toHaveAttribute('open');
-    await waitFor(() =>
-      expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledWith(
-        'github-app',
-        'workspace-a',
-        'production-platform',
-        'identrail/identrail',
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-  });
-
-  it('Repositories page keeps posture review opt-in after switching repositories', async () => {
-    const mocks = await renderGitHubPage('repositories', {
-      githubConnection: {
-        ...connectedGitHub,
-        selected_repositories: ['identrail/identrail', 'identrail/docs']
-      },
-      scans: [succeededRepoScan]
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    const posturePanel = await screen.findByRole('region', { name: 'Repository posture' });
-    const repositorySelect = within(posturePanel).getByLabelText('Repository');
-    const reviewButton = within(posturePanel).getByRole('button', { name: /Review posture/i });
-
-    await waitFor(() => expect(reviewButton).not.toBeDisabled());
-    fireEvent.click(reviewButton);
-
-    expect(await within(posturePanel).findByText('Default branch is missing required pull request reviews.')).toBeInTheDocument();
-    await waitFor(() => expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledTimes(1));
-
-    fireEvent.change(repositorySelect, { target: { value: 'identrail/docs' } });
-
-    await waitFor(() => expect(repositorySelect).toHaveValue('identrail/docs'));
-    expect(within(posturePanel).getByText('No repository posture collected yet')).toBeInTheDocument();
-    expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledTimes(1);
-
-    fireEvent.change(repositorySelect, { target: { value: 'identrail/identrail' } });
-
-    await waitFor(() => expect(repositorySelect).toHaveValue('identrail/identrail'));
-    expect(within(posturePanel).getByText('No repository posture collected yet')).toBeInTheDocument();
-    expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledTimes(1);
-  });
-
-  it('Repositories page disables repository posture review for PAT connections', async () => {
-    const mocks = await renderGitHubPage('repositories', {
-      githubConnection: connectedGitHubPAT,
-      scans: [succeededRepoScan]
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    const posturePanel = await screen.findByRole('region', { name: 'Repository posture' });
-    const reviewButton = within(posturePanel).getByRole('button', { name: /GitHub App required/i });
-
-    expect(reviewButton).toBeDisabled();
-    expect(
-      within(posturePanel).getByText('Repository posture checks are available after connecting this environment with the GitHub App.')
-    ).toBeInTheDocument();
-    fireEvent.click(reviewButton);
-    expect(mocks.getGitHubConnectorRepositoryPosture).not.toHaveBeenCalled();
-  });
-
-  it('Repositories page bypasses in-flight refreshes after queueing a scan', async () => {
-    const initialMocks = await renderGitHubPage('repositories', { scans: [] });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    await waitFor(() => expect(initialMocks.listRepoScans).toHaveBeenCalledTimes(1));
-    cleanup();
-    vi.restoreAllMocks();
-
-    const pendingRefresh = deferred<{ items: RepoScanRecord[]; next_cursor?: string }>();
-    const queuedAfterMutation: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-after-mutation'
-    };
-    let listCalls = 0;
-    const mocks = await renderGitHubPage('repositories', {
-      listRepoScans: () => {
-        listCalls += 1;
-        if (listCalls === 1) {
-          return pendingRefresh.promise;
-        }
-        return Promise.resolve({ items: [queuedAfterMutation] });
-      }
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(1));
-    const queueButton = await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' });
-    await waitFor(() => expect(queueButton).not.toBeDisabled());
-    fireEvent.click(queueButton);
-
-    await waitFor(() =>
-      expect(mocks.runRepoScan).toHaveBeenCalledWith(
-        expect.objectContaining({
-          repository: 'identrail/identrail',
-          project_id: 'production-platform',
-          connector_id: 'github-app'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(2));
-    await screen.findByText(/Repository scan queued for identrail\/identrail/i);
-    await screen.findByText(/scan in flight/i);
-
-    await act(async () => {
-      pendingRefresh.resolve({ items: [] });
-    });
-
-    expect(screen.getByLabelText('Selected repositories')).toHaveTextContent('scan in flight');
-  });
-
-  it('Repositories page cancels an active scan via the existing API', async () => {
-    const mocks = await renderGitHubPage('repositories', { scans: [queuedRepoScan] });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    const cancelButton = await screen.findByRole('button', { name: 'Cancel scan for identrail/identrail' });
-    fireEvent.click(cancelButton);
-
-    await waitFor(() =>
-      expect(mocks.cancelRepoScan).toHaveBeenCalledWith(
-        'repo-scan-queued',
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    await screen.findByText(/Repository scan canceled for identrail\/identrail/i);
-  });
-
-  it('Repositories page polls while repository scans are active', async () => {
-    const setIntervalSpy = vi.spyOn(window, 'setInterval');
-    const mocks = await renderGitHubPage('repositories', { scans: [queuedRepoScan] });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    await screen.findByText(/scan in flight/i);
-    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 8000)
-    );
-    const pollCallback = setIntervalSpy.mock.calls.find((call) => call[1] === 8000)?.[0];
-    expect(pollCallback).toEqual(expect.any(Function));
-
-    act(() => {
-      (pollCallback as () => void)();
-    });
-
-    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(2));
-  });
-
-  it('Repositories page shows the empty state when no repositories are selected', async () => {
-    await renderGitHubPage('repositories', {
-      githubConnection: { ...connectedGitHub, selected_repositories: [] }
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    await screen.findByRole('heading', { level: 3, name: /Select repositories for Identrail to watch/i });
-    await waitFor(() => {
-      const selectLink = screen
-        .getAllByRole('link')
-        .find((link) => link.textContent?.includes('Select repositories'));
-      expect(selectLink).toBeDefined();
-      expect(selectLink?.getAttribute('href')).toMatch(/^\/app\/tenant-a\/workspace-a\/github\/connect/);
-    });
-  });
-
-  it('Repositories page surfaces a scan error inline without breaking navigation', async () => {
-    await renderGitHubPage('repositories', {
-      runRepoScanError: { message: 'rate limited', status: 429 }
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    const queueButton = await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' });
-    fireEvent.click(queueButton);
-
-    await screen.findByRole('heading', { level: 3, name: /Repository scan error/i });
-    // Navigation must still work after a scan error â€” the primary CTA in
-    // the page header (GitHub findings link) stays reachable.
-    const findingsLink = screen
-      .getAllByRole('link', { name: /GitHub findings/i })
-      .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/findings'));
-    expect(findingsLink).toBeDefined();
-  });
-
-  it('Repositories page renders a compact subtitle and drops the Scan operations reference', async () => {
-    await renderGitHubPage('repositories', { scans: [succeededRepoScan] });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    // Subtitle reflects the live repo count and scan totals â€” replaces
-    // the long "Launch, monitor, and cancel repository scans..." tagline.
-    await screen.findByText(/1 repository Â· 1 recent scan/i);
-    // The "Selected repositories / 1 repository in scope" sub-header is
-    // dropped â€” the section heading is just "Repositories".
-    expect(screen.queryByText(/1 repository in scope/i)).not.toBeInTheDocument();
-    // The "Reference / Scan operations" aside (with three meta-docs
-    // bullets) is removed entirely.
-    expect(screen.queryByRole('heading', { level: 3, name: 'Scan operations' })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Scans use the existing repository scan APIs\./i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Cancel is only available while a scan is queued or running\./i)).not.toBeInTheDocument();
-    // The Activity section header is the tighter "Recent activity"
-    // instead of "Activity / Recent repository scan activity".
-    expect(screen.queryByRole('heading', { level: 3, name: /Recent repository scan activity/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: 'Recent activity' })).toBeInTheDocument();
-  });
-
-  it('Actions page renders the premium waiting-for-coverage shell', async () => {
-    await renderGitHubPage('actions');
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub Actions / OIDC' });
-    await screen.findByRole('heading', { level: 3, name: /Workflow and OIDC posture is rolling out/i });
-    expect(screen.getAllByText(/Workflow inventory/i).length).toBeGreaterThan(0);
-    await waitFor(() => {
-      const openReposLink = screen
-        .getAllByRole('link', { name: /Open Repositories/i })
-        .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/repositories'));
-      expect(openReposLink).toBeDefined();
-    });
-    const homeLink = screen
-      .getAllByRole('link', { name: /GitHub home/i })
-      .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github'));
-    expect(homeLink).toBeDefined();
-  });
-
-  it('Actions page renders the unavailable shell when the GitHub connector is gated off', async () => {
-    await renderGitHubPage('actions', { githubFeatureFlag: false, githubBackend: false });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub Actions / OIDC' });
-    await screen.findByRole('heading', { level: 3, name: /GitHub is not available on this API/i });
-  });
-
-  it('Remediation page shows the never-scanned state', async () => {
-    await renderGitHubPage('remediation', { scans: [], repoFindings: [] });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub remediation' });
-    await screen.findByRole('heading', { level: 3, name: /Run your first repository scan/i });
-    const repositoriesLink = screen
-      .getAllByRole('link', { name: /Open Repositories/i })
-      .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/repositories'));
-    expect(repositoriesLink).toBeDefined();
-  });
-
-  it('Remediation page surfaces a failed scan state before showing remediation chrome', async () => {
-    const failedScan: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'repo-scan-remediation-failed',
-      status: 'failed',
-      finding_count: 0,
-      error_message: 'GitHub App installation access revoked'
-    };
-
-    await renderGitHubPage('remediation', { scans: [failedScan], repoFindings: [] });
-
-    await screen.findByRole('heading', { level: 3, name: /Your last repository scan failed/i });
-    expect(screen.getByText(/GitHub App installation access revoked/i)).toBeInTheDocument();
-    expect(screen.queryByText('Actionable findings')).not.toBeInTheDocument();
-  });
-
-  it('Remediation page previews and publishes a fix PR only after approval gates pass', async () => {
-    const finding: Finding = {
-      id: 'finding-deployment-token',
-      scan_id: succeededRepoScan.id,
-      type: 'secret_exposure',
-      severity: 'critical',
-      confidence_score: 0.96,
-      title: 'Workflow exposes deployment token',
-      human_summary: 'A deployment token is committed into a GitHub Actions workflow.',
-      remediation: 'Move the deployment token into GitHub Actions secrets and rotate it.',
-      repository: 'identrail/identrail',
-      file_path: '.github/workflows/deploy.yml',
-      line_number: 18,
-      detector: 'github_actions_secret',
-      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/deploy.yml#L18',
-      lifecycle_status: 'open',
-      created_at: '2026-05-17T11:10:00Z'
-    };
-    const preview: RepoFindingRemediationPreview = {
-      finding,
-      remediation: {
-        detector: 'github_actions_secret',
-        summary: 'Rotate leaked deployment token',
-        risk_summary: 'The token can be reused by anyone with repository history access.',
-        steps: ['Create a GitHub Actions secret for the replacement token', 'Remove the inline token from deploy.yml'],
-        safety_notes: ['Confirm the replacement secret exists before merging'],
-        validation: ['Run the repository scan again', 'Confirm the workflow still deploys from the secret'],
-        secret_rotation: true,
-        publishable: true,
-        evidence: {
-          finding_id: finding.id,
-          scan_id: finding.scan_id,
-          repository: 'identrail/identrail',
-          file_path: finding.file_path,
-          line_number: finding.line_number
-        }
-      },
-      fix_pr_plan: {
-        base_branch: 'main',
-        branch_name: 'identrail/fix/deployment-token',
-        commit_message: 'Move deployment token into Actions secrets',
-        pr_title: 'Move deployment token into Actions secrets',
-        pr_body: 'Remediates the exposed deployment token finding.',
-        files: [{ path: '.github/workflows/deploy.yml', content: 'env:\\n  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}' }],
-        finding_id: finding.id,
-        finding_type: finding.type
-      }
-    };
-    const publish: RepoFindingRemediationPublishResponse = {
-      finding,
-      remediation: preview.remediation,
-      publish: {
-        pr_number: 42,
-        pr_url: 'https://github.com/identrail/identrail/pull/42',
-        branch_name: 'identrail/fix/deployment-token',
-        commit_sha: 'abc1234'
-      }
-    };
-    const mocks = await renderGitHubPage('remediation', {
-      scans: [{ ...succeededRepoScan, finding_count: 1 }],
-      repoFindings: [finding],
-      remediationPreview: preview,
-      remediationPublish: publish
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub remediation' });
-    expect(await screen.findByText('Actionable findings')).toBeInTheDocument();
-    expect(screen.getAllByText('Workflow exposes deployment token').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/.github\/workflows\/deploy.yml:18/i).length).toBeGreaterThan(0);
-
-    const previewButton = await screen.findByRole('button', { name: /Preview fix plan/i });
-    fireEvent.click(previewButton);
-
-    await waitFor(() =>
-      expect(mocks.previewRepoFindingRemediation).toHaveBeenCalledWith(
-        finding.id,
-        expect.objectContaining({
-          repo_scan_id: succeededRepoScan.id,
-          finding_url: finding.source_url
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    fireEvent.change(screen.getByLabelText('Current source content'), {
-      target: { value: 'env:\n  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}' }
-    });
-    fireEvent.click(previewButton);
-    await waitFor(() =>
-      expect(mocks.previewRepoFindingRemediation).toHaveBeenCalledWith(
-        finding.id,
-        expect.objectContaining({
-          repo_scan_id: succeededRepoScan.id,
-          finding_url: finding.source_url,
-          source_content: 'env:\n  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}',
-          require_fix_plan: true
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(await screen.findByText('Rotate leaked deployment token')).toBeInTheDocument();
-    expect(screen.getByText('Branch identrail/fix/deployment-token')).toBeInTheDocument();
-
-    const publishButton = await screen.findByRole('button', { name: /Publish fix PR/i });
-    expect(publishButton).toBeDisabled();
-    expect(mocks.publishRepoFindingRemediation).not.toHaveBeenCalled();
-
-    fireEvent.change(screen.getByLabelText('Current source content'), {
-      target: { value: 'env:\\n  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}' }
-    });
-    fireEvent.change(screen.getByLabelText('GitHub token'), { target: { value: 'ghp_write_token' } });
-    fireEvent.click(screen.getByLabelText('Approved for publish'));
-    fireEvent.click(screen.getByLabelText('GitHub token is intentionally write-capable'));
-
-    await waitFor(() => expect(publishButton).not.toBeDisabled());
-    fireEvent.click(publishButton);
-
-    await waitFor(() =>
-      expect(mocks.publishRepoFindingRemediation).toHaveBeenCalledWith(
-        finding.id,
-        expect.objectContaining({
-          repo_scan_id: succeededRepoScan.id,
-          source_content: 'env:\\n  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}',
-          base_branch: 'main',
-          finding_url: finding.source_url,
-          operator_approved: true,
-          write_permissions_configured: true,
-          github_token: 'ghp_write_token'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(await screen.findByText(/PR #42 opened/i)).toBeInTheDocument();
-  });
-
-  it('Control Center surfaces an error when listing repository scans fails', async () => {
-    const api = await import('./api/client');
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockRejectedValue(
-      new api.ApiError('rate limited', 429)
-    );
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github" element={<productShell.ProductGitHubControlCenterPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    await screen.findByRole('heading', { level: 3, name: /Unable to load GitHub status/i });
-    // The error panel is the single source of truth â€” the page must not
-    // also speculate a "run your first scan" recommendation or claim
-    // "no repository scans yet" off a failed fetch.
-    expect(screen.queryByLabelText('GitHub action recommendation')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 3, name: /No repository scans yet/i })).not.toBeInTheDocument();
-  });
-
-  it('Control Center reuses the last loaded dashboard while refreshing the same environment', async () => {
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
-    const getGitHubConnectorStatus = vi
-      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
-      .mockResolvedValueOnce({ connection: connectedGitHub });
-    const listRepoScans = vi
-      .spyOn(api.apiClient, 'listRepoScans')
-      .mockResolvedValueOnce({ items: [succeededRepoScan] });
-
-    const productShell = await import('./productShell');
-    const renderControlCenter = () =>
-      render(
-        <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github?environment=production-platform']}>
-          <Routes>
-            <Route path="/app/:tenantID/:workspaceID/github" element={<productShell.ProductGitHubControlCenterPage />} />
-          </Routes>
-        </MemoryRouter>
-      );
-
-    const firstRender = renderControlCenter();
-    expect(await screen.findByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
-    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(1));
-    firstRender.unmount();
-
-    const pendingStatus = deferred<{ connection: GitHubConnectionStatus }>();
-    const pendingScans = deferred<{ items: RepoScanRecord[] }>();
-    getGitHubConnectorStatus.mockReturnValueOnce(pendingStatus.promise);
-    listRepoScans.mockReturnValueOnce(pendingScans.promise);
-
-    renderControlCenter();
-
-    expect(screen.getByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
-    expect(screen.getByText(/Installation 12345/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Loading GitHub status/i)).not.toBeInTheDocument();
-    await waitFor(() => expect(getGitHubConnectorStatus).toHaveBeenCalledTimes(2));
-
-    await act(async () => {
-      pendingStatus.resolve({ connection: connectedGitHub });
-      pendingScans.resolve({ items: [succeededRepoScan] });
-    });
-  });
-
-  it('Control Center keeps cached scans visible while surfacing same-environment refresh failures', async () => {
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
-    const getGitHubConnectorStatus = vi
-      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
-      .mockResolvedValueOnce({ connection: connectedGitHub })
-      .mockResolvedValueOnce({ connection: connectedGitHub });
-    const listRepoScans = vi
-      .spyOn(api.apiClient, 'listRepoScans')
-      .mockResolvedValueOnce({ items: [succeededRepoScan] })
-      .mockRejectedValueOnce(new api.ApiError('rate limited', 429));
-
-    const productShell = await import('./productShell');
-    const renderControlCenter = () =>
-      render(
-        <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github?environment=production-platform']}>
-          <Routes>
-            <Route path="/app/:tenantID/:workspaceID/github" element={<productShell.ProductGitHubControlCenterPage />} />
-          </Routes>
-        </MemoryRouter>
-      );
-
-    const firstRender = renderControlCenter();
-    expect(await screen.findByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
-    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(1));
-    firstRender.unmount();
-
-    renderControlCenter();
-
-    expect(screen.getByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
-    await screen.findByRole('heading', { level: 3, name: /Unable to load GitHub status/i });
-    expect(screen.getByText(/rate limited/i)).toBeInTheDocument();
-    await waitFor(() => expect(getGitHubConnectorStatus).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(2));
-  });
-
-  it('Control Center reuses overview caches without showing a loading status', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'getOnboardingState').mockResolvedValue({
-      state: {
-        user_id: 'user-1',
-        org_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: productionProject.project_id,
-        current_step: 'complete',
-        connector_skipped: false,
-        scan_skipped: false,
-        started_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    const getGitHubConnectorStatus = vi
-      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
-      .mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: connectedKubernetes });
-    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [succeededRepoScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [], summary: undefined });
-
-    const { ProductOverviewPage, ProductGitHubControlCenterPage } = await import('./productShell');
-    const overviewRender = render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await screen.findByRole('region', { name: 'Domain posture' });
-    await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(getGitHubConnectorStatus).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(2));
-    overviewRender.unmount();
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github" element={<ProductGitHubControlCenterPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    expect(screen.getByText(/Installation 12345/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Loading GitHub status/i)).not.toBeInTheDocument();
-    expect(listProjects).toHaveBeenCalledTimes(1);
-    await waitFor(() =>
-      expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
-        'workspace-a',
-        'production-platform',
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-  });
-
-  it('Overview warms GitHub caches when backend availability resolves after mount', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    let githubBackend: BackendFeatureState = false;
-    vi.doMock('./hooks/useBackendFeatures', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./hooks/useBackendFeatures')>();
-      return {
-        ...actual,
-        useBackendFeatures: () => ({
-          features: {
-            onboardingWizard: undefined,
-            connectors: { github: githubBackend, aws: undefined, kubernetes: true },
-            configReachable: true
-          },
-          loading: false
-        })
-      };
-    });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'getOnboardingState').mockResolvedValue({
-      state: {
-        user_id: 'user-1',
-        org_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: productionProject.project_id,
-        current_step: 'complete',
-        connector_skipped: false,
-        scan_skipped: false,
-        started_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    const getGitHubConnectorStatus = vi
-      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
-      .mockResolvedValue({ connection: connectedGitHub });
-    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [succeededRepoScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [], summary: undefined });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: connectedKubernetes });
-
-    const { ProductOverviewPage } = await import('./productShell');
-    const renderOverviewRoute = () => (
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    const overviewRender = render(renderOverviewRoute());
-
-    await screen.findByRole('region', { name: 'Domain posture' });
-    await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(1));
-    expect(getGitHubConnectorStatus).not.toHaveBeenCalled();
-
-    githubBackend = true;
-    overviewRender.rerender(renderOverviewRoute());
-
-    await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(2));
-    await waitFor(() =>
-      expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
-        'workspace-a',
-        'production-platform',
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(listRepoScans).toHaveBeenCalled();
-  });
-
-  it('Overview skips dashboard cache warmups after the auth session resets', async () => {
-    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'getOnboardingState').mockResolvedValue({
-      state: {
-        user_id: 'user-1',
-        org_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        project_id: productionProject.project_id,
-        current_step: 'complete',
-        connector_skipped: false,
-        scan_skipped: false,
-        started_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    const pendingProjects = deferred<{ items: typeof productionProject[] }>();
-    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockReturnValue(pendingProjects.promise);
-    const getGitHubConnectorStatus = vi
-      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
-      .mockResolvedValue({ connection: connectedGitHub });
-    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [succeededRepoScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [], summary: undefined });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: connectedKubernetes });
-
-    const { ProductOverviewPage, ProductGitHubControlCenterPage, clearProductAuthSessionCacheForTests } = await import('./productShell');
-    const overviewRender = render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(1));
-    overviewRender.unmount();
-    clearProductAuthSessionCacheForTests();
-
-    await act(async () => {
-      pendingProjects.resolve({ items: [productionProject] });
-      await pendingProjects.promise;
-      await Promise.resolve();
-    });
-
-    expect(getGitHubConnectorStatus).not.toHaveBeenCalled();
-    expect(listRepoScans).not.toHaveBeenCalled();
-    cleanup();
-    vi.restoreAllMocks();
-
-    const nextSessionStatus = deferred<{ connection: GitHubConnectionStatus }>();
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockReturnValue(nextSessionStatus.promise);
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github" element={<ProductGitHubControlCenterPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    expect(screen.queryByText(/Installation 12345/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Loading GitHub status/i)).not.toBeInTheDocument();
-
-    await act(async () => {
-      nextSessionStatus.resolve({
-        connection: {
-          ...connectedGitHub,
-          installation_id: 67890,
-          selected_repositories: []
-        }
-      });
-    });
-
-    expect(await screen.findByText(/Installation 67890/i)).toBeInTheDocument();
-  });
-
-  it('Control Center hides recent scans when no repositories are selected', async () => {
-    const unrelatedScan: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'repo-scan-unrelated',
-      repository: 'someone-else/other-repo'
-    };
-    await renderGitHubPage('control-center', {
-      githubConnection: { ...connectedGitHub, selected_repositories: [] },
-      scans: [unrelatedScan]
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    expect(screen.queryByText(/Last \d+ repository scans/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/someone-else\/other-repo/i)).not.toBeInTheDocument();
-    await screen.findByText(/Pick repositories for Identrail to watch\./i);
-  });
-
-  it('Control Center surfaces the most recent failed scan in the banner', async () => {
-    const olderSucceeded: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'repo-scan-older-success',
-      repository: 'identrail/recent-fail',
-      started_at: '2026-05-16T10:00:00Z',
-      finished_at: '2026-05-16T10:05:00Z'
-    };
-    const newerFailed: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'repo-scan-newer-failed',
-      repository: 'identrail/recent-fail',
-      status: 'failed',
-      started_at: '2026-05-17T12:00:00Z',
-      finished_at: '2026-05-17T12:05:00Z',
-      error_message: 'scan exploded',
-      finding_count: 0
-    };
-    await renderGitHubPage('control-center', {
-      githubConnection: { ...connectedGitHub, selected_repositories: ['identrail/recent-fail'] },
-      scans: [newerFailed, olderSucceeded]
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    await screen.findByText(/Installation 12345/i);
-    await waitFor(() => {
-      expect(screen.getByLabelText('GitHub action recommendation')).toHaveAttribute(
-        'data-banner-id',
-        'review-failed-scan'
-      );
-    });
-    const banner = screen.getByLabelText('GitHub action recommendation');
-    expect(within(banner).getByText(/failed its last scan/i)).toBeInTheDocument();
-    expect(within(banner).getByText(/scan exploded/i)).toBeInTheDocument();
-  });
-
-  it('Control Center ignores a stale failure once a newer successful scan exists', async () => {
-    const olderFailed: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'repo-scan-older-fail',
-      repository: 'identrail/recovered',
-      status: 'failed',
-      started_at: '2026-05-15T10:00:00Z',
-      finished_at: '2026-05-15T10:05:00Z',
-      error_message: 'scan exploded',
-      finding_count: 0
-    };
-    const newerSucceeded: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'repo-scan-newer-success',
-      repository: 'identrail/recovered',
-      started_at: '2026-05-17T10:00:00Z',
-      finished_at: '2026-05-17T10:05:00Z',
-      finding_count: 0
-    };
-    await renderGitHubPage('control-center', {
-      githubConnection: { ...connectedGitHub, selected_repositories: ['identrail/recovered'] },
-      scans: [newerSucceeded, olderFailed]
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    await screen.findByText(/Installation 12345/i);
-    await waitFor(() => {
-      expect(screen.queryByLabelText('GitHub action recommendation')).not.toBeInTheDocument();
-    });
-  });
-
-  it('Control Center surfaces a triage banner when latest scans have open findings', async () => {
-    const repoWithFindings: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'repo-scan-latest-has-findings',
-      repository: 'identrail/repo-a',
-      started_at: '2026-05-20T10:00:00Z',
-      finished_at: '2026-05-20T10:05:00Z',
-      finding_count: 2
-    };
-
-    await renderGitHubPage('control-center', {
-      githubConnection: { ...connectedGitHub, selected_repositories: ['identrail/repo-a'] },
-      scans: [repoWithFindings]
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    await screen.findByText(/Installation 12345/i);
-    await waitFor(() => {
-      expect(screen.getByLabelText('GitHub action recommendation')).toHaveAttribute(
-        'data-banner-id',
-        'triage-findings'
-      );
-    });
-    const banner = screen.getByLabelText('GitHub action recommendation');
-    expect(within(banner).getByText(/Repository findings need triage\./)).toBeInTheDocument();
-    expect(within(banner).getByRole('link', { name: /Review/i })).toHaveAttribute(
-      'href',
-      expect.stringMatching(/\/github\/findings/)
-    );
-  });
-
-  it('Control Center triage banner ignores findings from older scans once the latest scan is clean', async () => {
-    const repo = 'identrail/repo-cleared';
-    const olderHadFindings: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'older-had-findings',
-      repository: repo,
-      started_at: '2026-05-19T10:00:00Z',
-      finished_at: '2026-05-19T10:05:00Z',
-      finding_count: 3
-    };
-    const latestClean: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'latest-clean',
-      repository: repo,
-      started_at: '2026-05-20T10:00:00Z',
-      finished_at: '2026-05-20T10:05:00Z',
-      finding_count: 0
-    };
-
-    await renderGitHubPage('control-center', {
-      githubConnection: { ...connectedGitHub, selected_repositories: [repo] },
-      scans: [latestClean, olderHadFindings]
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    await screen.findByText(/Installation 12345/i);
-    await waitFor(() => {
-      expect(screen.queryByLabelText('GitHub action recommendation')).not.toBeInTheDocument();
-    });
-  });
-
-  it('Control Center triage banner survives a later canceled scan over a successful scan with findings', async () => {
-    const repo = 'identrail/repo-canceled-after-findings';
-    const succeededWithFindings: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'succeeded-with-findings',
-      repository: repo,
-      started_at: '2026-05-19T10:00:00Z',
-      finished_at: '2026-05-19T10:05:00Z',
-      finding_count: 3
-    };
-    const canceledAfter: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'canceled-after',
-      repository: repo,
-      status: 'canceled',
-      started_at: '2026-05-20T10:00:00Z',
-      finished_at: '2026-05-20T10:00:30Z',
-      finding_count: 0,
-      error_message: 'repository scan canceled by user'
-    };
-
-    await renderGitHubPage('control-center', {
-      githubConnection: { ...connectedGitHub, selected_repositories: [repo] },
-      scans: [canceledAfter, succeededWithFindings]
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    await screen.findByText(/Installation 12345/i);
-    await waitFor(() => {
-      expect(screen.getByLabelText('GitHub action recommendation')).toHaveAttribute(
-        'data-banner-id',
-        'triage-findings'
-      );
-    });
-    const banner = screen.getByLabelText('GitHub action recommendation');
-    expect(within(banner).getByText(/Repository findings need triage\./)).toBeInTheDocument();
-  });
-
-  it('Control Center shows a scan-in-progress banner instead of prompting to queue another', async () => {
-    const queuedFirstScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'queued-first',
-      repository: 'identrail/in-progress',
-      status: 'running'
-    };
-
-    await renderGitHubPage('control-center', {
-      githubConnection: { ...connectedGitHub, selected_repositories: ['identrail/in-progress'] },
-      scans: [queuedFirstScan]
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    await screen.findByText(/Installation 12345/i);
-    await waitFor(() => {
-      expect(screen.getByLabelText('GitHub action recommendation')).toHaveAttribute(
-        'data-banner-id',
-        'scan-in-progress'
-      );
-    });
-    const banner = screen.getByLabelText('GitHub action recommendation');
-    expect(within(banner).getByText(/Scan in progress/i)).toBeInTheDocument();
-    expect(within(banner).getByText('identrail/in-progress')).toBeInTheDocument();
-    expect(within(banner).queryByText(/Queue the first repository scan/i)).not.toBeInTheDocument();
-  });
-
-  it('Control Center shows an active scan banner when a failed scan is being retried', async () => {
-    const failedScan: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'failed-retry',
-      repository: 'identrail/retrying-repo',
-      status: 'failed',
-      started_at: '2026-05-16T10:00:00Z',
-      finished_at: '2026-05-16T10:05:00Z',
-      finding_count: 0,
-      error_message: 'scan exploded'
-    };
-    const retryScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'retry-in-progress',
-      repository: 'identrail/retrying-repo',
-      status: 'running'
-    };
-
-    await renderGitHubPage('control-center', {
-      githubConnection: { ...connectedGitHub, selected_repositories: ['identrail/retrying-repo'] },
-      scans: [retryScan, failedScan]
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    await screen.findByText(/Installation 12345/i);
-    await waitFor(() => {
-      expect(screen.getByLabelText('GitHub action recommendation')).toHaveAttribute(
-        'data-banner-id',
-        'scan-in-progress'
-      );
-    });
-    const banner = screen.getByLabelText('GitHub action recommendation');
-    expect(within(banner).queryByText(/failed its last scan/i)).not.toBeInTheDocument();
-    expect(within(banner).getByText(/Scan in progress/i)).toBeInTheDocument();
-    expect(within(banner).getByText('identrail/retrying-repo')).toBeInTheDocument();
-  });
-
-  it('Connect page renders an Open GitHub fallback link when the install popup is blocked', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-    await renderGitHubPage('connect', {
-      githubConnection: {
-        ...connectedGitHub,
-        connected: false,
-        account_login: undefined,
-        installation_id: undefined,
-        selected_repositories: []
-      }
-    });
-
-    const installButton = (await screen.findAllByRole('button', { name: 'Install GitHub App' }))[0];
-    fireEvent.click(installButton);
-
-    const fallback = await screen.findByRole('link', { name: 'Open GitHub' });
-    expect(fallback.getAttribute('href')).toBe(
-      'https://github.com/apps/identrail/installations/select_target?state=github-state'
-    );
-    expect(openSpy).toHaveBeenCalled();
-    openSpy.mockRestore();
-  });
-
-  it('Connect page shows the manage view with installation facts when already connected', async () => {
-    await renderGitHubPage('connect', { githubConnection: connectedGitHub });
-
-    await screen.findByRole('heading', { level: 2, name: 'Connect GitHub' });
-    await screen.findByText(/Installation 12345/i);
-    const installation = await screen.findByRole('region', { name: 'GitHub installation' });
-    expect(within(installation).getByText('Account')).toBeInTheDocument();
-    expect(within(installation).getByText('identrail')).toBeInTheDocument();
-    expect(within(installation).getByText('Selected repositories')).toBeInTheDocument();
-    // The reinstall affordance and the Enterprise/PAT management control are
-    // both reachable from the manage view.
-    expect(within(installation).getByRole('button', { name: 'Install GitHub App' })).toBeInTheDocument();
-    expect(within(installation).getByRole('button', { name: /Manage Enterprise \/ PAT/i })).toBeInTheDocument();
-    // The page must not also render the disconnected "Install the Identrail
-    // GitHub App" install card on top of the manage view.
-    expect(screen.queryByRole('region', { name: 'Install GitHub App' })).not.toBeInTheDocument();
-  });
-
-  it('Connect page keeps scan policy management reachable', async () => {
-    const mocks = await renderGitHubPage('connect', {
-      githubConnection: connectedGitHub,
-      scanPolicies: [defaultScanPolicy]
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'Connect GitHub' });
-    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
-    expect(within(policyPanel).getByRole('heading', { level: 3, name: 'Scan policy' })).toBeInTheDocument();
-    expect(within(policyPanel).getByText('Default policy')).toBeInTheDocument();
-    await waitFor(() =>
-      expect(mocks.listProjectScanPolicies).toHaveBeenCalledWith(
-        'workspace-a',
-        'production-platform',
-        expect.objectContaining({ limit: 50, sort_by: 'updated_at', sort_order: 'desc' }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    fireEvent.change(within(policyPanel).getByLabelText(/Trigger mode/i), { target: { value: 'hybrid' } });
-    fireEvent.change(within(policyPanel).getByLabelText(/Cron schedule/i), { target: { value: '0 * * * *' } });
-    fireEvent.click(within(policyPanel).getByRole('button', { name: /Save scan policy/i }));
-
-    await waitFor(() =>
-      expect(mocks.upsertProjectScanPolicy).toHaveBeenCalledWith(
-        'workspace-a',
-        'production-platform',
-        expect.objectContaining({
-          policy_id: 'default',
-          trigger_mode: 'hybrid',
-          cron: '0 * * * *'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    fireEvent.click(within(policyPanel).getByRole('button', { name: /^Delete$/i }));
-
-    await waitFor(() =>
-      expect(mocks.deleteProjectScanPolicy).toHaveBeenCalledWith(
-        'workspace-a',
-        'production-platform',
-        'default',
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-  });
-
-  it('Connect page ignores stale scan policy responses after environment changes', async () => {
-    vi.resetModules();
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    const stagingProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-    const productionPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
-    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
-    const productionPolicy: ScanPolicyRecord = {
-      ...defaultScanPolicy,
-      policy_id: 'production-only',
-      name: 'Production stale policy'
-    };
-    const stagingPolicy: ScanPolicyRecord = {
-      ...defaultScanPolicy,
-      project_id: 'staging-platform',
-      policy_id: 'staging-only',
-      name: 'Staging policy'
-    };
-
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
-    );
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-    const listProjectScanPolicies = vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation(
-      (_workspaceID, projectID) =>
-        projectID === 'staging-platform' ? stagingPolicyLoad.promise : productionPolicyLoad.promise
-    );
-
-    const { ProductGitHubConnectPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() =>
-      expect(listProjectScanPolicies).toHaveBeenCalledWith(
-        'workspace-a',
-        'production-platform',
-        expect.anything(),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
-      target: { value: 'staging-platform' }
-    });
-    await waitFor(() =>
-      expect(listProjectScanPolicies).toHaveBeenCalledWith(
-        'workspace-a',
-        'staging-platform',
-        expect.anything(),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    await act(async () => {
-      stagingPolicyLoad.resolve({ items: [stagingPolicy] });
-    });
-    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
-    expect(await within(policyPanel).findByText('Staging policy')).toBeInTheDocument();
-
-    await act(async () => {
-      productionPolicyLoad.resolve({ items: [productionPolicy] });
-    });
-
-    expect(within(policyPanel).getByText('Staging policy')).toBeInTheDocument();
-    expect(within(policyPanel).queryByText('Production stale policy')).not.toBeInTheDocument();
-  });
-
-  it('Connect page resets scan policy drafts for empty environments', async () => {
-    vi.resetModules();
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    const stagingProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-    const productionPolicy: ScanPolicyRecord = {
-      ...defaultScanPolicy,
-      policy_id: 'production-event-policy',
-      name: 'Production event policy',
-      trigger_mode: 'event'
-    };
-
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
-    );
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ items: projectID === 'staging-platform' ? [] : [productionPolicy] })
-    );
-
-    const { ProductGitHubConnectPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByDisplayValue('Production event policy')).toBeInTheDocument();
-
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
-      target: { value: 'staging-platform' }
-    });
-
-    await waitFor(() =>
-      expect(within(screen.getByRole('region', { name: 'Scan policy management' })).getByLabelText(/Policy name/i))
-        .toHaveValue('Default policy')
-    );
-    const currentPolicyPanel = screen.getByRole('region', { name: 'Scan policy management' });
-    expect(screen.queryByDisplayValue('Production event policy')).not.toBeInTheDocument();
-    expect(within(currentPolicyPanel).getByLabelText(/Trigger mode/i)).toHaveValue('manual');
-  });
-
-  it('Connect page resets scan policy drafts when environment policy loading fails', async () => {
-    vi.resetModules();
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    const stagingProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-    const productionPolicy: ScanPolicyRecord = {
-      ...defaultScanPolicy,
-      policy_id: 'production-event-policy',
-      name: 'Production event policy',
-      trigger_mode: 'event'
-    };
-
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
-    );
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation((_workspaceID, projectID) =>
-      projectID === 'staging-platform'
-        ? Promise.reject(new api.ApiError('scan policy unavailable', 503))
-        : Promise.resolve({ items: [productionPolicy] })
-    );
-
-    const { ProductGitHubConnectPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByDisplayValue('Production event policy')).toBeInTheDocument();
-
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
-      target: { value: 'staging-platform' }
-    });
-
-    await screen.findByRole('alert');
-    const currentPolicyPanel = screen.getByRole('region', { name: 'Scan policy management' });
-    expect(screen.queryByDisplayValue('Production event policy')).not.toBeInTheDocument();
-    expect(within(currentPolicyPanel).getByLabelText(/Policy name/i)).toHaveValue('Default policy');
-    expect(within(currentPolicyPanel).getByLabelText(/Trigger mode/i)).toHaveValue('manual');
-  });
-
-  it('Connect page ignores stale scan policy saves after environment changes', async () => {
-    vi.resetModules();
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    const stagingProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-    const productionPolicy: ScanPolicyRecord = {
-      ...defaultScanPolicy,
-      policy_id: 'production-event-policy',
-      name: 'Production event policy',
-      trigger_mode: 'event'
-    };
-    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
-    const savePolicy = deferred<{ policy: ScanPolicyRecord }>();
-
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
-    );
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-    const listProjectScanPolicies = vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation(
-      (_workspaceID, projectID) =>
-        projectID === 'staging-platform' ? stagingPolicyLoad.promise : Promise.resolve({ items: [productionPolicy] })
-    );
-    const upsertProjectScanPolicy = vi
-      .spyOn(api.apiClient, 'upsertProjectScanPolicy')
-      .mockImplementation(() => savePolicy.promise);
-
-    const { ProductGitHubConnectPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
-    expect(await within(policyPanel).findByDisplayValue('Production event policy')).toBeInTheDocument();
-    fireEvent.click(within(policyPanel).getByRole('button', { name: /Save scan policy/i }));
-
-    await waitFor(() =>
-      expect(upsertProjectScanPolicy).toHaveBeenCalledWith(
-        'workspace-a',
-        'production-platform',
-        expect.objectContaining({ policy_id: 'production-event-policy' }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
-      target: { value: 'staging-platform' }
-    });
-    await waitFor(() =>
-      expect(listProjectScanPolicies).toHaveBeenCalledWith(
-        'workspace-a',
-        'staging-platform',
-        expect.anything(),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    await act(async () => {
-      stagingPolicyLoad.resolve({ items: [] });
-    });
-    await waitFor(() => expect(screen.getByLabelText(/Policy name/i)).toHaveValue('Default policy'));
-
-    await act(async () => {
-      savePolicy.resolve({ policy: { ...productionPolicy, name: 'Saved production policy' } });
-    });
-
-    expect(screen.queryByText('Scan policy saved.')).not.toBeInTheDocument();
-    expect(screen.queryByDisplayValue('Saved production policy')).not.toBeInTheDocument();
-    expect(listProjectScanPolicies.mock.calls.filter((call) => call[1] === 'production-platform')).toHaveLength(1);
-  });
-
-  it('Connect page ignores stale scan policy deletes after environment changes', async () => {
-    vi.resetModules();
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    const stagingProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-    const productionPolicy: ScanPolicyRecord = {
-      ...defaultScanPolicy,
-      policy_id: 'production-event-policy',
-      name: 'Production event policy',
-      trigger_mode: 'event'
-    };
-    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
-    const deletePolicy = deferred<void>();
-
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
-    );
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-    const listProjectScanPolicies = vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation(
-      (_workspaceID, projectID) =>
-        projectID === 'staging-platform' ? stagingPolicyLoad.promise : Promise.resolve({ items: [productionPolicy] })
-    );
-    const deleteProjectScanPolicy = vi
-      .spyOn(api.apiClient, 'deleteProjectScanPolicy')
-      .mockImplementation(() => deletePolicy.promise);
-
-    const { ProductGitHubConnectPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
-    expect(await within(policyPanel).findByText('Production event policy')).toBeInTheDocument();
-    fireEvent.click(within(policyPanel).getByRole('button', { name: /^Delete$/i }));
-
-    await waitFor(() =>
-      expect(deleteProjectScanPolicy).toHaveBeenCalledWith(
-        'workspace-a',
-        'production-platform',
-        'production-event-policy',
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
-      target: { value: 'staging-platform' }
-    });
-    await waitFor(() =>
-      expect(listProjectScanPolicies).toHaveBeenCalledWith(
-        'workspace-a',
-        'staging-platform',
-        expect.anything(),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    await act(async () => {
-      stagingPolicyLoad.resolve({ items: [] });
-    });
-    await waitFor(() => expect(screen.getByLabelText(/Policy name/i)).toHaveValue('Default policy'));
-
-    await act(async () => {
-      deletePolicy.resolve();
-    });
-
-    expect(screen.queryByText('Scan policy production-event-policy deleted.')).not.toBeInTheDocument();
-    expect(listProjectScanPolicies.mock.calls.filter((call) => call[1] === 'production-platform')).toHaveLength(1);
-  });
-
-  it('Connect page clears old scan policy rows while loading a new environment', async () => {
-    vi.resetModules();
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    const stagingProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-    const productionPolicy: ScanPolicyRecord = {
-      ...defaultScanPolicy,
-      policy_id: 'production-event-policy',
-      name: 'Production event policy',
-      trigger_mode: 'event'
-    };
-    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
-
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
-      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
-    );
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation((_workspaceID, projectID) =>
-      projectID === 'staging-platform' ? stagingPolicyLoad.promise : Promise.resolve({ items: [productionPolicy] })
-    );
-
-    const { ProductGitHubConnectPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('Production event policy')).toBeInTheDocument();
-
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
-      target: { value: 'staging-platform' }
-    });
-
-    await waitFor(() => expect(screen.queryByText('Production event policy')).not.toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: /^Delete$/i })).not.toBeInTheDocument();
-  });
-
-  it('Connect page hides the install/manage body when the connection status request fails', async () => {
-    const api = await import('./api/client');
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockRejectedValue(
-      new api.ApiError('rate limited', 429)
-    );
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect']}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/connect"
-            element={<productShell.ProductGitHubConnectPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await screen.findByRole('heading', { level: 2, name: 'Connect GitHub' });
-    await screen.findByRole('heading', { level: 3, name: /Unable to load connection status/i });
-    expect(screen.queryByRole('region', { name: 'Install GitHub App' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'GitHub installation' })).not.toBeInTheDocument();
-    // When the status request fails the connection state is unknown, so
-    // the header must not claim "Not connected" and must not surface a
-    // speculative install/open CTA â€” the error panel is the single
-    // source of truth.
-    expect(screen.queryByText(/Not connected for this environment\./i)).not.toBeInTheDocument();
-    await screen.findByText(/Unable to load GitHub status\./i);
-    expect(document.querySelector('.idt-domain-header-actions')).toBeNull();
-    expect(
-      screen.queryAllByRole('button', { name: /Install GitHub App/i })
-    ).toHaveLength(0);
-  });
-
-  it('Repositories page activity timeline ignores scans for unselected repositories', async () => {
-    const unrelatedScan: RepoScanRecord = {
-      ...succeededRepoScan,
-      id: 'repo-scan-unrelated',
-      repository: 'someone-else/other-repo'
-    };
-    await renderGitHubPage('repositories', { scans: [unrelatedScan] });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    await screen.findByRole('heading', { level: 3, name: 'Recent activity' });
-    const activity = screen.getByRole('region', { name: 'Recent repository scan activity' });
-    expect(within(activity).getByRole('heading', { level: 3, name: /No repository scans recorded yet/i })).toBeInTheDocument();
-    expect(screen.queryByText(/someone-else\/other-repo/i)).not.toBeInTheDocument();
-  });
-
-  it('Repositories page fetches additional scan pages until selected-repository activity is available', async () => {
-    const unrelatedRepoScans: RepoScanRecord[] = Array.from({ length: 3 }).map((_, index) => ({
-      ...succeededRepoScan,
-      id: `repo-scan-unrelated-${index}`,
-      repository: `team-${index + 1}/unrelated`
-    }));
-    const selectedRepoScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-selected',
-      repository: 'identrail/identrail',
-      status: 'completed',
-      started_at: '2026-05-18T10:00:00Z',
-      finished_at: '2026-05-18T10:03:00Z',
-      finding_count: 2,
-      files_scanned: 17
-    };
-
-    let pageCalls = 0;
-    const mocks = await renderGitHubPage('repositories', {
-      listRepoScans: () => {
-        pageCalls += 1;
-        if (pageCalls === 1) {
-          return Promise.resolve({
-            items: unrelatedRepoScans,
-            next_cursor: 'repo-page-2'
-          });
-        }
-        return Promise.resolve({
-          items: [selectedRepoScan]
-        });
-      }
-    });
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(2));
-    await waitFor(() => {
-      const activity = screen.getByRole('region', { name: 'Recent repository scan activity' });
-      expect(within(activity).getAllByText(/identrail\/identrail/i).length).toBeGreaterThan(0);
-    });
-    expect(screen.getAllByText(/identrail\/identrail/i).length).toBeGreaterThan(1);
-  });
-
-  it('Repositories page clears stale GitHub connection data when a reloading environment status fails', async () => {
-    const api = await import('./api/client');
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-
-    const activeProject = productionProject;
-    const staleProject = {
-      ...productionProject,
-      project_id: 'staging-platform',
-      name: 'Staging Platform',
-      slug: 'staging-platform'
-    };
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [activeProject, staleProject]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockImplementation(async (_workspaceID, projectID) => ({
-      project:
-        projectID === staleProject.project_id
-          ? staleProject
-          : activeProject
-    }));
-
-    const getGitHubConnectorStatus = vi
-      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
-      .mockResolvedValueOnce({ connection: connectedGitHub })
-      .mockRejectedValue(new api.ApiError('status endpoint unavailable', 503));
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [queuedRepoScan] });
-    vi.spyOn(api.apiClient, 'runRepoScan').mockResolvedValue({ repo_scan: queuedRepoScan });
-    vi.spyOn(api.apiClient, 'cancelRepoScan').mockResolvedValue({ repo_scan: canceledRepoScan });
-
-    const { ProductGitHubRepositoriesPage } = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=production-platform']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/github/repositories" element={<ProductGitHubRepositoriesPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
-    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('production-platform'));
-    expect(await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' })).toBeInTheDocument();
-
-    await act(async () => {
-      fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), {
-        target: { value: 'staging-platform' }
-      });
-    });
-
-    await screen.findByRole('heading', { level: 3, name: /Unable to load repository status/i });
-    // After the reloading status request fails the stale Queue scan
-    // affordance is dropped and the body is suppressed so the error
-    // panel stays the single source of truth â€” the page must not also
-    // render a speculative "Connect GitHub to manage repositories"
-    // empty state off an errored status.
-    expect(screen.queryByRole('button', { name: 'Queue scan for identrail/identrail' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 3, name: /Connect GitHub to manage repositories/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Selected repositories' })).not.toBeInTheDocument();
-    await screen.findByText(/Unable to load repositories\./i);
-
-    expect(getGitHubConnectorStatus).toHaveBeenCalledTimes(2);
-  });
-
-  it('Repositories page disables Queue scan while environment data is reloading', async () => {
-    const mocks = await renderGitHubPage('repositories', { scans: [] });
-
-    expect(await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' })).not.toBeDisabled();
-
-    let resolveQueued: ((value: { repo_scan: RepoScanRecord }) => void) | null = null;
-    let resolvePending: ((value: { items: RepoScanRecord[] }) => void) | null = null;
-    mocks.runRepoScan.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveQueued = resolve;
-        })
-    );
-    mocks.listRepoScans.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolvePending = resolve;
-        })
-    );
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Queue scan for identrail/identrail' }));
-    });
-    await waitFor(() => expect(mocks.runRepoScan).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Queue scan for identrail/identrail' })).toBeDisabled());
-    expect(screen.getByRole('button', { name: 'Queue scan for identrail/identrail' })).toHaveTextContent(/Refreshing|Queuing/i);
-
-    await act(async () => {
-      resolveQueued?.({ repo_scan: queuedRepoScan });
-      await Promise.resolve();
-    });
-    await act(async () => {
-      resolvePending?.({ items: [] });
-      await Promise.resolve();
-    });
-  });
-});
-
-// Workspace Danger Zone â€” PR 3 of #1420.
-//
-// These cover the owner-only workspace lifecycle controls appended to the
-// existing Settings Danger Zone card: which rows show per role + lifecycle
-// state, the type-to-confirm gate on Suspend/Delete, the checkbox confirm
-// on the restorative Reactivate/Restore, and the inline sole-owner block
-// (with deep link to the member-management screen) when the backend
-// returns `409 sole_owner_requires_transfer`.
-describe('Workspace Danger Zone (#1420)', () => {
-  const ownerWorkspaceFixture = {
-    tenant_id: 'tenant-a',
-    workspace_id: 'workspace-a',
-    display_name: 'Workspace A',
-    slug: 'workspace-a',
-    created_at: '2026-05-16T10:00:00Z',
-    updated_at: '2026-05-16T10:00:00Z'
-  };
-  const ownerMe: CurrentUserContext = {
-    ...loggedInWithWorkspace,
-    role: 'owner',
-    workspace: ownerWorkspaceFixture
-  };
-
-  it('hides the workspace rows entirely for non-owner members', async () => {
-    await renderProductSettingsPage();
-    await screen.findByTestId('idt-suspend-account-row');
-    expect(screen.queryByTestId('idt-suspend-workspace-row')).toBeNull();
-    expect(screen.queryByTestId('idt-delete-workspace-row')).toBeNull();
-    expect(screen.queryByTestId('idt-reactivate-workspace-row')).toBeNull();
-    expect(screen.queryByTestId('idt-restore-workspace-row')).toBeNull();
-  });
-
-  it('shows Suspend + Delete workspace rows for owners on an active workspace', async () => {
-    await renderProductSettingsPage({ me: ownerMe });
-    await screen.findByTestId('idt-suspend-workspace-row');
-    expect(screen.getByTestId('idt-delete-workspace-row')).toBeTruthy();
-    expect(screen.queryByTestId('idt-reactivate-workspace-row')).toBeNull();
-    expect(screen.queryByTestId('idt-restore-workspace-row')).toBeNull();
-  });
-
-  it('swaps Suspend â†’ Reactivate when the workspace is already suspended', async () => {
-    await renderProductSettingsPage({ me: ownerMe, workspaceStatus: 'suspended' });
-    await screen.findByTestId('idt-reactivate-workspace-row');
-    expect(screen.getByTestId('idt-delete-workspace-row')).toBeTruthy();
-    expect(screen.queryByTestId('idt-suspend-workspace-row')).toBeNull();
-  });
-
-  it('collapses to a single Restore row when the workspace is soft-deleted', async () => {
-    await renderProductSettingsPage({ me: ownerMe, workspaceStatus: 'deleted' });
-    await screen.findByTestId('idt-restore-workspace-row');
-    expect(screen.queryByTestId('idt-suspend-workspace-row')).toBeNull();
-    expect(screen.queryByTestId('idt-reactivate-workspace-row')).toBeNull();
-    expect(screen.queryByTestId('idt-delete-workspace-row')).toBeNull();
-  });
-
-  it('suspends the workspace after typing SUSPEND in the modal', async () => {
-    const { suspendWorkspace } = await renderProductSettingsPage({ me: ownerMe });
-    suspendWorkspace.mockResolvedValue({
-      workspace: { ...ownerWorkspaceFixture, status: 'suspended' },
-      status: 'suspended'
-    });
-    await screen.findByTestId('idt-suspend-workspace-row');
-
-    await act(async () => {
-      fireEvent.click(
-        within(screen.getByTestId('idt-suspend-workspace-row')).getByRole('button')
-      );
-    });
-    const modal = await screen.findByTestId('idt-danger-modal');
-    const continueBtn = within(modal).getByTestId('idt-danger-modal-continue');
-    // Gate stays armed until the user types the exact token.
-    expect(continueBtn).toBeDisabled();
-    await act(async () => {
-      fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
-        target: { value: 'SUSPEND' }
-      });
-    });
-    expect(continueBtn).not.toBeDisabled();
-    await act(async () => {
-      fireEvent.click(continueBtn);
-    });
-    await waitFor(() =>
-      expect(suspendWorkspace).toHaveBeenCalledWith('workspace-a', expect.anything())
-    );
-    // Row swaps to Reactivate once the response lands.
-    await screen.findByTestId('idt-reactivate-workspace-row');
-  });
-
-  it('still renders a fallback sole-owner blocker when affected_members is empty', async () => {
-    // Regression for cubic PR #1456 P2: previously a 409 with a missing or
-    // malformed affected_members array would set the stranded list to []
-    // and the blocker (which keyed off length > 0) would not render at all,
-    // leaving the actor with a closed pending state and no feedback.
-    const { suspendWorkspace, api } = await renderProductSettingsPage({ me: ownerMe });
-    await screen.findByTestId('idt-suspend-workspace-row');
-    suspendWorkspace.mockRejectedValue(
-      new api.ApiError('sole owner requires transfer', 409, {
-        code: 'sole_owner_requires_transfer',
-        payload: { code: 'sole_owner_requires_transfer' }
-      })
-    );
-
-    await act(async () => {
-      fireEvent.click(
-        within(screen.getByTestId('idt-suspend-workspace-row')).getByRole('button')
-      );
-    });
-    const modal = await screen.findByTestId('idt-danger-modal');
-    await act(async () => {
-      fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
-        target: { value: 'SUSPEND' }
-      });
-    });
-    await act(async () => {
-      fireEvent.click(within(modal).getByTestId('idt-danger-modal-continue'));
-    });
-    const block = await screen.findByTestId('idt-suspend-workspace-sole-owner-block');
-    // Fallback copy must surface even with no affected-member list.
-    expect(block.textContent).toMatch(/only one owner/i);
-    expect(
-      within(block).getByRole('link', { name: /manage members/i }).getAttribute('href')
-    ).toBe('/app/tenant-a/workspace-a/workspaces');
-  });
-
-  it('renders the sole-owner inline block with a link to manage members', async () => {
-    const { suspendWorkspace, api } = await renderProductSettingsPage({ me: ownerMe });
-    await screen.findByTestId('idt-suspend-workspace-row');
-    suspendWorkspace.mockRejectedValue(
-      new api.ApiError(
-        'workspace has additional active members but only one owner; transfer ownership before suspending or deleting',
-        409,
-        {
-          code: 'sole_owner_requires_transfer',
-          payload: {
-            code: 'sole_owner_requires_transfer',
-            affected_members: [
-              {
-                member_id: 'member-b',
-                user_id: 'user-b',
-                email: 'user-b@example.com',
-                role: 'admin'
-              }
-            ]
-          }
-        }
-      )
-    );
-
-    await act(async () => {
-      fireEvent.click(
-        within(screen.getByTestId('idt-suspend-workspace-row')).getByRole('button')
-      );
-    });
-    const modal = await screen.findByTestId('idt-danger-modal');
-    await act(async () => {
-      fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
-        target: { value: 'SUSPEND' }
-      });
-    });
-    await act(async () => {
-      fireEvent.click(within(modal).getByTestId('idt-danger-modal-continue'));
-    });
-    const block = await screen.findByTestId('idt-suspend-workspace-sole-owner-block');
-    expect(block.textContent).toContain('user-b@example.com');
-    const manageLink = within(block).getByRole('link', { name: /manage members/i });
-    expect(manageLink.getAttribute('href')).toBe('/app/tenant-a/workspace-a/workspaces');
-  });
-
-  it('keeps Delete workspace gated until the slug is typed exactly', async () => {
-    const { deleteWorkspace } = await renderProductSettingsPage({ me: ownerMe });
-    deleteWorkspace.mockResolvedValue({
-      workspace: { ...ownerWorkspaceFixture, status: 'deleted', deleted_at: '2026-05-20T10:00:00Z' },
-      status: 'deleted',
-      hard_delete_after: '2026-06-19T10:00:00Z',
-      grace_period_hours: 720
-    });
-    await screen.findByTestId('idt-delete-workspace-row');
-
-    await act(async () => {
-      fireEvent.click(
-        within(screen.getByTestId('idt-delete-workspace-row')).getByRole('button')
-      );
-    });
-    const modal = await screen.findByTestId('idt-danger-modal');
-    const continueBtn = within(modal).getByTestId('idt-danger-modal-continue');
-    expect(continueBtn).toBeDisabled();
-    await act(async () => {
-      fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
-        target: { value: 'wrong-slug' }
-      });
-    });
-    expect(continueBtn).toBeDisabled();
-    await act(async () => {
-      fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
-        target: { value: 'workspace-a' }
-      });
-    });
-    expect(continueBtn).not.toBeDisabled();
-    await act(async () => {
-      fireEvent.click(continueBtn);
-    });
-    await waitFor(() =>
-      expect(deleteWorkspace).toHaveBeenCalledWith('workspace-a', expect.anything())
-    );
-    await screen.findByTestId('idt-restore-workspace-row');
-  });
-
-  it('reactivates a suspended workspace through the checkbox modal', async () => {
-    const { reactivateWorkspace } = await renderProductSettingsPage({
-      me: ownerMe,
-      workspaceStatus: 'suspended'
-    });
-    reactivateWorkspace.mockResolvedValue({
-      workspace: { ...ownerWorkspaceFixture, status: 'active' },
-      status: 'active'
-    });
-    await screen.findByTestId('idt-reactivate-workspace-row');
-
-    await act(async () => {
-      fireEvent.click(
-        within(screen.getByTestId('idt-reactivate-workspace-row')).getByRole('button')
-      );
-    });
-    const modal = await screen.findByTestId('idt-danger-modal');
-    await act(async () => {
-      fireEvent.click(within(modal).getByTestId('idt-danger-modal-checkbox'));
-    });
-    await act(async () => {
-      fireEvent.click(within(modal).getByTestId('idt-danger-modal-continue'));
-    });
-    await waitFor(() =>
-      expect(reactivateWorkspace).toHaveBeenCalledWith('workspace-a', expect.anything())
-    );
-    await screen.findByTestId('idt-suspend-workspace-row');
-  });
-
-  it('restores a soft-deleted workspace through the checkbox modal', async () => {
-    const { cancelWorkspaceDeletion } = await renderProductSettingsPage({
-      me: ownerMe,
-      workspaceStatus: 'deleted'
-    });
-    cancelWorkspaceDeletion.mockResolvedValue({
-      workspace: { ...ownerWorkspaceFixture, status: 'active' },
-      status: 'active'
-    });
-    await screen.findByTestId('idt-restore-workspace-row');
-
-    await act(async () => {
-      fireEvent.click(
-        within(screen.getByTestId('idt-restore-workspace-row')).getByRole('button')
-      );
-    });
-    const modal = await screen.findByTestId('idt-danger-modal');
-    await act(async () => {
-      fireEvent.click(within(modal).getByTestId('idt-danger-modal-checkbox'));
-    });
-    await act(async () => {
-      fireEvent.click(within(modal).getByTestId('idt-danger-modal-continue'));
-    });
-    await waitFor(() =>
-      expect(cancelWorkspaceDeletion).toHaveBeenCalledWith('workspace-a', expect.anything())
-    );
-    await screen.findByTestId('idt-suspend-workspace-row');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AWS section copy-redundancy regression
-// ---------------------------------------------------------------------------
-//
-// PR #1582 stripped the AWS section of engineering-vibe copy: the marketing
-// tagline on the overview, the eight-card KPI strip, every per-page
-// `Current vs planned / Wired now / Planned coverage` block, the
-// `Inventory contract` and `AWSRiskOperationScope` asides, the three
-// `Issue sequencing / App validation / Collector contract` issue-tracker
-// panels, and the `Coming wave / Coming later / Reserved surface /
-// Inventory shell` status labels.
-//
-// This test reads productShell.tsx as source so that a future PR cannot
-// quietly re-introduce any of those strings. The check is a substring
-// match â€” if any banned phrase reappears anywhere in the file, this test
-// fails with a clear pointer to which one. The list is intentionally
-// scoped to *copy*; new code paths that happen to mention "wave" or
-// "shell" in a function or type name are fine.
-
-describe('AWS copy redundancy guard (#1582)', () => {
-
-  // Strings that must never appear as customer-visible copy in the AWS
-  // section. Anything wrapped in JSX literal quotes is fair game for the
-  // check; type names and helper-function identifiers do not match
-  // because they use camelCase or PascalCase.
-  // The list is scoped to phrases that are unambiguously
-  // engineering-roadmap-in-UI; phrases that double as legitimate
-  // filter-option labels (e.g. 'Coming wave' is also an inventory
-  // filter value), internal helper return values, or content-card copy
-  // are intentionally NOT on this list â€” the per-constant assertions
-  // below cover the page-shell constants where those phrases were the
-  // actual redundancy.
-  const bannedAWSCopyStrings: ReadonlyArray<string> = [
-    // Header / overview chrome removed by #1582
-    'AWS MACHINE IDENTITY',
-    'AWS Control Center',
-    'from one domain-owned surface',
-    'Operate AWS connection health',
-    // Issue-tracker panels removed from customer UI by #1582
-    'AWS platform dependency index',
-    'AWS live app validation harness',
-    'AWS service collector contract',
-    // Page-shell shells / scopes / asides removed by #1582
-    'Coverage shell',
-    'Inventory shell',
-    'Reachability shell',
-    'Reserved surface',
-    'AWS capability expansion',
-    'AWS capability map',
-    'Setup payload',
-    'Scoped contract',
-    'Workspace contract',
-    'Read-only account onboarding'
-    // Note: short engineering-vibe phrases like "Not ingesting" / "Advisory
-    // only" / "Coming wave" / "Wired now" / "Not yet available" are
-    // intentionally not substring-banned because they double as legitimate
-    // inventory filter labels or appear in cleanup comments. Their
-    // reintroduction into the AWS_INVENTORY_PAGE_COPY and
-    // AWS_RISK_OPERATION_PAGE_COPY shells is caught by the per-constant
-    // assertions below.
-  ];
-
-  it.each(bannedAWSCopyStrings)(
-    'productShell.tsx must not reintroduce the AWS copy redundancy %p',
-    (phrase) => {
-      // We match an opening single or double quote, optional intervening
-      // whitespace, and the phrase, so we only catch the strings as
-      // literal copy â€” not as parts of variable names.
-      const literalForms = [`'${phrase}`, `"${phrase}`, `\`${phrase}`];
-      const matched = literalForms.find((needle) => productShellSource.includes(needle));
-      if (matched) {
-        throw new Error(
-          `AWS copy redundancy reintroduced: ${JSON.stringify(phrase)} was found as a string literal in productShell.tsx. ` +
-            `PR #1582 removed this string family because it pushed engineering-roadmap language onto the customer UI. ` +
-            `Use plain-English page copy and a real empty state instead.`
-        );
-      }
-      expect(matched).toBeUndefined();
-    }
-  );
-
-  it('AWS inventory copy entries keep the legacy roadmap-in-UI fields blank', () => {
-    // The AWSInventoryPageCopy entries were the source of every
-    // `Wired now / Planned coverage / Statuslabel` repeat across the
-    // AWS inventory sub-pages. The fields
-    // still exist on the type so the surrounding shell continues to
-    // compile, but their *values* must stay empty so the deleted panel
-    // cannot accidentally reappear if a future PR re-renders them.
-    const inventoryCopyBlock = productShellSource.match(
-      /const AWS_INVENTORY_PAGE_COPY[\s\S]*?^};/m
-    );
-    expect(inventoryCopyBlock).not.toBeNull();
-    const block = inventoryCopyBlock![0];
-    // Every assignment to the four fields must be the empty string.
-    for (const field of ['eyebrow', 'statusLabel', 'currentCapability', 'plannedCapability']) {
-      const matches = [...block.matchAll(new RegExp(`${field}:\\s*'([^']*)'`, 'g'))];
-      expect(matches.length).toBeGreaterThan(0);
-      for (const match of matches) {
-        expect(match[1]).toBe('');
-      }
-    }
-  });
-
-  it('AWS risk-operation copy entries keep the legacy roadmap-in-UI fields blank', () => {
-    const riskCopyBlock = productShellSource.match(
-      /const AWS_RISK_OPERATION_PAGE_COPY[\s\S]*?^};/m
-    );
-    expect(riskCopyBlock).not.toBeNull();
-    const block = riskCopyBlock![0];
-    for (const field of ['eyebrow', 'statusLabel', 'currentCapability', 'plannedCapability', 'nextAction']) {
-      const matches = [...block.matchAll(new RegExp(`${field}:\\s*'([^']*)'`, 'g'))];
-      expect(matches.length).toBeGreaterThan(0);
-      for (const match of matches) {
-        expect(match[1]).toBe('');
-      }
-    }
-  });
-});
-
-// Repository intelligence drilldown (#1712) â€” unified scan state, posture
-// gaps, prioritized findings queue, top blast-radius paths, and remediation
-// actions for one repository, addressed by a ?repository= query param.
-describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
-  const targetRepository = 'identrail/identrail';
-
-  const completedScan: RepoScanRecord = {
-    id: 'repo-scan-detail-complete',
-    repository: targetRepository,
-    status: 'succeeded',
-    started_at: '2026-05-17T10:50:00Z',
-    finished_at: '2026-05-17T10:55:00Z',
-    commits_scanned: 12,
-    files_scanned: 340,
-    finding_count: 3,
-    truncated: false,
-    scan_mode: 'quick',
-    source_health: 'complete',
-    source_health_details: [
-      { source: 'github_posture', status: 'complete' },
-      { source: 'repo_git_history', status: 'complete' }
-    ]
-  };
-
-  const partialScan: RepoScanRecord = {
-    ...completedScan,
-    id: 'repo-scan-detail-partial',
-    source_health: 'partial',
-    source_health_details: [
-      { source: 'github_posture', status: 'complete' },
-      { source: 'repo_git_history', status: 'partial', message: 'Git history truncated at 500 commits.' }
-    ]
-  };
-
-  const postureFinding: Finding = {
-    id: 'finding-posture-branch-protection',
-    scan_id: 'repo-scan-detail-complete',
-    type: 'repo_misconfiguration',
-    severity: 'high',
-    title: 'Default branch protection is unprotected',
-    human_summary: 'Repository default branch does not require pull request reviews.',
-    repository: targetRepository,
-    detector: 'github_default_branch_unprotected',
-    evidence: {
-      adapter_source: 'github_posture',
-      github_posture_check_id: 'default_branch_protection',
-      github_posture_scope: 'repository'
-    },
-    remediation: 'Enable branch protection with required reviews.',
-    created_at: '2026-05-17T11:00:00Z'
-  };
-
-  const workflowFinding: Finding = {
-    id: 'finding-workflow-oidc',
-    scan_id: 'repo-scan-detail-complete',
-    type: 'repo_misconfiguration',
-    severity: 'medium',
-    title: 'Workflow OIDC trust is broad',
-    human_summary: 'A workflow can mint OIDC tokens against a broad AWS role trust condition.',
-    repository: targetRepository,
-    detector: 'workflow_oidc_broad_trust',
-    evidence: { file_path: '.github/workflows/deploy.yml' },
-    remediation: 'Restrict OIDC trust to a specific ref/job.',
-    created_at: '2026-05-17T11:05:00Z'
-  };
-
-  const emptyRiskGraph: RepoRiskGraph = {
-    repository: targetRepository,
-    nodes: [],
-    edges: [],
-    scores: [],
-    summary: {
-      finding_count: 0,
-      node_count: 0,
-      edge_count: 0,
-      unknown_node_count: 0,
-      unknown_edge_count: 0,
-      high_risk_findings: 0,
-      critical_findings: 0
-    }
-  };
-
-  const riskGraphWithScores: RepoRiskGraph = {
-    ...emptyRiskGraph,
-    scores: [
-      {
-        finding_id: postureFinding.id,
-        finding_node_id: 'node-posture',
-        score: 88,
-        severity: 'high',
-        confidence: 0.9,
-        factors: {
-          severity: 80,
-          confidence: 90,
-          exploitability: 60,
-          privilege: 40,
-          exposure: 55,
-          environment_criticality: 30,
-          freshness: 100,
-          posture_amplifier: 70
-        },
-        unknowns: []
-      },
-      {
-        finding_id: workflowFinding.id,
-        finding_node_id: 'node-workflow',
-        score: 62,
-        severity: 'medium',
-        confidence: 0.7,
-        factors: {
-          severity: 55,
-          confidence: 70,
-          exploitability: 50,
-          privilege: 30,
-          exposure: 40,
-          environment_criticality: 0,
-          freshness: 100,
-          posture_amplifier: 0
-        },
-        unknowns: ['identity_target']
-      }
-    ]
-  };
-
-  async function renderRepositoryDetail(options: {
-    initialRepository?: string;
-    scans?: RepoScanRecord[];
-    findings?: Finding[];
-    riskGraph?: RepoRiskGraph;
-    posture?: GitHubRepositoryPosture;
-    postureError?: { message: string; status: number };
-    listRepoFindingsError?: { message: string; status: number };
-    listRepoScansError?: { message: string; status: number };
-  } = {}) {
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    const scansSpy = vi.spyOn(api.apiClient, 'listRepoScans');
-    if (options.listRepoScansError) {
-      scansSpy.mockRejectedValue(new api.ApiError(options.listRepoScansError.message, options.listRepoScansError.status));
-    } else {
-      scansSpy.mockResolvedValue({ items: options.scans ?? [completedScan] });
-    }
-
-    const findingsSpy = vi.spyOn(api.apiClient, 'listRepoFindings');
-    if (options.listRepoFindingsError) {
-      findingsSpy.mockRejectedValue(new api.ApiError(options.listRepoFindingsError.message, options.listRepoFindingsError.status));
-    } else {
-      findingsSpy.mockResolvedValue({ items: options.findings ?? [postureFinding, workflowFinding] });
-    }
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(options.riskGraph ?? riskGraphWithScores);
-
-    const postureSpy = vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture');
-    if (options.postureError) {
-      postureSpy.mockRejectedValue(new api.ApiError(options.postureError.message, options.postureError.status));
-    } else {
-      postureSpy.mockResolvedValue({
-        connector_id: 'github-app',
-        provider: 'github_app',
-        posture: options.posture ?? {
-          repository: targetRepository,
-          installation_id: 12345,
-          collected_at: '2026-05-17T10:56:00Z',
-          checks: [
-            {
-              id: 'branch-protection', category: 'branch protection', state: 'insecure',
-              summary: 'Default branch is missing required pull request reviews.'
-            },
-            {
-              id: 'secret-scanning', category: 'security', state: 'secure',
-              summary: 'Secret scanning is enabled.'
-            }
-          ]
-        }
-      });
-    }
-    vi.spyOn(api.apiClient, 'previewRepoFindingRemediation').mockResolvedValue({
-      finding: postureFinding,
-      remediation: {
-        detector: 'github_default_branch_unprotected',
-        summary: 'Require pull-request reviews on the default branch',
-        risk_summary: 'Unrestricted merges bypass evidence review.',
-        steps: ['Enable branch protection', 'Require signed commits'],
-        safety_notes: [], validation: [],
-        secret_rotation: false, publishable: true,
-        evidence: { finding_id: postureFinding.id }
-      }
-    });
-
-    const repository = options.initialRepository ?? targetRepository;
-    const productShell = await import('./productShell');
-    const initialEntry = repository
-      ? `/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(repository)}`
-      : `/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform`;
-    render(
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    return { findingsSpy };
-  }
-
-  beforeEach(() => {
-    // Prior describe blocks in this file leave module-scoped mocks
-    // (mockConnectorFeatureFlags / mockBackendFeatures use vi.doMock) that can
-    // linger past their afterEach. Reset both the mock registry and the module
-    // cache so every drilldown test starts from a clean import graph.
-    vi.restoreAllMocks();
-    vi.doUnmock('./hooks/useBackendFeatures');
-    vi.doUnmock('./pages/onboarding/onboardingUtils');
-    vi.resetModules();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.doUnmock('./hooks/useBackendFeatures');
-    vi.doUnmock('./pages/onboarding/onboardingUtils');
-    vi.resetModules();
-  });
-
-  it('renders unified scan state, posture gaps, and prioritized findings queue for a repository', async () => {
-    await renderRepositoryDetail();
-
-    // Header names the repository.
-    await screen.findByRole('heading', { level: 2, name: targetRepository });
-
-    // Scan strip shows the complete pill.
-    await screen.findByText(/Complete scan/i);
-
-    // Posture gap section surfaces the insecure check and hides the secure one.
-    expect(await screen.findByText(/missing required pull request reviews/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Secret scanning is enabled/i)).not.toBeInTheDocument();
-
-    // Queue shows both findings, posture score 88 comes before workflow score 62.
-    const queueList = (await screen.findByLabelText('Prioritized findings queue')).querySelector('ul');
-    expect(queueList).not.toBeNull();
-    const rows = (queueList as HTMLElement).querySelectorAll('li');
-    expect(rows[0].textContent).toContain('Default branch protection is unprotected');
-    expect(rows[0].textContent).toContain('score 88');
-    expect(rows[1].textContent).toContain('Workflow OIDC trust is broad');
-    expect(rows[1].textContent).toContain('score 62');
-  });
-
-  it('surfaces a partial-scan pill and per-source health details when the scan is partial', async () => {
-    await renderRepositoryDetail({ scans: [partialScan] });
-    await screen.findByRole('heading', { level: 2, name: targetRepository });
-    expect(await screen.findByText(/Partial scan/i)).toBeInTheDocument();
-    expect(screen.getByText(/Git history truncated at 500 commits/i)).toBeInTheDocument();
-  });
-
-  it('renders the no-findings empty state when the queue is empty', async () => {
-    await renderRepositoryDetail({ findings: [], riskGraph: emptyRiskGraph });
-    expect(await screen.findByText(/No findings for this repository/i)).toBeInTheDocument();
-  });
-
-  it('surfaces a truncated scan-history warning instead of "No scan yet" when the search hit its cap', async () => {
-    // ListRepoScans is workspace-wide, so a repository whose newest scan sits
-    // behind more than REPO_INTELLIGENCE_SCAN_MAX_PAGES * SCAN_PAGE_LIMIT
-    // newer workspace scans is never reached. Simulate that by returning
-    // pages that never match the target repository and always return a
-    // next_cursor so the fetcher exhausts its 20-page ceiling.
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    const otherRepoScan: RepoScanRecord = {
-      ...completedScan,
-      id: 'repo-scan-other',
-      repository: 'someone-else/other-repo'
-    };
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({
-      items: [otherRepoScan],
-      next_cursor: 'never-exhausted'
-    });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(emptyRiskGraph);
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app', provider: 'github_app',
-      posture: {
-        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
-        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
-      }
-    });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Header reads "Scan history truncated", not "No scan yet". The banner
-    // steers the operator to filter by repository instead of assuming the
-    // repository has never been scanned.
-    expect(await screen.findByText(/Scan history truncated/i)).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 3, name: /No scan yet/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/Repository scan search hit its safety ceiling/i)).toBeInTheDocument();
-  });
-
-  it('counts publishable-patch detectors as fix-ready and guidance-only as preview-only', async () => {
-    // workflow_write_all_permissions â†’ deterministic patch (Publishable:true).
-    // workflow_oidc_broad_trust â†’ guidance-only (Publishable:false).
-    // Both are supported (Preview button), but only the first is fix-ready.
-    const fixReadyFinding: Finding = {
-      ...workflowFinding,
-      id: 'finding-workflow-write-all',
-      title: 'Workflow has write-all permissions',
-      detector: 'workflow_write_all_permissions'
-    };
-    await renderRepositoryDetail({ findings: [fixReadyFinding, workflowFinding] });
-    const queueList = await screen.findByLabelText('Prioritized findings queue');
-    expect(queueList.textContent).toContain('1 fix-ready');
-    expect(queueList.textContent).toContain('1 preview-only');
-  });
-
-  it('does not offer a Preview button for unrecognized terraform_ detectors', async () => {
-    // Frontend prefix set used to include terraform_/docker_/k8s_, but the
-    // backend switch only accepts a fixed list of exact detectors for these
-    // families. An unrecognized terraform_ detector would 422 on preview.
-    const unsupportedTerraformFinding: Finding = {
-      ...workflowFinding,
-      id: 'finding-terraform-unrecognized',
-      title: 'Unrecognized terraform misconfiguration',
-      detector: 'terraform_some_new_detector_backend_does_not_handle'
-    };
-    await renderRepositoryDetail({ findings: [unsupportedTerraformFinding] });
-    const queueList = await screen.findByLabelText('Prioritized findings queue');
-    // Row rendered for triage.
-    expect(queueList.textContent).toContain('Unrecognized terraform misconfiguration');
-    // No Preview button.
-    expect(screen.queryByRole('button', { name: /Preview remediation/i })).not.toBeInTheDocument();
-    expect(within(queueList).getByText(/Review in GitHub/i)).toBeInTheDocument();
-  });
-
-  it('shows an error banner when the repository query parameter is missing', async () => {
-    await renderRepositoryDetail({ initialRepository: '' });
-    expect(await screen.findByText(/Repository not selected/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Back to repositories/i })).toBeInTheDocument();
-  });
-
-  it('shows an inline findings error but keeps the scan strip and posture usable', async () => {
-    // Findings lane runs independently now, so a findings failure surfaces
-    // inline in the queue panel while the scan strip and posture panels
-    // still render their own successful state.
-    await renderRepositoryDetail({ listRepoFindingsError: { message: 'boom', status: 500 } });
-    // Scan strip commits its own success even though findings rejected.
-    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
-    // Findings queue panel surfaces its own error.
-    const queuePanel = await screen.findByLabelText('Prioritized findings queue');
-    expect(within(queuePanel).getByText(/boom/i)).toBeInTheDocument();
-    // No shared "Couldn't load repository intelligence" banner â€” that
-    // banner was misleading because it hid the successful scan panel.
-    expect(screen.queryByText(/Couldn't load repository intelligence/i)).not.toBeInTheDocument();
-  });
-
-  it('commits successful findings when the scan lookup rejects', async () => {
-    // Scan and findings lanes are independent, so a transient
-    // /v1/repo-scans failure must not discard a successfully fetched
-    // findings queue. Previously Promise.all rejected together, so the
-    // page misleadingly showed both "No scan yet" and "No findings"
-    // under a shared error banner even when findings was fine.
-    await renderRepositoryDetail({ listRepoScansError: { message: 'scans down', status: 502 } });
-    // Findings queue rendered from its own successful response.
-    const queuePanel = await screen.findByLabelText('Prioritized findings queue');
-    expect(within(queuePanel).getByText(/Default branch protection is unprotected/i)).toBeInTheDocument();
-    expect(within(queuePanel).getByText(/Workflow OIDC trust is broad/i)).toBeInTheDocument();
-    // Scan strip surfaces its own inline error, not the shared banner.
-    const scanPanel = await screen.findByLabelText('Latest scan');
-    expect(within(scanPanel).getByText(/scans down/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Couldn't load repository intelligence/i)).not.toBeInTheDocument();
-    // Not the misleading "No scan yet" fallback either â€” that would suggest
-    // the repository has never been scanned rather than a transient error.
-    expect(within(scanPanel).queryByRole('heading', { level: 3, name: /No scan yet/i })).not.toBeInTheDocument();
-  });
-
-  it('shows an inline posture error but keeps the rest of the drilldown usable', async () => {
-    await renderRepositoryDetail({ postureError: { message: 'posture rate limited', status: 429 } });
-    // Findings queue still rendered.
-    // Finding title appears in both the queue panel and the paths panel now
-    // that paths render the actual finding chain, so scope to the queue.
-    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
-    // Posture panel shows an inline alert without breaking the page. Wait for the
-    // async state update rather than reading synchronously: the posture request
-    // rejects on a separate promise from the scans/findings/graph fetch, and its
-    // catch handler runs after the queue's initial render.
-    expect(await screen.findByText(/posture rate limited/i)).toBeInTheDocument();
-  });
-
-  it('opens a remediation preview when the operator clicks Preview remediation on a fix-ready finding', async () => {
-    await renderRepositoryDetail();
-    const previewButtons = await screen.findAllByRole('button', { name: /Preview remediation/i });
-    fireEvent.click(previewButtons[0]);
-    expect(await screen.findByText(/Require pull-request reviews on the default branch/i)).toBeInTheDocument();
-    expect(screen.getByText(/Enable branch protection/i)).toBeInTheDocument();
-  });
-
-  it('commits scan and findings even when the risk graph request rejects', async () => {
-    // Risk graph runs on its own lane, so a graph failure must not block the
-    // scan and findings panels: the queue already falls back to severity
-    // ordering when riskGraph is null. Without the split, Promise.all would
-    // reject on the graph error and the operator would see the shared error
-    // banner over "No scan yet" / "No findings" even though the actual scan
-    // and findings requests completed successfully.
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding, workflowFinding] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockRejectedValue(
-      new api.ApiError('risk graph unavailable', 503)
-    );
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app', provider: 'github_app',
-      posture: {
-        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
-        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
-      }
-    });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Scan strip and findings queue commit despite the graph failure.
-    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
-    const queueList = await screen.findByLabelText('Prioritized findings queue');
-    expect(within(queueList).getByText(/Default branch protection is unprotected/i)).toBeInTheDocument();
-    expect(within(queueList).getByText(/Workflow OIDC trust is broad/i)).toBeInTheDocument();
-
-    // Graph error surfaces inline in its own panel; shared error banner stays clear.
-    expect(await screen.findByText(/risk graph unavailable/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Couldn't load repository intelligence/i)).not.toBeInTheDocument();
-  });
-
-  it('does not preload workspace-wide recent scans through useGitHubDomainData', async () => {
-    // The drilldown reads scans through its own paginated
-    // findRepoIntelligenceLatestScan, not domainData.scans. Passing a non-zero
-    // scanLimit to useGitHubDomainData would paginate
-    // listRepoScansForSelectedRepositories with narrow pages before the
-    // drilldown effect can even start, since the effect waits for
-    // domainData.loading to clear. Assert the preload never runs.
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app', provider: 'github_app',
-      posture: {
-        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
-        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
-      }
-    });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Wait for the drilldown to finish its own scan lookup so we know the
-    // effect has run.
-    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
-
-    // Every listRepoScans call must be the drilldown's own paginator (which
-    // uses REPO_INTELLIGENCE_SCAN_PAGE_LIMIT=50), not the preload's narrow
-    // 5-record page. If useGitHubDomainData had been given a non-zero
-    // scanLimit, it would call listRepoScans with limit=5.
-    for (const call of listRepoScans.mock.calls) {
-      const filters = call[0];
-      expect(filters?.limit).not.toBe(5);
-    }
-  });
-
-  it('paginates listRepoScans until the target repository is found rather than reading only the first page', async () => {
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-
-    // First page holds a scan for another repository; the target repo's scan
-    // lives on the second page, keyed by the cursor. If pagination is not
-    // followed the drilldown falsely reports "No scan yet".
-    const otherRepoScan: RepoScanRecord = {
-      ...completedScan,
-      id: 'repo-scan-newer-other',
-      repository: 'identrail/other-repo'
-    };
-    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans');
-    listRepoScans.mockImplementation(async (filters) => {
-      if (!filters?.cursor) {
-        return { items: [otherRepoScan], next_cursor: 'cursor-page-2' };
-      }
-      if (filters.cursor === 'cursor-page-2') {
-        return { items: [completedScan] };
-      }
-      return { items: [] };
-    });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app', provider: 'github_app',
-      posture: {
-        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
-        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
-      }
-    });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
-    // The connection-loading render triggers an initial no-connector effect run
-    // so listRepoScans is called more than twice; the meaningful assertion is
-    // that pagination followed the cursor to reach the target repository.
-    await waitFor(() =>
-      expect(listRepoScans.mock.calls.some(([filters]) => filters?.cursor === 'cursor-page-2')).toBe(true)
-    );
-  });
-
-  it('paginates listRepoFindings so an older higher-scoring finding is not dropped from the queue', async () => {
-    // Older finding is on page 2 but has the highest graph score. Queue must
-    // include it and rank it first.
-    const olderCriticalFinding: Finding = {
-      ...postureFinding,
-      id: 'finding-critical-older',
-      title: 'Critical historical finding',
-      severity: 'critical',
-      created_at: '2026-05-10T09:00:00Z'
-    };
-    const criticalScoredGraph: RepoRiskGraph = {
-      ...riskGraphWithScores,
-      scores: [
-        {
-          finding_id: olderCriticalFinding.id,
-          finding_node_id: 'node-critical',
-          score: 99,
-          severity: 'critical',
-          confidence: 0.99,
-          factors: {
-            severity: 100, confidence: 99, exploitability: 90, privilege: 80,
-            exposure: 70, environment_criticality: 60, freshness: 20, posture_amplifier: 80
-          },
-          unknowns: []
-        }
-      ]
-    };
-
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings');
-    listRepoFindings.mockImplementation(async (filters) => {
-      if (!filters?.cursor) {
-        return { items: [postureFinding], next_cursor: 'findings-cursor-2' };
-      }
-      if (filters.cursor === 'findings-cursor-2') {
-        return { items: [olderCriticalFinding] };
-      }
-      return { items: [] };
-    });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(criticalScoredGraph);
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app', provider: 'github_app',
-      posture: {
-        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
-        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
-      }
-    });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // The older critical finding must appear at the top of the queue.
-    const queueList = (await screen.findByLabelText('Prioritized findings queue')).querySelector('ul');
-    expect(queueList).not.toBeNull();
-    const rows = (queueList as HTMLElement).querySelectorAll('li');
-    expect(rows[0].textContent).toContain('Critical historical finding');
-    expect(rows[0].textContent).toContain('score 99');
-    await waitFor(() =>
-      expect(listRepoFindings.mock.calls.some(([filters]) => filters?.cursor === 'findings-cursor-2')).toBe(true)
-    );
-  });
-
-  it('does not fetch repository posture on a PAT connection where the endpoint is unsupported', async () => {
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    // PAT connection: connected with a connector_id, but provider is github_pat
-    // so the posture endpoint would return an unsupported error if we hit it.
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({
-      connection: {
-        ...connectedGitHub,
-        provider: 'github_pat',
-        connector_id: 'github-enterprise'
-      }
-    });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-    const postureSpy = vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture');
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Finding title appears in both the queue panel and the paths panel now
-    // that paths render the actual finding chain, so scope to the queue.
-    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
-    // Posture panel shows the empty state, not an error banner.
-    expect(await screen.findByText(/No posture collected/i)).toBeInTheDocument();
-    // The posture endpoint was never called for a PAT connection.
-    expect(postureSpy).not.toHaveBeenCalled();
-  });
-
-  it('sorts risk graph scores before taking the top blast-radius slice', async () => {
-    // API returns scores in insertion order with the highest-scoring path
-    // buried in the middle. The "Top blast-radius paths" section must still
-    // rank it first â€” the drilldown sorts before slicing rather than relying
-    // on API-order equaling score-order.
-    const unsortedScoresGraph: RepoRiskGraph = {
-      repository: targetRepository,
-      nodes: [], edges: [],
-      summary: {
-        finding_count: 0, node_count: 0, edge_count: 0, unknown_node_count: 0,
-        unknown_edge_count: 0, high_risk_findings: 0, critical_findings: 0
-      },
-      scores: [
-        {
-          finding_id: 'lower-score', finding_node_id: 'node-a',
-          score: 40, severity: 'low', confidence: 0.6,
-          factors: {
-            severity: 40, confidence: 60, exploitability: 30, privilege: 20,
-            exposure: 15, environment_criticality: 0, freshness: 100, posture_amplifier: 0
-          },
-          unknowns: []
-        },
-        {
-          finding_id: 'highest-score', finding_node_id: 'node-b',
-          score: 95, severity: 'critical', confidence: 0.95,
-          factors: {
-            severity: 100, confidence: 95, exploitability: 90, privilege: 80,
-            exposure: 70, environment_criticality: 60, freshness: 100, posture_amplifier: 80
-          },
-          unknowns: []
-        },
-        {
-          finding_id: 'middle-score', finding_node_id: 'node-c',
-          score: 65, severity: 'medium', confidence: 0.75,
-          factors: {
-            severity: 55, confidence: 75, exploitability: 50, privilege: 40,
-            exposure: 30, environment_criticality: 10, freshness: 100, posture_amplifier: 0
-          },
-          unknowns: []
-        }
-      ]
-    };
-    // Provide open findings whose IDs match each score so the active-findings
-    // filter that the top-paths list applies does not remove them. Titles
-    // are set from the score name so the ordering assertions can look at
-    // the row header (which uses the finding title, not id).
-    const activeFindings: Finding[] = ['lower-score', 'highest-score', 'middle-score'].map((id) => ({
-      ...postureFinding,
-      id,
-      title: `Finding ranked ${id}`,
-      lifecycle_status: 'open'
-    }));
-    await renderRepositoryDetail({ findings: activeFindings, riskGraph: unsortedScoresGraph });
-    const pathsList = (await screen.findByLabelText('Top blast-radius paths')).querySelector('ol');
-    expect(pathsList).not.toBeNull();
-    const rows = (pathsList as HTMLElement).querySelectorAll('li');
-    expect(rows[0].textContent).toContain('Finding ranked highest-score');
-    expect(rows[0].textContent).toContain('score 95');
-    expect(rows[1].textContent).toContain('Finding ranked middle-score');
-    expect(rows[2].textContent).toContain('Finding ranked lower-score');
-  });
-
-  it('does not render the previous repository\'s data when a reload rejects on error', async () => {
-    // Start on repo A with data, then rerun the render pointing at repo B where
-    // listRepoFindings rejects. The header must swap to repo B and the
-    // findings panel must show its own inline error â€” the queue and scan
-    // panels must not carry repo A's leftover data.
-    await renderRepositoryDetail();
-    // Confirm repo A rendered fully.
-    await screen.findByRole('heading', { level: 2, name: targetRepository });
-    // Finding title appears in both the queue panel and the paths panel now
-    // that paths render the actual finding chain, so scope to the queue.
-    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
-    cleanup();
-    vi.restoreAllMocks();
-    vi.resetModules();
-
-    const otherRepository = 'identrail/other-repo';
-    await renderRepositoryDetail({
-      initialRepository: otherRepository,
-      listRepoFindingsError: { message: 'transient outage', status: 500 }
-    });
-    await screen.findByRole('heading', { level: 2, name: otherRepository });
-    // Findings panel surfaces its own error inline.
-    const queuePanel = await screen.findByLabelText('Prioritized findings queue');
-    expect(within(queuePanel).getByText(/transient outage/i)).toBeInTheDocument();
-    // Stale queue rows from repo A must not be present.
-    expect(screen.queryByText(/Default branch protection is unprotected/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Workflow OIDC trust is broad/i)).not.toBeInTheDocument();
-  });
-
-  it('matches scan records case-insensitively so mixed-case deep links do not report No scan yet', async () => {
-    // Deep link uses "Identrail/Identrail"; stored scan uses "identrail/identrail".
-    const mixedCaseRepository = 'Identrail/Identrail';
-    const lowercaseScan: RepoScanRecord = {
-      ...completedScan,
-      repository: 'identrail/identrail'
-    };
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [lowercaseScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app', provider: 'github_app',
-      posture: {
-        repository: 'identrail/identrail', collected_at: '2026-05-17T10:56:00Z',
-        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
-      }
-    });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(mixedCaseRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // The case-mismatched deep link must resolve to the stored lowercase scan.
-    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
-    expect(screen.queryByText(/No scan yet/i)).not.toBeInTheDocument();
-  });
-
-  it('invalidates a pending remediation preview when the operator closes the panel', async () => {
-    // Set up a preview endpoint whose promise resolves only when we release it,
-    // so the click on Close happens while the request is still in flight. If
-    // the close handler does not invalidate the request token, the late
-    // response would write into preview state.
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    // Use a supported (workflow_*) detector so the Preview button renders.
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [workflowFinding] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app', provider: 'github_app',
-      posture: {
-        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
-        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
-      }
-    });
-
-    const previewDeferred = deferred<RepoFindingRemediationPreview>();
-    vi.spyOn(api.apiClient, 'previewRepoFindingRemediation').mockImplementation(() => previewDeferred.promise);
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Open the preview â€” request is now pending.
-    const previewButtons = await screen.findAllByRole('button', { name: /Preview remediation/i });
-    fireEvent.click(previewButtons[0]);
-    // Loading indicator confirms the request is in flight.
-    expect(await screen.findByText(/Loading remediation preview/i)).toBeInTheDocument();
-    // Close the panel before the request resolves.
-    fireEvent.click(screen.getByRole('button', { name: /Close/i }));
-
-    // Now release the late response.
-    await act(async () => {
-      previewDeferred.resolve({
-        finding: postureFinding,
-        remediation: {
-          detector: 'github_default_branch_unprotected',
-          summary: 'Late remediation should not commit',
-          risk_summary: '',
-          steps: ['Late step that should never render'],
-          safety_notes: [], validation: [],
-          secret_rotation: false, publishable: true,
-          evidence: { finding_id: postureFinding.id }
-        }
-      });
-      await previewDeferred.promise;
-    });
-
-    // The dismissed preview must not resurrect: no summary, no steps.
-    expect(screen.queryByText(/Late remediation should not commit/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Late step that should never render/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
-  });
-
-  it('does not restart scan, findings, and graph fetches when connection status settles', async () => {
-    // The core fetches must wait for connection status before firing. Without
-    // the gate, the effect would run once with connection=null, start the
-    // three fetches, get invalidated when domainData.loading flips to false,
-    // and start them again â€” doubling the pagination cost on deep repos.
-    // Assert each of the three drilldown-owned endpoints is called at most
-    // once for a given repository once the drilldown has settled.
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
-    const getRepoRiskGraph = vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app', provider: 'github_app',
-      posture: {
-        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
-        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
-      }
-    });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Wait until the drilldown has finished settling (the queue rendered).
-    // Finding title appears in both the queue panel and the paths panel now
-    // that paths render the actual finding chain, so scope to the queue.
-    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
-
-    // Only one call per repository â€” listRepoScans/Findings/getRepoRiskGraph
-    // each fired for the target once, not twice. useGitHubDomainData's own
-    // scan fetch is workspace-wide (no cursor argument), so filter to the
-    // drilldown's paginated call by matching the presence of cursor OR a
-    // request that returned the target repository record.
-    const scanCallsForRepository = listRepoScans.mock.calls.filter(
-      ([filters]) => filters?.limit === 50 // REPO_INTELLIGENCE_SCAN_PAGE_LIMIT
-    ).length;
-    expect(scanCallsForRepository).toBe(1);
-    expect(listRepoFindings).toHaveBeenCalledTimes(1);
-    expect(getRepoRiskGraph).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders organization posture gaps alongside repository posture on the drilldown', async () => {
-    // getGitHubConnectorRepositoryPosture returns both repository posture and
-    // organization_posture. The drilldown must render inherited org control
-    // gaps too â€” hiding them would leave inherited Actions policy / security
-    // configuration / runner posture invisible to the operator.
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app',
-      provider: 'github_app',
-      posture: {
-        repository: targetRepository,
-        collected_at: '2026-05-17T10:56:00Z',
-        checks: [{
-          id: 'branch-protection', category: 'branch protection', state: 'insecure',
-          summary: 'Repository default branch is missing required reviews.'
-        }]
-      },
-      organization_posture: {
-        organization: 'identrail',
-        collected_at: '2026-05-17T10:56:00Z',
-        checks: [{
-          id: 'actions-policy', category: 'actions', state: 'insecure',
-          summary: 'Organization Actions policy allows write-all workflow tokens.'
-        }]
-      }
-    });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Both repository and organization posture gaps render, and the org row
-    // carries the scope prefix so the operator can tell them apart.
-    expect(await screen.findByText(/Repository default branch is missing required reviews/i)).toBeInTheDocument();
-    expect(screen.getByText(/Organization Actions policy allows write-all workflow tokens/i)).toBeInTheDocument();
-    expect(screen.getByText(/Organization â€¢ /i)).toBeInTheDocument();
-  });
-
-  it('hides the Preview remediation button for detectors the backend cannot remediate', async () => {
-    // Mixed queue: workflow_ finding is supported, github_ posture finding is
-    // not. The queue must still render both (posture findings are worth
-    // triaging even if we cannot auto-remediate them), but only the workflow
-    // one carries a Preview button.
-    await renderRepositoryDetail({ findings: [postureFinding, workflowFinding] });
-
-    const queueList = await screen.findByLabelText('Prioritized findings queue');
-    // Both findings render.
-    expect(queueList.textContent).toContain('Default branch protection is unprotected');
-    expect(queueList.textContent).toContain('Workflow OIDC trust is broad');
-    // But only one Preview button â€” the posture finding shows the fallback.
-    const previewButtons = screen.getAllByRole('button', { name: /Preview remediation/i });
-    expect(previewButtons.length).toBe(1);
-    expect(within(queueList).getByText(/Review in GitHub/i)).toBeInTheDocument();
-
-    // Header splits the queue by remediation category: workflow_oidc_broad_trust
-    // is supported (Preview button) but backend returns publishable:false
-    // (guidance-only), so it counts as preview-only rather than fix-ready. This
-    // matches the accepted-detector semantics in
-    // internal/findings/standards/repo_remediation.go.
-    expect(queueList.textContent).not.toContain('fix-ready');
-    expect(queueList.textContent).toContain('1 preview-only');
-  });
-
-  it('reports truncation when it stopped because the active-findings target filled while pages remained', async () => {
-    // Backend keeps returning next_cursor. The fetcher must stop once the
-    // active target fills (500) AND report truncated:true so the operator
-    // sees the safety-ceiling warning banner rather than assuming the top
-    // of the queue is the highest-scoring finding.
-    const activePage: Finding[] = Array.from({ length: 100 }, (_, index) => ({
-      ...postureFinding,
-      id: `finding-active-${index}`,
-      lifecycle_status: 'open'
-    }));
-
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    // Every page returns 100 active findings + a next_cursor, so pagination
-    // reaches the 500-active target on page 5 with more pages still available.
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockImplementation(async () => ({
-      items: activePage,
-      next_cursor: 'always-another-page'
-    }));
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app', provider: 'github_app',
-      posture: {
-        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
-        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
-      }
-    });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Truncation banner surfaces.
-    expect(await screen.findByText(/Findings pagination hit its safety ceiling/i)).toBeInTheDocument();
-  });
-
-  it('propagates a connection-status error instead of showing "Connect GitHub" when the status fetch fails', async () => {
-    // Connection fetch rejects. Without this fix, postureSupported would just
-    // evaluate to false and the drilldown would render as if the operator
-    // needed to connect GitHub, hiding the real error.
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockRejectedValue(
-      new api.ApiError('github status unavailable', 503)
-    );
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // The connection-status error surfaces via the shared error banner.
-    expect(await screen.findByText(/github status unavailable/i)).toBeInTheDocument();
-  });
-
-  it('renders scan, findings, and blast-radius paths before slow posture resolves', async () => {
-    // Posture is a live GitHub call and can be slower than the rest of the
-    // drilldown. The scan/findings/graph must render as soon as their own
-    // promises settle; the posture panel gets its own loading indicator
-    // and does not gate anything else.
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-    const postureDeferred = deferred<{
-      connector_id: string;
-      provider: string;
-      posture: GitHubRepositoryPosture;
-    }>();
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockImplementation(() => postureDeferred.promise);
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // Findings, scan, and blast-radius paths render before posture settles.
-    // Scope to the queue panel because the finding title also appears in
-    // the paths panel's node chain.
-    await within(await screen.findByLabelText('Prioritized findings queue'))
-      .findByText(/Default branch protection is unprotected/i);
-    expect(screen.getByText(/Complete scan/i)).toBeInTheDocument();
-    expect(screen.getByLabelText('Top blast-radius paths')).toBeInTheDocument();
-    // Posture panel shows its own loading indicator, not the drilldown\'s route loader.
-    // Wait for connection status to settle so the second-pass effect fires posture.
-    expect(await screen.findByText(/Loading repository posture/i)).toBeInTheDocument();
-
-    // Now let posture settle and check it renders.
-    await act(async () => {
-      postureDeferred.resolve({
-        connector_id: 'github-app',
-        provider: 'github_app',
-        posture: {
-          repository: targetRepository,
-          collected_at: '2026-05-17T10:56:00Z',
-          checks: [{
-            id: 'branch-protection', category: 'branch protection', state: 'insecure',
-            reason: 'weak_protection', summary: 'Default branch is missing required reviews.'
-          }]
-        }
-      });
-      await postureDeferred.promise;
-    });
-    expect(await screen.findByText(/Default branch is missing required reviews/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Loading repository posture/i)).not.toBeInTheDocument();
-  });
-
-  it('keeps paginating past closed-finding pages so older active risks reach the queue', async () => {
-    // Page 1 is 100 closed (fixed) findings. Page 2 holds one active reopened
-    // finding. Previously the drilldown stopped at page 1 because it counted
-    // total items toward the cap; now it counts only ACTIVE items so it must
-    // fetch page 2 and surface the active one.
-    const closedPageOne: Finding[] = Array.from({ length: 100 }, (_, index) => ({
-      ...postureFinding,
-      id: `finding-closed-${index}`,
-      lifecycle_status: 'fixed'
-    }));
-    const activeOlder: Finding = {
-      ...postureFinding,
-      id: 'older-active-finding',
-      title: 'Older active finding hiding behind closed page',
-      lifecycle_status: 'reopened'
-    };
-
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings');
-    listRepoFindings.mockImplementation(async (filters) => {
-      if (!filters?.cursor) {
-        return { items: closedPageOne, next_cursor: 'closed-heavy-page-2' };
-      }
-      if (filters.cursor === 'closed-heavy-page-2') {
-        return { items: [activeOlder] };
-      }
-      return { items: [] };
-    });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app', provider: 'github_app',
-      posture: {
-        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
-        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
-      }
-    });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // The older active finding must appear in the queue â€” the drilldown
-    // paginated past the closed-heavy page rather than stopping at page 1.
-    expect(await screen.findByText(/Older active finding hiding behind closed page/i)).toBeInTheDocument();
-    await waitFor(() =>
-      expect(listRepoFindings.mock.calls.some(([filters]) => filters?.cursor === 'closed-heavy-page-2')).toBe(true)
-    );
-    // No fixed finding rendered in the queue.
-    expect(screen.queryByText(/finding-closed-0/i)).not.toBeInTheDocument();
-  });
-
-  it('renders the actual blast-radius node chain from riskGraph.nodes and riskGraph.edges', async () => {
-    // Panel promises "Top blast-radius paths" â€” it must show the reachable
-    // workflow/identity/runner/environment/control chain the finding
-    // touches, not just the finding id and score. Walker starts at the
-    // finding's finding_node_id, follows outgoing edges, and prefers known
-    // edges over reachability_unknown.
-    const finding: Finding = {
-      ...postureFinding,
-      id: 'chain-finding',
-      title: 'Workflow reaches production cloud role',
-      lifecycle_status: 'open'
-    };
-    const chainGraph: RepoRiskGraph = {
-      repository: targetRepository,
-      nodes: [
-        { id: 'node-finding', kind: 'finding', label: 'chain-finding', evidence_state: 'known' },
-        { id: 'node-workflow', kind: 'workflow', label: 'deploy.yml', evidence_state: 'known' },
-        { id: 'node-secret', kind: 'secret', label: 'AWS_DEPLOY_KEY', evidence_state: 'known' },
-        { id: 'node-cloud-role', kind: 'cloud_role', label: 'prod-deploy-role', evidence_state: 'known' },
-        { id: 'node-speculative', kind: 'environment', label: 'speculative-env', evidence_state: 'unknown' }
-      ],
-      edges: [
-        {
-          id: 'e1', kind: 'finding_affects_workflow',
-          from_node_id: 'node-finding', to_node_id: 'node-workflow',
-          evidence_state: 'known'
-        },
-        {
-          id: 'e2', kind: 'job_uses_secret',
-          from_node_id: 'node-workflow', to_node_id: 'node-secret',
-          evidence_state: 'known'
-        },
-        {
-          id: 'e3', kind: 'oidc_subject_can_assume_role',
-          from_node_id: 'node-secret', to_node_id: 'node-cloud-role',
-          evidence_state: 'known'
-        },
-        // A reachability_unknown edge exists from the workflow, but the
-        // known-edge walk above should reach cloud_role first; the
-        // speculative node must not be preferred over the concrete chain.
-        {
-          id: 'e4-unknown', kind: 'reachability_unknown',
-          from_node_id: 'node-workflow', to_node_id: 'node-speculative',
-          evidence_state: 'unknown'
-        }
-      ],
-      scores: [
-        {
-          finding_id: finding.id, finding_node_id: 'node-finding',
-          score: 88, severity: 'high', confidence: 0.9,
-          factors: {
-            severity: 80, confidence: 90, exploitability: 60, privilege: 40,
-            exposure: 55, environment_criticality: 30, freshness: 100,
-            posture_amplifier: 70
-          },
-          unknowns: []
-        }
-      ],
-      summary: {
-        finding_count: 1, node_count: 5, edge_count: 4, unknown_node_count: 1,
-        unknown_edge_count: 1, high_risk_findings: 1, critical_findings: 0
-      }
-    };
-
-    await renderRepositoryDetail({ findings: [finding], riskGraph: chainGraph });
-
-    const pathsPanel = await screen.findByLabelText('Top blast-radius paths');
-    const pathsList = pathsPanel.querySelector('ol');
-    expect(pathsList).not.toBeNull();
-    const rows = (pathsList as HTMLElement).querySelectorAll('li');
-    expect(rows.length).toBe(1);
-
-    // The concrete workflow â†’ secret â†’ cloud_role chain renders in the row.
-    expect(rows[0].textContent).toContain('deploy.yml');
-    expect(rows[0].textContent).toContain('AWS_DEPLOY_KEY');
-    expect(rows[0].textContent).toContain('prod-deploy-role');
-    // Node kinds are labeled so the operator can tell workflow from role.
-    expect(rows[0].textContent).toContain('Workflow');
-    expect(rows[0].textContent).toContain('Cloud Role');
-  });
-
-  it('falls back to a "no reachability" hint when the graph has no nodes or edges', async () => {
-    // Some risk-graph responses carry only scores (older summaries or
-    // partial collection). The paths panel must still render with the
-    // finding title/score, but say explicitly no reachability chain
-    // is available â€” never claim a chain that isn't in the data.
-    const finding: Finding = {
-      ...postureFinding,
-      id: 'no-chain-finding',
-      title: 'Finding with no reachability data',
-      lifecycle_status: 'open'
-    };
-    const scoresOnlyGraph: RepoRiskGraph = {
-      repository: targetRepository,
-      nodes: [], edges: [],
-      scores: [
-        {
-          finding_id: finding.id, finding_node_id: 'node-x',
-          score: 72, severity: 'high', confidence: 0.8,
-          factors: {
-            severity: 70, confidence: 80, exploitability: 50, privilege: 30,
-            exposure: 40, environment_criticality: 10, freshness: 100, posture_amplifier: 0
-          },
-          unknowns: []
-        }
-      ],
-      summary: {
-        finding_count: 1, node_count: 0, edge_count: 0, unknown_node_count: 0,
-        unknown_edge_count: 0, high_risk_findings: 1, critical_findings: 0
-      }
-    };
-    await renderRepositoryDetail({ findings: [finding], riskGraph: scoresOnlyGraph });
-    const pathsPanel = await screen.findByLabelText('Top blast-radius paths');
-    expect(within(pathsPanel).getByText(/Finding with no reachability data/i)).toBeInTheDocument();
-    expect(within(pathsPanel).getByText(/No reachability graph collected/i)).toBeInTheDocument();
-  });
-
-  it('filters top blast-radius paths so a closed finding cannot displace active risks', async () => {
-    // A high-scoring path belongs to a fixed finding â€” it must not appear in
-    // the top-N list even though its raw score is the highest, because the
-    // finding itself is no longer active.
-    const activeOpen: Finding = { ...postureFinding, id: 'active-open', title: 'Active open finding', lifecycle_status: 'open' };
-    const closedFixed: Finding = { ...postureFinding, id: 'closed-fixed', title: 'Closed fixed finding', lifecycle_status: 'fixed' };
-    const graphWithClosedTopScore: RepoRiskGraph = {
-      repository: targetRepository,
-      nodes: [], edges: [],
-      summary: {
-        finding_count: 0, node_count: 0, edge_count: 0, unknown_node_count: 0,
-        unknown_edge_count: 0, high_risk_findings: 0, critical_findings: 0
-      },
-      scores: [
-        {
-          finding_id: closedFixed.id, finding_node_id: 'node-closed',
-          score: 99, severity: 'critical', confidence: 0.99,
-          factors: {
-            severity: 100, confidence: 99, exploitability: 90, privilege: 80,
-            exposure: 70, environment_criticality: 60, freshness: 100, posture_amplifier: 80
-          },
-          unknowns: []
-        },
-        {
-          finding_id: activeOpen.id, finding_node_id: 'node-open',
-          score: 55, severity: 'medium', confidence: 0.7,
-          factors: {
-            severity: 55, confidence: 70, exploitability: 40, privilege: 30,
-            exposure: 20, environment_criticality: 0, freshness: 100, posture_amplifier: 0
-          },
-          unknowns: []
-        }
-      ]
-    };
-
-    await renderRepositoryDetail({
-      findings: [activeOpen, closedFixed],
-      riskGraph: graphWithClosedTopScore
-    });
-
-    const pathsList = (await screen.findByLabelText('Top blast-radius paths')).querySelector('ol');
-    expect(pathsList).not.toBeNull();
-    const rows = (pathsList as HTMLElement).querySelectorAll('li');
-    // Only the active finding appears â€” the closed-but-highest-scoring one is filtered.
-    expect(rows.length).toBe(1);
-    expect(rows[0].textContent).toContain('Active open finding');
-    expect(rows[0].textContent).not.toContain('Closed fixed finding');
-  });
-
-  it('renders the API-provided posture check reason on permission-limited and unavailable checks', async () => {
-    // A permission_limited posture check carries a reason string that
-    // diagnoses the collection gap; the drilldown must render it so
-    // operators can act on it, matching the repositories inventory view.
-    await renderRepositoryDetail({
-      posture: {
-        repository: targetRepository,
-        collected_at: '2026-05-17T10:56:00Z',
-        checks: [
-          {
-            id: 'org-runner-groups',
-            category: 'runners',
-            state: 'permission_limited',
-            reason: 'missing_organization_permission',
-            summary: 'Self-hosted runner posture could not be collected.'
-          }
-        ]
-      }
-    });
-
-    // Both the summary and the reason must appear alongside the check.
-    expect(await screen.findByText(/Self-hosted runner posture could not be collected/i)).toBeInTheDocument();
-    expect(screen.getByText(/Missing Organization Permission/i)).toBeInTheDocument();
-  });
-
-  it('does not expose the drilldown detail route in the GitHub domain flyout', async () => {
-    // ProductDomainFlyout renders every entry in PRODUCT_DOMAIN_CONFIGS.github.routes
-    // as a plain link, so registering the parameterized detail route would
-    // open it with no ?repository= param and immediately show "Repository not
-    // selected." The drilldown must therefore stay out of PRODUCT_DOMAIN_CONFIGS.
-    const productShell = await import('./productShell');
-    const config = productShell.PRODUCT_DOMAIN_CONFIGS.github;
-    const routeIDs = config.routes.map((route) => route.id);
-    expect(routeIDs).not.toContain('repositories-detail');
-    // The Repositories entry is still there so operators reach the drilldown
-    // via a row click on the inventory page instead.
-    expect(routeIDs).toContain('repositories');
-  });
-
-  it('excludes fixed, suppressed, risk-accepted, and false-positive findings from the queue and Preview count', async () => {
-    // Mix active and closed findings â€” the queue must show only open/reopened.
-    const closedFinding: Finding = {
-      ...postureFinding,
-      id: 'finding-closed-fixed',
-      title: 'Already fixed finding must not rank',
-      lifecycle_status: 'fixed'
-    };
-    const suppressedFinding: Finding = {
-      ...postureFinding,
-      id: 'finding-suppressed',
-      title: 'Suppressed finding must not rank',
-      lifecycle_status: 'suppressed'
-    };
-    const reopenedFinding: Finding = {
-      ...workflowFinding,
-      id: 'finding-reopened',
-      title: 'Reopened finding must appear',
-      lifecycle_status: 'reopened'
-    };
-    const activeOpen: Finding = { ...postureFinding, lifecycle_status: 'open' };
-    await renderRepositoryDetail({
-      findings: [activeOpen, closedFinding, reopenedFinding, suppressedFinding]
-    });
-
-    const queueList = (await screen.findByLabelText('Prioritized findings queue')).querySelector('ul');
-    expect(queueList).not.toBeNull();
-    const rows = (queueList as HTMLElement).querySelectorAll('li');
-    // 2 findings survived (open + reopened), 2 closed dropped.
-    expect(rows.length).toBe(2);
-    expect(queueList!.textContent).toContain('Default branch protection is unprotected');
-    expect(queueList!.textContent).toContain('Reopened finding must appear');
-    expect(queueList!.textContent).not.toContain('Already fixed finding must not rank');
-    expect(queueList!.textContent).not.toContain('Suppressed finding must not rank');
-    // Preview button only appears on findings the backend can actually
-    // remediate: the reopened finding uses a `workflow_` detector (supported),
-    // the active open uses a `github_` posture detector (not supported). So
-    // the button count should be 1, matching the fix-ready subset â€” not the
-    // full active count of 2.
-    const previewButtons = screen.getAllByRole('button', { name: /Preview remediation/i });
-    expect(previewButtons.length).toBe(1);
-  });
-
-  it('sends the finding\'s own scan_id when previewing remediation for a retained older finding', async () => {
-    // The drilldown\'s latest scan is a newer partial scan; the finding was
-    // retained from an older scan. Preview must call with the finding\'s
-    // scan_id (older), not the drilldown\'s latest scan.id.
-    const olderScanID = 'repo-scan-older-detail';
-    // Use workflowFinding as the base so the detector (`workflow_oidc_broad_trust`)
-    // is in the SuggestRepoExposureRemediation supported set; posture-detector
-    // findings do not render a Preview button by design.
-    const retainedFinding: Finding = {
-      ...workflowFinding,
-      id: 'finding-retained-from-older-scan',
-      scan_id: olderScanID,
-      lifecycle_status: 'open'
-    };
-    const newerScan: RepoScanRecord = {
-      ...completedScan,
-      id: 'repo-scan-newest-detail'
-    };
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    mockBackendFeatures({ github: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [newerScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [retainedFinding] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
-      connector_id: 'github-app', provider: 'github_app',
-      posture: {
-        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
-        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
-      }
-    });
-    const previewSpy = vi.spyOn(api.apiClient, 'previewRepoFindingRemediation').mockResolvedValue({
-      finding: retainedFinding,
-      remediation: {
-        detector: 'x', summary: 'ok', risk_summary: '', steps: [], safety_notes: [], validation: [],
-        secret_rotation: false, publishable: true, evidence: { finding_id: retainedFinding.id }
-      }
-    });
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const previewButton = await screen.findByRole('button', { name: /Preview remediation/i });
-    fireEvent.click(previewButton);
-    await waitFor(() => expect(previewSpy).toHaveBeenCalled());
-    // Preview endpoint received the finding\'s own scan id, not the latest scan.
-    expect(previewSpy.mock.calls[0]?.[0]).toBe(retainedFinding.id);
-    expect(previewSpy.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ repo_scan_id: olderScanID }));
-  });
-
-  it('renders the loading shell when GitHub availability is still resolving', async () => {
-    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
-    // loading: true â€” availability is still resolving.
-    mockBackendFeatures({ github: true }, { loading: true });
-    const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [{
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }]
-    });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
-      project: {
-        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
-        name: 'Production Platform', slug: 'production-platform', description: '',
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
-      }
-    });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
-    const getRepoRiskGraph = vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
-
-    const productShell = await import('./productShell');
-    render(
-      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
-        <Routes>
-          <Route
-            path="/app/:tenantID/:workspaceID/github/repositories/detail"
-            element={<productShell.ProductGitHubRepositoryDetailPage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    // The loading shell renders instead of the normal drilldown shell.
-    // Both the DomainPageShell description and the DomainLoadingState label
-    // carry the phrase, so allow multiple matches.
-    await waitFor(() =>
-      expect(screen.getAllByText(/Loading GitHub availability/i).length).toBeGreaterThan(0)
-    );
-    // The prioritized queue and the drilldown-specific fetches must never run
-    // while availability is still resolving. listRepoScans is orthogonally
-    // exercised by the shared useGitHubDomainData hook, so only assert on the
-    // drilldown-specific findings/graph fetches here.
-    expect(screen.queryByLabelText('Prioritized findings queue')).not.toBeInTheDocument();
-    expect(listRepoFindings).not.toHaveBeenCalled();
-    expect(getRepoRiskGraph).not.toHaveBeenCalled();
-  });
-});
+   Û4÷¶òµë(š+myÕ±¥•¹Ð°€ÍÑ…ÉÑ]M½¹¹•Ñ½Èœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½ÉœµÉ½±”œ°(€€€€€€€Í½Á•}ÑåÁ”è€½É…¹¥é…Ñ¥½¸œ°(€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€ÍÑ…­Í•Ñ}Í•ÉÙ¥•}µ…¹…•œ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€±…Õ¹¡}É•…‘äœ°(€€€€€€€É½±•}…É¸è€…É¸é…ÝÌé¥…´èèÄÈÌÐÔØÜàäÀÄÈéÉ½±”½ÕÍÑ½µ•ÉI•…‘=¹±å%‘•¹ÑÉ…¥°œ°(€€€€€€€ÍÑ…­}Í•Ñ}¹…µ”è€ÕÍÑ½µ•É9…µ•‘MÑ…­M•Ðœ(€€€€€ô°(€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½ÉœµÉ½±”œ°(€€€€€•áÑ•É¹…±}¥è€É½±”µ¡å‘É…Ñ”µ•áÑ•É¹…°œ°(€€€€€±…Õ¹¡}ÕÉ°è€¡ÑÑÁÌè¼½½¹Í½±”¹…ÝÌ¹…µ…é½¸¹½´½±½Õ‘™½Éµ…Ñ¥½¸½¡½µ”Œ½ÍÑ…­Í•ÑÌœ°(€€€€€Ñ•µÁ±…Ñ•}ÕÉ°è€¡ÑÑÁÌè¼½•á…µÁ±”¹½´½Ñ•µÁ±…Ñ”¹å…µ°œ°(€€€€€É½±•}¹…µ”è€ÕÍÑ½µ•ÉI•…‘=¹±å%‘•¹ÑÉ…¥°œ°(€€€€€ÍÑ…­}¹…µ”è€¥‘•¹ÑÉ…¥°µÉ•…‘½¹±äµ½¹¹•Ñ½Èœ°(€€€€€ÍÑ…­}Í•Ñ}¹…µ”è€ÕÍÑ½µ•É9…µ•‘MÑ…­M•Ðœ°(€€€€€Á½±¥å}¡…Í è€Í¡„ÈÔØé•á…µÁ±”œ°(€€€€€Ñ•µÁ±…Ñ•}¡•­ÍÕ´è€Í¡„ÈÔØé•á…µÁ±”œ°(€€€€€Í½Á•}ÑåÁ”è€½É…¹¥é…Ñ¥½¸œ°(€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€ÍÑ…­Í•Ñ}Í•ÉÙ¥•}µ…¹…•œ°(€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€±…Õ¹¡}É•…‘äœ°(€€€€€Ñ…É•Ñ}É•¥½¹ÌèlÕÌµ•…ÍÐ´Ät°(€€€€€Ñ…É•Ñ}…½Õ¹Ñ}¥‘Ìèmt°(€€€€€Ñ…É•Ñ}½Õ}¥‘ÌèlÈµ…‰t°(€€€€€•á±Õ‘•‘}…½Õ¹Ñ}¥‘Ìèmt°(€€€€€…ÕÑ½}½¹‰½…É‘}¹•Ý}…½Õ¹ÑÌèÑÉÕ”°(€€€€€Í•ÑÕÁ}ÍÕµµ…Éäè€=É…¹¥é…Ñ¥½¸Í•ÑÕÀ¸œ°(€€€€€¹•áÑ}…Ñ¥½¹Ìèl½Á•¹}ÍÑ…­Í•Ðœ°€É•™É•Í¡}ÍÑ…ÑÕÌt°(€€€€€ÍÑ…­Í•Ñ}½¹‰½…É‘¥¹œèÉ•…‘å]MMÑ…­M•Ñ=¹‰½…É‘¥¹œ°(€€€€€Á•Éµ¥ÍÍ¥½¹}ÁÉ•Ù¥•Üèmt°(€€€€€Á•Éµ¥ÍÍ¥½¹}Ñ¥•ÉÌèmt(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥Ð½Á•¹]M½¹¹•Ñ¥½¹5…¹…•µ•¹Ð ¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€½MÑ…­M•Ð½¹‰½…É‘¥¹œÁÉ½É•ÍÌ½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½1…Õ¹ MÑ…­M•ÐÍ•ÑÕÀ½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÑ…ÉÑ]M½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€€¼¼Q¡”É½±”¹…µ”…¹MÑ…­M•Ð¹…µ”…É”¡å‘É…Ñ•¥¸Ñ¡”™½É´™½È‘¥ÍÁ±…ä°(€€€€¼¼‰ÕÐÑ¡”É•ÍÕµ”Á…å±½…½µ¥ÑÌÑ¡•´Í¼Ñ¡”‰…­•¹­••ÁÌÑ¡”ÍÑ½É•(€€€€¼¼Ù…±Õ•ÌÉ…Ñ¡•ÈÑ¡…¸½Ù•ÉÝÉ¥Ñ¥¹œÑ¡•´Ý¥Ñ Ñ¡”Ý¥é…É‘•™…Õ±ÑÌ¸(€€€•áÁ•Ð¡ÍÑ…ÉÑ]M½¹¹•Ñ½È¹µ½¬¹…±±ÍlÁtü¹lÁt¤¹Ñ½5…Ñ¡=‰©•Ð¡ì(€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½ÉœµÉ½±”œ°(€€€€€É½±•}¹…µ”èÕ¹‘•™¥¹•°(€€€€€ÍÑ…­}Í•Ñ}¹…µ”èÕ¹‘•™¥¹•(€€€ô¤ì(€ô¤ì((€¥Ð ÁÉ•Í•ÉÙ•ÌÑ¡”±…ÍÐ½½MÑ…­M•Ð½¹‰½…É‘¥¹œÝ¡•¸„É•™É•Í ™…¥±Ìœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½ÉœµÉ•™É•Í µ•ÉÈœ°(€€€€€€€Í½Á•}ÑåÁ”è€½É…¹¥é…Ñ¥½¸œ°(€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€ÍÑ…­Í•Ñ}Í•ÉÙ¥•}µ…¹…•œ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€½¹¹•Ñ•œ°(€€€€€€€Ñ…É•Ñ}É•¥½¹ÌèlÕÌµ•…ÍÐ´Ät°(€€€€€€€Ñ…É•Ñ}½Õ}¥‘ÌèlÈµ…‰t(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€Á½±±]M½¹¹•Ñ½Èœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½ÉœµÉ•™É•Í µ•ÉÈœ°(€€€€€€€Í½Á•}ÑåÁ”è€½É…¹¥é…Ñ¥½¸œ°(€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€ÍÑ…­Í•Ñ}Í•ÉÙ¥•}µ…¹…•œ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€½¹¹•Ñ•œ°(€€€€€€€Ñ…É•Ñ}É•¥½¹ÌèlÕÌµ•…ÍÐ´Ät°(€€€€€€€Ñ…É•Ñ}½Õ}¥‘ÌèlÈµ…‰t(€€€€€ô(€€€ô¤ì(€€€½¹ÍÐÁ•ÉÍ¥ÍÑ•è]MMÑ…­M•Ñ=¹‰½…É‘¥¹I•ÍÕ±Ð€ôì(€€€€€€¸¸¹É•…‘å]MMÑ…­M•Ñ=¹‰½…É‘¥¹œ°(€€€€€É•½Ù•Éå}…Ñ¥½¹Ìèl(€€€€€€€ì(€€€€€€€€€¥è€ÁÉ•Í•ÉÙ”µÉ•½Ù•Éäœ°(€€€€€€€€€Ñ¥Ñ±”è€AÉ•Í•ÉÙ•É•½Ù•Éä…Ñ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€M¡½Õ±É•µ…¥¸Ù¥Í¥‰±”…™Ñ•È„ÑÉ…¹Í¥•¹ÐÉ•™É•Í ™…¥±ÕÉ”¸œ°(€€€€€€€€€Ñ…É•ÑÌèmt(€€€€€€€ô(€€€€€t(€€€ôì(€€€±•Ð½¹‰½…É‘¥¹…±±½Õ¹Ð€ô€Àì(€€€½¹ÍÐ•ÑMÑ…­M•Ñ=¹‰½…É‘¥¹œ€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•ÑMÑ…­M•Ñ=¹‰½…É‘¥¹œœ¤(€€€€€€¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôøì(€€€€€€€½¹‰½…É‘¥¹…±±½Õ¹Ð€¬ô€Äì(€€€€€€€¥˜€¡½¹‰½…É‘¥¹…±±½Õ¹Ð€ôôô€Ä¤ì(€€€€€€€€€É•ÑÕÉ¸AÉ½µ¥Í”¹É•Í½±Ù”¡ì½¹‰½…É‘¥¹œèÁ•ÉÍ¥ÍÑ•ô¤ì(€€€€€€€ô(€€€€€€€É•ÑÕÉ¸AÉ½µ¥Í”¹É•©•Ð¡¹•ÜÉÉ½È Ñ•µÁ½É…Éä¹•ÑÝ½É¬•ÉÉ½Èœ¤¤ì(€€€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥Ð½Á•¹]M½¹¹•Ñ¥½¹5…¹…•µ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½AÉ•Í•ÉÙ•É•½Ù•Éä…Ñ¥½¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€½¹ÍÐÁÉ¥½É…±±Ì€ô•ÑMÑ…­M•Ñ=¹‰½…É‘¥¹œ¹µ½¬¹…±±Ì¹±•¹Ñ ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½I•™É•Í MÑ…­M•ÐÍÑ…ÑÕÌ½¤ô¤¤ì((€€€€¼¼Q¡”É•™É•Í •ÉÉ½ÈÍÕÉ™…•Ì°‰ÕÐÑ¡”ÁÉ•Ù¥½ÕÌ½¹‰½…É‘¥¹œ¥ÌÉ•Ñ…¥¹•Í¼(€€€€¼¼Ñ¡”Á…¹•°­••ÁÌÉ•¹‘•É¥¹œÝ¥Ñ „É•ÑÉä…Ñ¥½¸¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½Ñ•µÁ½É…Éä¹•ÑÝ½É¬•ÉÉ½È½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½AÉ•Í•ÉÙ•É•½Ù•Éä…Ñ¥½¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½I•ÑÉäMÑ…­M•ÐÍÑ…ÑÕÌ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤(€€€€¤ì(€€€•áÁ•Ð¡•ÑMÑ…­M•Ñ=¹‰½…É‘¥¹œ¹µ½¬¹…±±Ì¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸¡ÁÉ¥½É…±±Ì¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½ÐÉ•ÕÍ”…¸•á¥ÍÑ¥¹œMÑ…­M•Ð½¹¹•Ñ½ÈÝ¡•¸Ñ¡”½Á•É…Ñ½ÈÍÝ¥Ñ¡•ÌÑ¼„‘¥™™•É•¹ÐÍ½Á”œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½Éœµ•á¥ÍÑ¥¹œœ°(€€€€€€€Í½Á•}ÑåÁ”è€½É…¹¥é…Ñ¥½¸œ°(€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€ÍÑ…­Í•Ñ}Í•ÉÙ¥•}µ…¹…•œ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€½¹¹•Ñ•œ°(€€€€€€€Ñ…É•Ñ}É•¥½¹ÌèlÕÌµ•…ÍÐ´Ät°(€€€€€€€Ñ…É•Ñ}½Õ}¥‘ÌèlÈµ…‰t(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•ÑMÑ…­M•Ñ=¹‰½…É‘¥¹œœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹‰½…É‘¥¹œèÉ•…‘å]MMÑ…­M•Ñ=¹‰½…É‘¥¹œ(€€€ô¤ì(€€€½¹ÍÐÍÑ…ÉÑ]M½¹¹•Ñ½È€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑ]M½¹¹•Ñ½Èœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½Ôµ¹•Üœ°(€€€€€€€Í½Á•}ÑåÁ”è€Í•±•Ñ•‘}½ÕÌœ°(€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€ÍÑ…­Í•Ñ}Í•ÉÙ¥•}µ…¹…•œ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€±…Õ¹¡}É•…‘äœ(€€€€€ô°(€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½Ôµ¹•Üœ°(€€€€€•áÑ•É¹…±}¥è€Í•±•Ñ•µ½Ôµ•áÑ•É¹…°œ°(€€€€€±…Õ¹¡}ÕÉ°è€¡ÑÑÁÌè¼½½¹Í½±”¹…ÝÌ¹…µ…é½¸¹½´½±½Õ‘™½Éµ…Ñ¥½¸½¡½µ”Œ½ÍÑ…­Í•ÑÌœ°(€€€€€Ñ•µÁ±…Ñ•}ÕÉ°è€¡ÑÑÁÌè¼½•á…µÁ±”¹½´½Ñ•µÁ±…Ñ”¹å…µ°œ°(€€€€€É½±•}¹…µ”è€%‘•¹ÑÉ…¥±I•…‘=¹±äœ°(€€€€€ÍÑ…­}¹…µ”è€¥‘•¹ÑÉ…¥°µÉ•…‘½¹±äµ½¹¹•Ñ½Èœ°(€€€€€ÍÑ…­}Í•Ñ}¹…µ”è€%‘•¹ÑÉ…¥±I•…‘=¹±å½Ù•É…”œ°(€€€€€Á½±¥å}¡…Í è€Í¡„ÈÔØé•á…µÁ±”œ°(€€€€€Ñ•µÁ±…Ñ•}¡•­ÍÕ´è€Í¡„ÈÔØé•á…µÁ±”œ°(€€€€€Í½Á•}ÑåÁ”è€Í•±•Ñ•‘}½ÕÌœ°(€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€ÍÑ…­Í•Ñ}Í•ÉÙ¥•}µ…¹…•œ°(€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€±…Õ¹¡}É•…‘äœ°(€€€€€Ñ…É•Ñ}É•¥½¹ÌèlÕÌµ•…ÍÐ´Ät°(€€€€€Ñ…É•Ñ}…½Õ¹Ñ}¥‘Ìèmt°(€€€€€Ñ…É•Ñ}½Õ}¥‘Ìèl½Ô´ÄÈÌÐµ…‰ÔØÜàt°(€€€€€•á±Õ‘•‘}…½Õ¹Ñ}¥‘Ìèmt°(€€€€€…ÕÑ½}½¹‰½…É‘}¹•Ý}…½Õ¹ÑÌèÑÉÕ”°(€€€€€Í•ÑÕÁ}ÍÕµµ…Éäè€M•±•Ñ•=UÌÍ•ÑÕÀ¸œ°(€€€€€¹•áÑ}…Ñ¥½¹Ìèl½Á•¹}ÍÑ…­Í•Ðœ°€É•™É•Í¡}ÍÑ…ÑÕÌt°(€€€€€ÍÑ…­Í•Ñ}½¹‰½…É‘¥¹œèÉ•…‘å]MMÑ…­M•Ñ=¹‰½…É‘¥¹œ°(€€€€€Á•Éµ¥ÍÍ¥½¹}ÁÉ•Ù¥•Üèmt°(€€€€€Á•Éµ¥ÍÍ¥½¹}Ñ¥•ÉÌèmt(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼]…¥Ð™½ÈÑ¡”•á¥ÍÑ¥¹œ½É…¹¥é…Ñ¥½¸½¹¹•Ñ½ÈÑ¼¡å‘É…Ñ”¸(€€€…Ý…¥Ð½Á•¹]M½¹¹•Ñ¥½¹5…¹…•µ•¹Ð ¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€½MÑ…­M•Ð½¹‰½…É‘¥¹œÁÉ½É•ÍÌ½¤ô¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” É…‘¥¼œ°ì¹…µ”è€½M•±•Ñ•Í½Á”½¤ô¤¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ ½Q…É•Ð=T%Ì½¤¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€½Ô´ÄÈÌÐµ…‰ÔØÜàœô(€€€ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½1…Õ¹ MÑ…­M•ÐÍ•ÑÕÀ½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÑ…ÉÑ]M½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€½¹ÍÐÍÑ…ÉÑA…å±½…€ôÍÑ…ÉÑ]M½¹¹•Ñ½È¹µ½¬¹…±±ÍlÁtü¹lÁt…Ìì½¹¹•Ñ½É}¥üèÍÑÉ¥¹œìÍ½Á•}ÑåÁ”üèÍÑÉ¥¹œôì(€€€•áÁ•Ð¡ÍÑ…ÉÑA…å±½…ü¹Í½Á•}ÑåÁ”¤¹Ñ½	” Í•±•Ñ•‘}½ÕÌœ¤ì(€€€•áÁ•Ð¡ÍÑ…ÉÑA…å±½…ü¹½¹¹•Ñ½É}¥¤¹Ñ½	•U¹‘•™¥¹• ¤ì(€ô¤ì((€¥Ð Í¡½ÝÌ]L½Á•É…Ñ¥½¹…°Á…¹•±ÌÝ¡•¸½¹¹•Ñ½È¡•…±Ñ ¥ÌÝ…É¹¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹‘¥Í½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€€€¡•…±Ñ¡}ÍÑ…ÑÕÌè€Ý…É¹¥¹œœ°(€€€€€€€‘¥…¹½ÍÑ¥Ìèmì½‘”è€Á•Éµ¥ÍÍ¥½¹}Ý…É¹¥¹œœ°µ•ÍÍ…”è€A•Éµ¥ÍÍ¥½¸¡•­Ì¹••…ÑÑ•¹Ñ¥½¸¸œõt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½A•Éµ¥ÍÍ¥½¸¡•…±Ñ ½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½A±…Ñ™½É´É•…‘¥¹•ÍÌ½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð Í¡½ÝÌ½¹¹•Ñ•]LÍÑ…ÑÕÌ…ÌÑ¡”‘•™…Õ±ÐÍÕ•ÍÌÍÑ…Ñ”‰•™½É”Í•ÑÕÀµ…¹…•µ•¹Ðœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘]L°(€€€€€€€Ñ…É•Ñ}ÍÕµµ…Éäèì(€€€€€€€€€…½Õ¹Ñ}½Õ¹Ðè€Ä°(€€€€€€€€€…½Õ¹Ñ}½Õ¹Ñ}­¹½Ý¸èÑÉÕ”°(€€€€€€€€€½Õ}½Õ¹Ðè€À°(€€€€€€€€€É•¥½¹}½Õ¹Ðè€Ä°(€€€€€€€€€•á±Õ‘•‘}…½Õ¹Ñ}½Õ¹Ðè€À°(€€€€€€€€€•áÁ•Ñ•‘}ÍÑ…­}¥¹ÍÑ…¹•Ìè€Ä°(€€€€€€€€€•áÁ•Ñ•‘}ÍÑ…­}¥¹ÍÑ…¹•Í}­¹½Ý¸èÑÉÕ”°(€€€€€€€€€…±±}…½Õ¹ÑÌè™…±Í”(€€€€€€€ô(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€½¹ÍÐÍÕµµ…Éä€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€]L½¹¹•Ñ•ÍÕµµ…Éäœô¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½AÉ½‘ÕÑ¥½¸]L½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åQ•áÐ M¥¹±”…½Õ¹Ðœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åQ•áÐ œÄ…½Õ¹Ðœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åQ•áÐ œÄÉ•¥½¸œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½MÑ…ÉÐ]L¥¹Ñ•±±¥•¹”½¤ô¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€¡É•˜œ°(€€€€€€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½‘¥Í½Ù•Éäý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸™ÍÑ…ÉÐôÄœ(€€€€¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½I•Ù¥•Üµ…¡¥¹”¥‘•¹Ñ¥Ñ¥•Ì½¤ô¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€¡É•˜œ°(€€€€€€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½¥‘•¹Ñ¥Ñ¥•Ìý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸œ(€€€€¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” É•¥½¸œ°ì¹…µ”è€]L…½Õ¹ÐÍ•ÑÕÀœô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½5…¹…”½¹¹•Ñ¥½¸½¤ô¤¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€]L…½Õ¹ÐÍ•ÑÕÀœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð É•ÑÉ¥•Ì…¸]L‘¥Í½Ù•Éä•¹ÅÕ•Õ”…™Ñ•È„ÑÉ…¹Í¥•¹ÐÍÑ…ÉÐ™…¥±ÕÉ”œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÍ…¸€ôì(€€€€€¥è€Í…¸µÉ•ÑÉäœ°(€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€ÁÉ½Ù¥‘•Èè€…ÝÌœ°(€€€€€ÍÑ…ÑÕÌè€ÅÕ•Õ•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´Àà´ÈÁPÈÀèÀÀèÀÁhœ°(€€€€€…ÍÍ•Ñ}½Õ¹Ðè€À°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À(€€€ôì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘]Lô¤ì(€€€½¹ÍÐÍÑ…ÉÑM…¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑM…¸œ¤(€€€€€€¹µ½­I•©•Ñ•‘Y…±Õ•=¹”¡¹•ÜÉÉ½È Ñ•µÁ½É…ÉäÍÑ…ÉÐ™…¥±ÕÉ”œ¤¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÍ…¸ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑM…¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÍ…¸èì€¸¸¹Í…¸°ÍÑ…ÑÕÌè€ÉÕ¹¹¥¹œœôô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑM…¹Ù•¹ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M¥Í½Ù•ÉåA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½‘¥Í½Ù•Éäý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸™ÍÑ…ÉÐôÄuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½‘¥Í½Ù•Éäˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M¥Í½Ù•ÉåA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½½Õ±‘¸ÐÍÑ…ÉÐ]L‘¥Í½Ù•Éä½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½QÉä……¥¸½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÑ…ÉÑM…¸¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€ô¤ì((€¥Ð …±±½ÝÌ„™…¥±•]L‘¥Í½Ù•ÉäÑ¼ÍÑ…ÉÐ„É•Á±…•µ•¹ÐÍ…¸œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐ™…¥±•‘M…¸€ôì(€€€€€¥è€Í…¸µ™…¥±•œ°(€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€ÁÉ½Ù¥‘•Èè€…ÝÌœ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´Àà´ÈÁPÈÀèÀÀèÀÁhœ°(€€€€€…ÍÍ•Ñ}½Õ¹Ðè€À°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€]LÝ½É­•È™…¥±•¸œ(€€€ôì(€€€½¹ÍÐÉ•Á±…•µ•¹ÑM…¸€ôì€¸¸¹™…¥±•‘M…¸°¥è€Í…¸µÉ•Á±…•µ•¹Ðœ°ÍÑ…ÑÕÌè€ÅÕ•Õ•œ°•ÉÉ½É}µ•ÍÍ…”èÕ¹‘•™¥¹•ôì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘]Lô¤ì(€€€½¹ÍÐÍÑ…ÉÑM…¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑM…¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÍ…¸èÉ•Á±…•µ•¹ÑM…¸ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑM…¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÍ…¸è™…¥±•‘M…¸ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑM…¹Ù•¹ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M¥Í½Ù•ÉåA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½‘¥Í½Ù•Éäý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸™Í…¹}¥õÍ…¸µ™…¥±•uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½‘¥Í½Ù•Éäˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M¥Í½Ù•ÉåA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½¥Í½Ù•Éä™…¥±•½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½MÑ…ÉÐ„¹•Ü‘¥Í½Ù•Éä½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÑ…ÉÑM…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€ìÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœô°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€¤¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½ÐÍÑ…ÉÐ]L‘¥Í½Ù•ÉäÝ¥Ñ Ñ¡”ÁÉ•Ù¥½ÕÌ•¹Ù¥É½¹µ•¹Ð½¹¹•Ñ½Èœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÍÑ…¥¹½¹¹•Ñ¥½¸€ô‘•™•ÉÉ•ñì½¹¹•Ñ¥½¸è]M½¹¹•Ñ¥½¹MÑ…ÑÕÌôø ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œœ°(€€€€€€€€€¹…µ”è€MÑ…¥¹œœ°(€€€€€€€€€Í±Õœè€ÍÑ…¥¹œœ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€MÑ…¥¹œ]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€ÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œœ€üÍÑ…¥¹½¹¹•Ñ¥½¸¹ÁÉ½µ¥Í”€èAÉ½µ¥Í”¹É•Í½±Ù”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘]Lô¤(€€€€¤ì(€€€½¹ÍÐÍÑ…ÉÑM…¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑM…¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€Í…¸èì(€€€€€€€¥è€Í…¸µÍÑ…¥¹œœ°(€€€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œœ°(€€€€€€€½¹¹•Ñ½É}¥è€ÍÑ…¥¹œµ½¹¹•Ñ½Èœ°(€€€€€€€ÁÉ½Ù¥‘•Èè€…ÝÌœ°(€€€€€€€ÍÑ…ÑÕÌè€ÅÕ•Õ•œ°(€€€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´Àà´ÈÁPÈÀèÀÀèÀÁhœ°(€€€€€€€…ÍÍ•Ñ}½Õ¹Ðè€À°(€€€€€€€™¥¹‘¥¹}½Õ¹Ðè€À(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M¥Í½Ù•ÉåA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½‘¥Í½Ù•Éäý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½‘¥Í½Ù•Éäˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M¥Í½Ù•ÉåA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€½¹ÍÐ•¹Ù¥É½¹µ•¹ÑM•±•Ñ½È€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€¤¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡•¹Ù¥É½¹µ•¹ÑM•±•Ñ½È°ìÑ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œœôô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€ÍÑ…¥¹œœ°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€¤¤ì(€€€•áÁ•Ð¡ÍÑ…ÉÑM…¸¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€ÍÑ…¥¹½¹¹•Ñ¥½¸¹É•Í½±Ù”¡ì½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘]L°½¹¹•Ñ½É}¥è€ÍÑ…¥¹œµ½¹¹•Ñ½Èœôô¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÑ…ÉÑM…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€ìÁÉ½©•Ñ}¥è€ÍÑ…¥¹œœ°½¹¹•Ñ½É}¥è€ÍÑ…¥¹œµ½¹¹•Ñ½Èœô°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€¤¤ì(€ô¤ì((€¥Ð ¥¹½É•Ì„±…Ñ”]L‘¥Í½Ù•ÉäÍÑ…ÉÐÉ•ÍÁ½¹Í”™É½´Ñ¡”ÁÉ•Ù¥½ÕÌ•¹Ù¥É½¹µ•¹Ðœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÍÑ…ÉÑAÉ½‘ÕÑ¥½¸€ô‘•™•ÉÉ•ñìÍ…¸èì¥èÍÑÉ¥¹œìÁÉ½©•Ñ}¥èÍÑÉ¥¹œì½¹¹•Ñ½É}¥èÍÑÉ¥¹œìÁÉ½Ù¥‘•ÈèÍÑÉ¥¹œìÍÑ…ÑÕÌèÍÑÉ¥¹œìÍÑ…ÉÑ•‘}…ÐèÍÑÉ¥¹œì…ÍÍ•Ñ}½Õ¹Ðè¹Õµ‰•Èì™¥¹‘¥¹}½Õ¹Ðè¹Õµ‰•Èôôø ¤ì(€€€½¹ÍÐÍÑ…ÉÑMÑ…¥¹œ€ô‘•™•ÉÉ•ñìÍ…¸èì¥èÍÑÉ¥¹œìÁÉ½©•Ñ}¥èÍÑÉ¥¹œì½¹¹•Ñ½É}¥èÍÑÉ¥¹œìÁÉ½Ù¥‘•ÈèÍÑÉ¥¹œìÍÑ…ÑÕÌèÍÑÉ¥¹œìÍÑ…ÉÑ•‘}…ÐèÍÑÉ¥¹œì…ÍÍ•Ñ}½Õ¹Ðè¹Õµ‰•Èì™¥¹‘¥¹}½Õ¹Ðè¹Õµ‰•Èôôø ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œœ°(€€€€€€€€€¹…µ”è€MÑ…¥¹œœ°(€€€€€€€€€Í±Õœè€ÍÑ…¥¹œœ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€MÑ…¥¹œ]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôøAÉ½µ¥Í”¹É•Í½±Ù”¡ì(€€€€€½¹¹•Ñ¥½¸èÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œœ€üì€¸¸¹½¹¹•Ñ•‘]L°½¹¹•Ñ½É}¥è€ÍÑ…¥¹œµ½¹¹•Ñ½Èœô€è½¹¹•Ñ•‘]L(€€€ô¤¤ì(€€€½¹ÍÐÍÑ…ÉÑM…¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑM…¸œ¤(€€€€€€¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¹=¹”  ¤€ôøÍÑ…ÉÑAÉ½‘ÕÑ¥½¸¹ÁÉ½µ¥Í”¤(€€€€€€¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¹=¹”  ¤€ôøÍÑ…ÉÑMÑ…¥¹œ¹ÁÉ½µ¥Í”¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑM…¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€Í…¸èì(€€€€€€€¥è€Í…¸µÍÑ…¥¹œœ°(€€€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œœ°(€€€€€€€½¹¹•Ñ½É}¥è€ÍÑ…¥¹œµ½¹¹•Ñ½Èœ°(€€€€€€€ÁÉ½Ù¥‘•Èè€…ÝÌœ°(€€€€€€€ÍÑ…ÑÕÌè€ÉÕ¹¹¥¹œœ°(€€€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´Àà´ÈÁPÈÀèÀÀèÀÁhœ°(€€€€€€€…ÍÍ•Ñ}½Õ¹Ðè€À°(€€€€€€€™¥¹‘¥¹}½Õ¹Ðè€À(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑM…¹Ù•¹ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M¥Í½Ù•ÉåA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€™Õ¹Ñ¥½¸1½…Ñ¥½¹AÉ½‰” ¤ì(€€€€€½¹ÍÐÕÉÉ•¹Ñ1½…Ñ¥½¸€ôÕÍ•1½…Ñ¥½¸ ¤ì(€€€€€É•ÑÕÉ¸€ñ½ÕÑÁÕÐ‘…Ñ„µÑ•ÍÑ¥ô‰…ÝÌµ‘¥Í½Ù•Éäµ±½…Ñ¥½¸ˆùíÕÉÉ•¹Ñ1½…Ñ¥½¸¹Í•…É¡ôð½½ÕÑÁÕÐøì(€€€ô((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½‘¥Í½Ù•Éäý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸™ÍÑ…ÉÐôÄuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½‘¥Í½Ù•Éäˆ•±•µ•¹ÐõìðøñAÉ½‘ÕÑ]M¥Í½Ù•ÉåA…”€¼øñ1½…Ñ¥½¹AÉ½‰”€¼øð¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÑ…ÉÑM…¸¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ìÑ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œœôô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÑ…ÉÑM…¸¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€ÍÑ…ÉÑAÉ½‘ÕÑ¥½¸¹É•Í½±Ù”¡ì(€€€€€€€Í…¸èì(€€€€€€€€€¥è€Í…¸µÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€€€€€ÁÉ½Ù¥‘•Èè€…ÝÌœ°(€€€€€€€€€ÍÑ…ÑÕÌè€ÅÕ•Õ•œ°(€€€€€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´Àà´ÈÁPÈÀèÀÀèÀÁhœ°(€€€€€€€€€…ÍÍ•Ñ}½Õ¹Ðè€À°(€€€€€€€€€™¥¹‘¥¹}½Õ¹Ðè€À(€€€€€€€ô(€€€€€ô¤ì(€€€ô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% …ÝÌµ‘¥Í½Ù•Éäµ±½…Ñ¥½¸œ¤¤¹Ñ½!…Ù•Q•áÑ½¹Ñ•¹Ð •¹Ù¥É½¹µ•¹ÐõÍÑ…¥¹œ™ÍÑ…ÉÐôÄœ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€ÍÑ…ÉÑMÑ…¥¹œ¹É•Í½±Ù”¡ì(€€€€€€€Í…¸èì(€€€€€€€€€¥è€Í…¸µÍÑ…¥¹œœ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œœ°(€€€€€€€€€½¹¹•Ñ½É}¥è€ÍÑ…¥¹œµ½¹¹•Ñ½Èœ°(€€€€€€€€€ÁÉ½Ù¥‘•Èè€…ÝÌœ°(€€€€€€€€€ÍÑ…ÑÕÌè€ÅÕ•Õ•œ°(€€€€€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´Àà´ÈÁPÈÀèÀÀèÀÁhœ°(€€€€€€€€€…ÍÍ•Ñ}½Õ¹Ðè€À°(€€€€€€€€€™¥¹‘¥¹}½Õ¹Ðè€À(€€€€€€€ô(€€€€€ô¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% …ÝÌµ‘¥Í½Ù•Éäµ±½…Ñ¥½¸œ¤¤¹Ñ½!…Ù•Q•áÑ½¹Ñ•¹Ð •¹Ù¥É½¹µ•¹ÐõÍÑ…¥¹œ™Í…¹}¥õÍ…¸µÍÑ…¥¹œœ¤¤ì(€ô¤ì((€¥Ð ­••ÁÌ•‘¥Ñ•]LÉ½±”‘É…™ÑÌÝ¡•¸Á½±±¥¹œÍÑ…ÑÕÌÉ•ÑÕÉ¹Ì½±‘•È½¹¹•Ñ¥½¸‘…Ñ„œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘]Lô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€Á½±±]M½¹¹•Ñ½Èœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘]L°(€€€€€€€É½±•}…É¸è€…É¸é…ÝÌé¥…´èèÄÈÌÐÔØÜàäÀÄÈéÉ½±”½=±‘•É½¹¹•Ñ½ÉI½±”œ(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€]L½¹¹•Ñ•ÍÕµµ…Éäœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½5…¹…”½¹¹•Ñ¥½¸½¤ô¤¤ì(€€€½¹ÍÐÉ½±•%¹ÁÕÐ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ I½±”I8œ¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡É½±•%¹ÁÕÐ°ìÑ…É•ÐèìÙ…±Õ”è€…É¸é…ÝÌé¥…´èèÄÈÌÐÔØÜàäÀÄÈéÉ½±”½½ÉÉ•Ñ•‘½¹¹•Ñ½ÉI½±”œôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ]L…½Õ¹ÐÍ•ÑÕÀœ¤¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½I•™É•Í ½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹Á½±±]M½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±• ¤¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” É•¥½¸œ°ì¹…µ”è€]L½¹¹•Ñ•ÍÕµµ…Éäœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ I½±”I8œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ­••ÁÌ±•…äÉ½±”µ½¹±ä]L½¹¹•Ñ¥½¹Ì½ÕÐ½˜½¹¹•Ñ½ÈÙ…±¥‘…Ñ¥½¸œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥èÕ¹‘•™¥¹•°(€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€µ…¹Õ…°œ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€½¹¹•Ñ•œ°(€€€€€€€Í•ÑÕÁ}ÍÕµµ…Éäè€á¥ÍÑ¥¹œ%4É½±”½¹¹•Ñ¥½¸¸œ(€€€€€ô(€€€ô¤ì(€€€½¹ÍÐÙ…±¥‘…Ñ•]M½¹¹•Ñ½È€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€Ù…±¥‘…Ñ•]M½¹¹•Ñ½Èœ¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€]L½¹¹•Ñ•ÍÕµµ…Éäœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½5…¹…”½¹¹•Ñ¥½¸½¤ô¤¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½¡½½Í”Ý¡…ÐÑ¼½Ù•È½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ I½±”I8œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yY…±¥‘…Ñ”É½±”½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½MÑ…ÉÐ±½Õ‘½Éµ…Ñ¥½¸Í•ÑÕÀÑ¼µ½Ù”¥Ð½¹Ñ¼Ñ¡”½¹¹•Ñ½È™±½Ü½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ù…±¥‘…Ñ•]M½¹¹•Ñ½È¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì((€¥Ð É•¹‘•ÉÌÑ¡”-Õ‰•É¹•Ñ•Ì½¹ÑÉ½°•¹Ñ•ÈÝ¥Ñ ½¹¹•Ñ•±ÕÍÑ•È½Ù•É…”œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸-Õ‰•É¹•Ñ•Ì‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ìô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹ÑÉ½±•¹Ñ•ÉA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ìý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½­Õ‰•É¹•Ñ•Ìˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹ÑÉ½±•¹Ñ•ÉA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€-Õ‰•É¹•Ñ•Ì½¹ÑÉ½°•¹Ñ•Èœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ¥µœœ°ì¹…µ”è€-Õ‰•É¹•Ñ•Ìœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ±±	åQ•áÐ ÁÉ½‘ÕÑ¥½¸µ±ÕÍÑ•Èœ¤¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ À¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ œÈ¼È…±±½Ý•œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€½¹ÍÐÍ•Ñ¥½¹Q…‰±”€ôÍÉ••¸¹•Ñ	åI½±” Ñ…‰±”œ°ì¹…µ”è€-Õ‰•É¹•Ñ•ÌÍ•Ñ¥½¸±¥¹­Ìœô¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Í•Ñ¥½¹Q…‰±”¤¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€±ÕÍÑ•ÉÌœô¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€¡É•˜œ°(€€€€€€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½±ÕÍÑ•ÉÌý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸œ(€€€€¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Í•Ñ¥½¹Q…‰±”¤¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€M•ÉÙ¥”…½Õ¹ÑÌ€¼I	œô¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€¡É•˜œ°(€€€€€€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½Í•ÉÙ¥”µ…½Õ¹ÑÌý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸œ(€€€€¤ì(€ô¤ì((€¥Ð Ý…¥ÑÌ™½È-Õ‰•É¹•Ñ•Ì™•…ÑÕÉ”µ•Ñ…‘…Ñ„‰•™½É”±½…‘¥¹œ½¹¹•Ñ¥½¸ÍÑ…Ñ”œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÕ¹‘•™¥¹•ô°ì±½…‘¥¹œèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐ±¥ÍÑAÉ½©•ÑÌ€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸-Õ‰•É¹•Ñ•Ì‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€½¹ÍÐ•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ìô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹ÑÉ½±•¹Ñ•ÉA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ìý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½­Õ‰•É¹•Ñ•Ìˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹ÑÉ½±•¹Ñ•ÉA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€-Õ‰•É¹•Ñ•Ì½¹ÑÉ½°•¹Ñ•Èœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡±¥ÍÑAÉ½©•ÑÌ¤¹Ñ½!…Ù•	••¹…±±• ¤¤ì(€€€•áÁ•Ð¡•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì((€¥Ð ¡¥‘•Ì-Õ‰•É¹•Ñ•ÌÝ½É­±½…¥¹Ù•¹Ñ½ÉäÝ¡•¸Ñ¡”½¹¹•Ñ½È¥ÌÕ¹…Ù…¥±…‰±”œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸-Õ‰•É¹•Ñ•Ì‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€½¹ÍÐ•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í]½É­±½…‘ÍA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½Ý½É­±½…‘Ìý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½­Õ‰•É¹•Ñ•Ì½Ý½É­±½…‘Ìˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í]½É­±½…‘ÍA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ -Õ‰•É¹•Ñ•ÌÕ¹…Ù…¥±…‰±”œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” Ñ…‰±”œ°ì¹…µ”è€]½É­±½…¥‘•¹Ñ¥Ñäœô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ •Á±½åµ•¹ÑÌœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì((€¥Ð ¡¥‘•Ì-Õ‰•É¹•Ñ•ÌÝ½É­±½…¥¹Ù•¹Ñ½ÉäÝ¡•¸¹¼•¹Ù¥É½¹µ•¹Ð¥ÌÍ•±•Ñ•œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€½¹ÍÐ•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í]½É­±½…‘ÍA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½Ý½É­±½…‘Ìuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½­Õ‰•É¹•Ñ•Ì½Ý½É­±½…‘Ìˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í]½É­±½…‘ÍA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ¡½½Í”…¸•¹Ù¥É½¹µ•¹Ðœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” Ñ…‰±”œ°ì¹…µ”è€]½É­±½…¥‘•¹Ñ¥Ñäœô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ •Á±½åµ•¹ÑÌœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì((€¥Ð ­••ÁÌ-Õ‰•É¹•Ñ•Ì½¹¹•Ð½¸Ñ¡”‘½µ…¥¸Á…”Ý¡•¸¹¼•¹Ù¥É½¹µ•¹Ð•á¥ÍÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€½¹ÍÐ•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€½¹¹•Ð-Õ‰•É¹•Ñ•Ìœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½¡½½Í”…¸•¹Ù¥É½¹µ•¹Ð½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½=Á•¸•¹Ù¥É½¹µ•¹ÑÌ½¤ô¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€¡É•˜œ°(€€€€€€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½ÁÉ½©•ÑÌýÍ½ÕÉ”õ­Õ‰•É¹•Ñ•Ìœ(€€€€¤ì(€€€•áÁ•Ð¡•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì((€¥Ð ‘¥Í…‰±•Ì-Õ‰•É¹•Ñ•Ì½¹¹•Ñ½ÈÍÕ‰µ¥ÐÝ¡¥±”™•…ÑÕÉ”µ•Ñ…‘…Ñ„±½…‘Ìœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÕ¹‘•™¥¹•ô°ì±½…‘¥¹œèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸-Õ‰•É¹•Ñ•Ì‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€½¹ÍÐ•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤ì(€€€½¹ÍÐÍÑ…ÉÑ-Õ‰•É¹•Ñ•Í½¹¹•Ñ½È€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑ-Õ‰•É¹•Ñ•Í½¹¹•Ñ½Èœ¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€½¹ÍÐÍÕ‰µ¥Ñ	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•¹•É…Ñ”Ñ½­•¸½¤ô¤ì(€€€•áÁ•Ð¡ÍÕ‰µ¥Ñ	ÕÑÑ½¸¤¹Ñ½	•¥Í…‰±• ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÕ‰µ¥Ñ	ÕÑÑ½¸¤ì(€€€•áÁ•Ð¡•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€•áÁ•Ð¡ÍÑ…ÉÑ-Õ‰•É¹•Ñ•Í½¹¹•Ñ½È¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì((€¥Ð ÍÑ…ÉÑÌ-Õ‰•É¹•Ñ•Ì…•¹Ð•¹É½±±µ•¹ÐÝ¥Ñ Ý½É­ÍÁ…”…¹•¹Ù¥É½¹µ•¹ÐÍ½Á”œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸-Õ‰•É¹•Ñ•Ì‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€½¹ÍÐ•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ì½¹¹•Ñ¥½¸è‘¥Í½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ìô¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ìô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑ-Õ‰•É¹•Ñ•Í½¹¹•Ñ½Èœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸è½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ì°(€€€€€•¹É½±±µ•¹Ñ}Ñ½­•¸è€•¹É½±°µÑ½­•¸´ÄÈÌœ°(€€€€€•¹É½±±µ•¹Ñ}•áÁ¥É•Í}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ°(€€€€€¡•±µ}½µµ…¹è€¡•±´ÕÁÉ…‘”€´µ¥¹ÍÑ…±°¥‘•¹ÑÉ…¥°µ…•¹Ð¥‘•¹ÑÉ…¥°½…•¹Ð€´µÍ•ÐÑ½­•¸õ•¹É½±°µÑ½­•¸´ÄÈÌœ(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€½¹ÍÐÍÕ‰µ¥Ñ	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•¹•É…Ñ”Ñ½­•¸½¤ô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥ÍÁ±…ä¹…µ”œ¤°ìÑ…É•ÐèìÙ…±Õ”è€AÉ½‘ÕÑ¥½¸,áÌœôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ A$UI0œ¤°ìÑ…É•ÐèìÙ…±Õ”è€¡ÑÑÁÌè¼½¬áÌ¹•á…µÁ±”¹½´œôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÕ‰µ¥Ñ	ÕÑÑ½¸¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹ÍÑ…ÉÑ-Õ‰•É¹•Ñ•Í½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘¥ÍÁ±…å}¹…µ”è€AÉ½‘ÕÑ¥½¸,áÌœ°(€€€€€€€€€…Á¥}ÕÉ°è€¡ÑÑÁÌè¼½¬áÌ¹•á…µÁ±”¹½´œ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å¥ÍÁ±…åY…±Õ” AÉ½‘ÕÑ¥½¸-Õ‰•É¹•Ñ•Ìœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ •¹É½±°µÑ½­•¸´ÄÈÌœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½¡•±´ÕÁÉ…‘”€´µ¥¹ÍÑ…±°¥‘•¹ÑÉ…¥°µ…•¹Ð½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ¥¹½É•ÌÍÑ…±”-Õ‰•É¹•Ñ•Ì•¹É½±±µ•¹ÐÉ•ÍÁ½¹Í•Ì…™Ñ•ÈÍÝ¥Ñ¡¥¹œ•¹Ù¥É½¹µ•¹ÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸-Õ‰•É¹•Ñ•Ì‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œœ°(€€€€€€€€€¹…µ”è€MÑ…¥¹œœ°(€€€€€€€€€Í±Õœè€ÍÑ…¥¹œœ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€MÑ…¥¹œ-Õ‰•É¹•Ñ•Ì‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€½¹ÍÐ•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è‘¥Í½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ìô¤ì(€€€½¹ÍÐ•¹É½±±µ•¹Ð€ô‘•™•ÉÉ•ñ-Õ‰•É¹•Ñ•Í½¹¹•Ñ½ÉMÑ…ÉÑI•ÍÁ½¹Í”ø ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑ-Õ‰•É¹•Ñ•Í½¹¹•Ñ½Èœ¤¹µ½­I•ÑÕÉ¹Y…±Õ”¡•¹É½±±µ•¹Ð¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€™Õ¹Ñ¥½¸-Õ‰•É¹•Ñ•Í½¹¹•Ñ!…É¹•ÍÌ ¤ì(€€€€€½¹ÍÐ±½…Ñ¥½¸€ôÕÍ•1½…Ñ¥½¸ ¤ì(€€€€€½¹ÍÐ¹…Ù¥…Ñ”€ôÕÍ•9…Ù¥…Ñ” ¤ì(€€€€€É•ÑÕÉ¸€ (€€€€€€€€ðø(€€€€€€€€€€ñÀ‘…Ñ„µÑ•ÍÑ¥ô‰±½…Ñ¥½¸ˆùí€‘í±½…Ñ¥½¸¹Á…Ñ¡¹…µ•ô‘í±½…Ñ¥½¸¹Í•…É¡õôð½Àø(€€€€€€€€€€ñ‰ÕÑÑ½¸(€€€€€€€€€€€ÑåÁ”ô‰‰ÕÑÑ½¸ˆ(€€€€€€€€€€€½¹±¥¬õì ¤€ôø¹…Ù¥…Ñ” œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÍÑ…¥¹œœ¥ô(€€€€€€€€€€ø(€€€€€€€€€€€=Á•¸ÍÑ…¥¹œ(€€€€€€€€€€ð½‰ÕÑÑ½¸ø(€€€€€€€€€€ñAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”€¼ø(€€€€€€€€ð¼ø(€€€€€€¤ì(€€€ô((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðˆ•±•µ•¹Ðõìñ-Õ‰•É¹•Ñ•Í½¹¹•Ñ!…É¹•ÍÌ€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€½¹ÍÐÍÕ‰µ¥Ñ	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•¹•É…Ñ”Ñ½­•¸½¤ô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥ÍÁ±…ä¹…µ”œ¤°ìÑ…É•ÐèìÙ…±Õ”è€AÉ½‘ÕÑ¥½¸,áÌœôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÕ‰µ¥Ñ	ÕÑÑ½¸¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹ÍÑ…ÉÑ-Õ‰•É¹•Ñ•Í½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÝ½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€=Á•¸ÍÑ…¥¹œœô¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ±½…Ñ¥½¸œ¤¤¹Ñ½!…Ù•Q•áÑ½¹Ñ•¹Ð •¹Ù¥É½¹µ•¹ÐõÍÑ…¥¹œœ¤¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€•¹É½±±µ•¹Ð¹É•Í½±Ù”¡ì(€€€€€€€½¹¹•Ñ¥½¸è½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ì°(€€€€€€€•¹É½±±µ•¹Ñ}Ñ½­•¸è€ÍÑ…±”µ•¹É½±°µÑ½­•¸œ°(€€€€€€€•¹É½±±µ•¹Ñ}•áÁ¥É•Í}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ°(€€€€€€€¡•±µ}½µµ…¹è€¡•±´ÕÁÉ…‘”€´µ¥¹ÍÑ…±°¥‘•¹ÑÉ…¥°µ…•¹Ð¥‘•¹ÑÉ…¥°½…•¹Ð€´µÍ•ÐÑ½­•¸õÍÑ…±”µ•¹É½±°µÑ½­•¸œ(€€€€€ô¤ì(€€€€€…Ý…¥Ð•¹É½±±µ•¹Ð¹ÁÉ½µ¥Í”ì(€€€ô¤ì((€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ÍÑ…±”µ•¹É½±°µÑ½­•¸œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½¹É½±±µ•¹ÐÑ½­•¸É•…‘ä½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð (€€€€€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸¹µ½¬¹…±±Ì¹™¥±Ñ•È ¡l°ÁÉ½©•Ñ%t¤€ôøÁÉ½©•Ñ%€ôôô€ÁÉ½‘ÕÑ¥½¸œ¤(€€€€¤¹Ñ½!…Ù•1•¹Ñ  Ä¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½ÐÁÉ•™¥±°-Õ‰•É¹•Ñ•Ì…•¹ÐA$UI0™É½´Ñ¡”±ÕÍÑ•ÈÍ•ÉÙ•Èœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸-Õ‰•É¹•Ñ•Ì‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ìô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å¥ÍÁ±…åY…±Õ” AÉ½‘ÕÑ¥½¸-Õ‰•É¹•Ñ•Ìœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ A$UI0œ¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åA±…•¡½±‘•ÉQ•áÐ ¡ÑÑÁÌè¼½…Á¤¹¥‘•¹ÑÉ…¥°¹½´œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å¥ÍÁ±…åY…±Õ” ¡ÑÑÁÌè¼½¬áÌ¹•á…µÁ±”¹½´œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åA±…•¡½±‘•ÉQ•áÐ ¡ÑÑÁÌè¼½­Õ‰•É¹•Ñ•Ì¹‘•™…Õ±Ð¹ÍÙŒœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ÁÉ•Í•ÉÙ•Ì•á¥ÍÑ¥¹œ-Õ‰•É¹•Ñ•Ì­Õ‰•½¹™¥œµ½‘”Ý¡•¸±½…‘¥¹œÑ¡”½¹¹•Ñ¥½¸œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸-Õ‰•É¹•Ñ•Ì‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€½¹ÍÐ­Õ‰•½¹™¥½¹¹•Ñ¥½¸è-Õ‰•É¹•Ñ•Í½¹¹•Ñ¥½¹MÑ…ÑÕÌ€ôì(€€€€€€¸¸¹½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ì°(€€€€€½¹¹•Ñ½É}¥è€¬áÌµ­Õ‰•½¹™¥œœ°(€€€€€‘¥ÍÁ±…å}¹…µ”è€AÉ½‘ÕÑ¥½¸™…±±‰…¬œ°(€€€€€½¹Ñ•áÐè€ÁÉ½‘ÕÑ¥½¸µ…‘µ¥¸œ°(€€€€€½¹¹•Ñ¥½¹}µ½‘”è€­Õ‰•½¹™¥œœ(€€€ôì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è­Õ‰•½¹™¥½¹¹•Ñ¥½¸ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÕÁÍ•ÉÑ-Õ‰•É¹•Ñ•Í-Õ‰•½¹™¥½¹¹•Ñ½Èœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è­Õ‰•½¹™¥½¹¹•Ñ¥½¸ô¤ì(€€€½¹ÍÐÍÑ…ÉÑ-Õ‰•É¹•Ñ•Í½¹¹•Ñ½È€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑ-Õ‰•É¹•Ñ•Í½¹¹•Ñ½Èœ¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½M…Ù”­Õ‰•½¹™¥œ½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ 5½‘”œ¤¤¹Ñ½!…Ù•Y…±Õ” ­Õ‰•½¹™¥œœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥ÍÁ±…ä¹…µ”œ¤¤¹Ñ½!…Ù•Y…±Õ” AÉ½‘ÕÑ¥½¸™…±±‰…¬œ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ -Õ‰•½¹™¥œ½¹Ñ•áÐœ¤¤¹Ñ½!…Ù•Y…±Õ” ÁÉ½‘ÕÑ¥½¸µ…‘µ¥¸œ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ A$UI0œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ -Õ‰•½¹™¥œœ¤°ìÑ…É•ÐèìÙ…±Õ”è€…Á¥Y•ÉÍ¥½¸èØÅq¹±ÕÍÑ•ÉÌèmtœôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½M…Ù”­Õ‰•½¹™¥œ½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹ÕÁÍ•ÉÑ-Õ‰•É¹•Ñ•Í-Õ‰•½¹™¥½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€½¹¹•Ñ½É}¥è€¬áÌµ­Õ‰•½¹™¥œœ°(€€€€€€€€€‘¥ÍÁ±…å}¹…µ”è€AÉ½‘ÕÑ¥½¸™…±±‰…¬œ°(€€€€€€€€€½¹Ñ•áÐè€ÁÉ½‘ÕÑ¥½¸µ…‘µ¥¸œ°(€€€€€€€€€­Õ‰•½¹™¥œè€…Á¥Y•ÉÍ¥½¸èØÅq¹±ÕÍÑ•ÉÌèmtœ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€•áÁ•Ð¡ÍÑ…ÉÑ-Õ‰•É¹•Ñ•Í½¹¹•Ñ½È¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì((€¥Ð Í…Ù•Ì-Õ‰•É¹•Ñ•Ì­Õ‰•½¹™¥œ™…±±‰…¬Ý¥Ñ Ý½É­ÍÁ…”…¹•¹Ù¥É½¹µ•¹ÐÍ½Á”œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸-Õ‰•É¹•Ñ•Ì‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì€¸¸¹‘¥Í½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ì°½¹¹•Ñ½É}¥è€¬áÌµ•á¥ÍÑ¥¹œœ°½¹Ñ•áÐè€½±µ½¹Ñ•áÐœô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÕÁÍ•ÉÑ-Õ‰•É¹•Ñ•Í-Õ‰•½¹™¥½¹¹•Ñ½Èœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ìô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½­Õ‰•É¹•Ñ•Ì½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ-Õ‰•É¹•Ñ•Í½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•¹•É…Ñ”Ñ½­•¸½¤ô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ 5½‘”œ¤°ìÑ…É•ÐèìÙ…±Õ”è€­Õ‰•½¹™¥œœôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥ÍÁ±…ä¹…µ”œ¤°ìÑ…É•ÐèìÙ…±Õ”è€AÉ½‘ÕÑ¥½¸™…±±‰…¬œôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ -Õ‰•½¹™¥œ½¹Ñ•áÐœ¤°ìÑ…É•ÐèìÙ…±Õ”è€ÁÉ½‘ÕÑ¥½¸µ…‘µ¥¸œôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ -Õ‰•½¹™¥œœ¤°ìÑ…É•ÐèìÙ…±Õ”è€…Á¥Y•ÉÍ¥½¸èØÅq¹±ÕÍÑ•ÉÌèmtœôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½M…Ù”­Õ‰•½¹™¥œ½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹ÕÁÍ•ÉÑ-Õ‰•É¹•Ñ•Í-Õ‰•½¹™¥½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€½¹¹•Ñ½É}¥è€¬áÌµ•á¥ÍÑ¥¹œœ°(€€€€€€€€€‘¥ÍÁ±…å}¹…µ”è€AÉ½‘ÕÑ¥½¸™…±±‰…¬œ°(€€€€€€€€€½¹Ñ•áÐè€ÁÉ½‘ÕÑ¥½¸µ…‘µ¥¸œ°(€€€€€€€€€­Õ‰•½¹™¥œè€…Á¥Y•ÉÍ¥½¸èØÅq¹±ÕÍÑ•ÉÌèmtœ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ -Õ‰•½¹™¥œ…Ñ¥Ù”¸œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ±•…ÉÌÍÑ…±”]L½¹¹•Ð™½É´Ù…±Õ•ÌÝ¡•¸Ñ¡”Í•±•Ñ••¹Ù¥É½¹µ•¹Ð¡…¹•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œœ°(€€€€€€€€€¹…µ”è€MÑ…¥¹œœ°(€€€€€€€€€Í±Õœè€ÍÑ…¥¹œœ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€MÑ…¥¹œ]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€½¹ÍÐÁÉ½‘ÕÑ¥½¹MÑ…ÑÕÌ€ô‘•™•ÉÉ•ñì½¹¹•Ñ¥½¸è]M½¹¹•Ñ¥½¹MÑ…ÑÕÌôø ¤ì(€€€½¹ÍÐÍÑ…¥¹MÑ…ÑÕÌ€ô‘•™•ÉÉ•ñì½¹¹•Ñ¥½¸è]M½¹¹•Ñ¥½¹MÑ…ÑÕÌôø ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€ÁÉ½©•Ñ%€ôôô€ÁÉ½‘ÕÑ¥½¸œ€üÁÉ½‘ÕÑ¥½¹MÑ…ÑÕÌ¹ÁÉ½µ¥Í”€èÍÑ…¥¹MÑ…ÑÕÌ¹ÁÉ½µ¥Í”(€€€€¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” ÁÉ½‘ÕÑ¥½¸œ¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ìÑ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œœôô¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€ÍÑ…¥¹MÑ…ÑÕÌ¹É•Í½±Ù”¡ì(€€€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€€€¸¸¹‘¥Í½¹¹•Ñ•‘]L°(€€€€€€€€€Á•Éµ¥ÍÍ¥½¹}¡•­Ìèmt°(€€€€€€€€€‘¥…¹½ÍÑ¥Ìèmt(€€€€€€€ô(€€€€€ô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½¡½½Í”Ý¡…ÐÑ¼½Ù•È½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ I½±”I8œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ I½±”I8œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥ÍÁ±…ä¹…µ”œ¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ !½µ”É•¥½¸œ¤¤¹Ñ½!…Ù•Y…±Õ” ÕÌµ•…ÍÐ´Äœ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€ÁÉ½‘ÕÑ¥½¹MÑ…ÑÕÌ¹É•Í½±Ù”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘]Lô¤ì(€€€ô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ I½±”I8œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å¥ÍÁ±…åY…±Õ” AÉ½‘ÕÑ¥½¸]Lœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ¥¹½É•ÌÍÑ…±”]L±½Õ‘½Éµ…Ñ¥½¸ÍÑ…ÉÐÉ•ÍÁ½¹Í•Ì…™Ñ•ÈÍÝ¥Ñ¡¥¹œ•¹Ù¥É½¹µ•¹ÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œœ°(€€€€€€€€€¹…µ”è€MÑ…¥¹œœ°(€€€€€€€€€Í±Õœè€ÍÑ…¥¹œœ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€MÑ…¥¹œ]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è‘¥Í½¹¹•Ñ•‘]Lô¤ì(€€€½¹ÍÐÍÑ…ÉÑI•ÍÁ½¹Í”€ô‘•™•ÉÉ•ñ]M½¹¹•Ñ½ÉMÑ…ÉÑI•ÍÁ½¹Í”ø ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑ]M½¹¹•Ñ½Èœ¤¹µ½­I•ÑÕÉ¹Y…±Õ”¡ÍÑ…ÉÑI•ÍÁ½¹Í”¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€½¹ÍÐ±…Õ¹¡	ÕÑÑ½¸€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½½¹¹•Ð]L½¤ô¤¥lÁtì(€€€™¥É•Ù•¹Ð¹±¥¬¡±…Õ¹¡	ÕÑÑ½¸¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹ÍÑ…ÉÑ]M½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ìÑ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œœôô¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€ÍÑ…ÉÑI•ÍÁ½¹Í”¹É•Í½±Ù”¡ì(€€€€€€€½¹¹•Ñ¥½¸è½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€€€•áÑ•É¹…±}¥è€ÍÑ…±”µ•áÑ•É¹…°µ¥œ°(€€€€€€€±…Õ¹¡}ÕÉ°è€¡ÑÑÁÌè¼½½¹Í½±”¹…ÝÌ¹…µ…é½¸¹½´½±½Õ‘™½Éµ…Ñ¥½¸œ°(€€€€€€€Ñ•µÁ±…Ñ•}ÕÉ°è€¡ÑÑÁÌè¼½•á…µÁ±”¹½´½Ñ•µÁ±…Ñ”¹å…µ°œ°(€€€€€€€É½±•}¹…µ”è€%‘•¹ÑÉ…¥±I•…‘=¹±äœ°(€€€€€€€ÍÑ…­}¹…µ”è€¥‘•¹ÑÉ…¥°µÉ•…‘½¹±äµ½¹¹•Ñ½Èœ°(€€€€€€€Á½±¥å}¡…Í è€Í¡„ÈÔØé•á…µÁ±”œ°(€€€€€€€Í½Á•}ÑåÁ”è€Í¥¹±•}…½Õ¹Ðœ°(€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€±½Õ‘™½Éµ…Ñ¥½¸œ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€±…Õ¹¡}É•…‘äœ°(€€€€€€€Ñ…É•Ñ}É•¥½¹ÌèlÕÌµ•…ÍÐ´Ät°(€€€€€€€Ñ…É•Ñ}…½Õ¹Ñ}¥‘Ìèmt°(€€€€€€€Ñ…É•Ñ}½Õ}¥‘Ìèmt°(€€€€€€€•á±Õ‘•‘}…½Õ¹Ñ}¥‘Ìèmt°(€€€€€€€…ÕÑ½}½¹‰½…É‘}¹•Ý}…½Õ¹ÑÌè™…±Í”°(€€€€€€€Í•ÑÕÁ}ÍÕµµ…Éäè€M¥¹±”]L…½Õ¹ÐÉ•…µ½¹±äÍ•ÑÕÀÑ¡É½Õ ±½Õ‘½Éµ…Ñ¥½¸¸œ°(€€€€€€€¹•áÑ}…Ñ¥½¹Ìèl±…Õ¹¡}ÍÑ…¬œ°€Ù…±¥‘…Ñ•}É½±”œ°€É•™É•Í¡}ÍÑ…ÑÕÌt°(€€€€€€€Á•Éµ¥ÍÍ¥½¹}ÁÉ•Ù¥•Üèl(€€€€€€€€€ìÍ•ÉÙ¥”è€%4œ°…Ñ¥½¹Ìèl¥…´é•ÑI½±”t°É•Í½ÕÉ•Ìèlœ¨t°É•…Í½¸è€%¹ÍÁ•ÐÉ½±”µ•Ñ…‘…Ñ„¸œô(€€€€€€€t°(€€€€€€€Á•Éµ¥ÍÍ¥½¹}Ñ¥•ÉÌèmt(€€€€€ô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” ÍÑ…¥¹œœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ áÑ•É¹…°%œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ±¥¹¬œ°ì¹…µ”è€½=Á•¸]L½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½]L±½Õ‘½Éµ…Ñ¥½¸±…Õ¹ ¥ÌÉ•…‘ä½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½AÉ•Ù¥•ÜÁ•Éµ¥ÍÍ¥½¹Ì½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ¥¹½É•ÌÍÑ…±”]LÁ½±°É•ÍÁ½¹Í•Ì…™Ñ•ÈÍÝ¥Ñ¡¥¹œ•¹Ù¥É½¹µ•¹ÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œœ°(€€€€€€€€€¹…µ”è€MÑ…¥¹œœ°(€€€€€€€€€Í±Õœè€ÍÑ…¥¹œœ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€MÑ…¥¹œ]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ì½¹¹•Ñ¥½¸èÁÉ½©•Ñ%€ôôô€ÁÉ½‘ÕÑ¥½¸œ€ü½¹¹•Ñ•‘]L€è‘¥Í½¹¹•Ñ•‘]Lô¤(€€€€¤ì(€€€½¹ÍÐÁ½±±I•ÍÁ½¹Í”€ô‘•™•ÉÉ•ñì½¹¹•Ñ¥½¸è]M½¹¹•Ñ¥½¹MÑ…ÑÕÌôø ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€Á½±±]M½¹¹•Ñ½Èœ¤¹µ½­I•ÑÕÉ¹Y…±Õ”¡Á½±±I•ÍÁ½¹Í”¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥Ð½Á•¹]M½¹¹•Ñ¥½¹5…¹…•µ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½¡½½Í”Ý¡…ÐÑ¼½Ù•È½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€½¹ÍÐÉ•™É•Í¡	ÕÑÑ½¸€ôÝ¥Ñ¡¥¸¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ]L…½Õ¹ÐÍ•ÑÕÀœ¤¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì(€€€€€¹…µ”è€½I•™É•Í ½¤(€€€ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡É•™É•Í¡	ÕÑÑ½¸¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹Á½±±]M½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ìÑ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œœôô¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€Á½±±I•ÍÁ½¹Í”¹É•Í½±Ù”¡ì(€€€€€€€½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘]L°‘¥ÍÁ±…å}¹…µ”è€AÉ½‘ÕÑ¥½¸Á½±°]Lœ°…½Õ¹Ñ}¥è€œÄÄÄÄÄÄÄÄÄÄÄÄœô(€€€€€ô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” ÍÑ…¥¹œœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ]L½¹¹•Ñ½È¥Ì…Ñ¥Ù”¸œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ AÉ½‘ÕÑ¥½¸Á½±°]Lœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð …ÕÑ½µ…Ñ¥…±±äÁ½±±Ì±½Õ‘½Éµ…Ñ¥½¸Í•ÑÕÀÕ¹Ñ¥°]L¥Ì½¹¹•Ñ•œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹‘¥Í½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€Ý…¥Ñ¥¹}™½É}…ÝÌœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€Á½±±]M½¹¹•Ñ½Èœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘]L°(€€€€€€€É½±•}…É¸è€…É¸é…ÝÌé¥…´èèÄÈÌÐÔØÜàäÀÄÈéÉ½±”½%‘•¹ÑÉ…¥±I•…‘=¹±äœ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€½¹¹•Ñ•œ(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€½¹ÍÐÉ½±•%¹ÁÕÐ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ I½±”I8œ¤ì(€€€•áÁ•Ð¡É½±•%¹ÁÕÐ¤¹Ñ½!…Ù•Y…±Õ” œœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yY…±¥‘…Ñ”É½±”½¤ô¤¤¹Ñ½	•¥Í…‰±• ¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹Á½±±]M½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤°(€€€€€ìÑ¥µ•½ÕÐè€ÐÀÀÀô(€€€€¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€]L½¹¹•Ñ•ÍÕµµ…Éäœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å¥ÍÁ±…åY…±Õ” …É¸é…ÝÌé¥…´èèÄÈÌÐÔØÜàäÀÄÈéÉ½±”½%‘•¹ÑÉ…¥±I•…‘=¹±äœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yY…±¥‘…Ñ”É½±”½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ¡å‘É…Ñ•ÌÑÉÕÍÐµÁ½±¥äÉ•Á…¥Èµ…Ñ•É¥…°Ý¡•¸…ÕÑ½µ…Ñ¥ŒÁ½±±¥¹œÉ•…¡•Ì¹••‘Ìµ™¥àœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹‘¥Í½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€±½Õ‘™½Éµ…Ñ¥½¸œ°(€€€€€€€Í½Á•}ÑåÁ”è€Í¥¹±•}…½Õ¹Ðœ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€Ý…¥Ñ¥¹}™½É}…ÝÌœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€Á½±±]M½¹¹•Ñ½Èœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹‘¥Í½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€±½Õ‘™½Éµ…Ñ¥½¸œ°(€€€€€€€Í½Á•}ÑåÁ”è€Í¥¹±•}…½Õ¹Ðœ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€¹••‘Í}™¥àœ°(€€€€€€€ÍÑ…ÑÕÌè€‘•É…‘•œ°(€€€€€€€¡•…±Ñ¡}ÍÑ…ÑÕÌè€•ÉÉ½Èœ(€€€€€ô(€€€ô¤ì(€€€½¹ÍÐ¡å‘É…Ñ•I•Á…¥È€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑ]M½¹¹•Ñ½Èœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹‘¥Í½¹¹•Ñ•‘]L°(€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€±½Õ‘™½Éµ…Ñ¥½¸œ°(€€€€€€€Í½Á•}ÑåÁ”è€Í¥¹±•}…½Õ¹Ðœ°(€€€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€¹••‘Í}™¥àœ°(€€€€€€€ÍÑ…ÑÕÌè€‘•É…‘•œ°(€€€€€€€¡•…±Ñ¡}ÍÑ…ÑÕÌè€•ÉÉ½Èœ(€€€€€ô°(€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€•áÑ•É¹…±}¥è€É•Á…¥Èµ•áÑ•É¹…°µ¥œ°(€€€€€±…Õ¹¡}ÕÉ°è€œœ°(€€€€€Ñ•µÁ±…Ñ•}ÕÉ°è€¡ÑÑÁÌè¼½•á…µÁ±”¹½´½Ñ•µÁ±…Ñ”¹å…µ°œ°(€€€€€É½±•}¹…µ”è€%‘•¹ÑÉ…¥±I•…‘=¹±äœ°(€€€€€ÍÑ…­}¹…µ”è€¥‘•¹ÑÉ…¥°µÉ•…‘½¹±äµ½¹¹•Ñ½Èœ°(€€€€€Á½±¥å}¡…Í è€Í¡„ÈÔØé•á…µÁ±”œ°(€€€€€Í½Á•}ÑåÁ”è€Í¥¹±•}…½Õ¹Ðœ°(€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€±½Õ‘™½Éµ…Ñ¥½¸œ°(€€€€€½¹‰½…É‘¥¹}ÍÑ…ÑÕÌè€¹••‘Í}™¥àœ°(€€€€€Ñ…É•Ñ}É•¥½¹ÌèlÕÌµ•…ÍÐ´Ät°(€€€€€Ñ…É•Ñ}…½Õ¹Ñ}¥‘Ìèmt°(€€€€€Ñ…É•Ñ}½Õ}¥‘Ìèmt°(€€€€€•á±Õ‘•‘}…½Õ¹Ñ}¥‘Ìèmt°(€€€€€…ÕÑ½}½¹‰½…É‘}¹•Ý}…½Õ¹ÑÌè™…±Í”°(€€€€€Í•ÑÕÁ}ÍÕµµ…Éäè€Q¡”½¹¹•Ñ¥½¸¹••‘Ì…ÑÑ•¹Ñ¥½¸¸œ°(€€€€€¹•áÑ}…Ñ¥½¹ÌèlÉ•Á…¥É}Á•Éµ¥ÍÍ¥½¹Ìœ°€Ù…±¥‘…Ñ•}É½±”œ°€É•™É•Í¡}ÍÑ…ÑÕÌt°(€€€€€Á•Éµ¥ÍÍ¥½¹}ÁÉ•Ù¥•Üèmt°(€€€€€Á•Éµ¥ÍÍ¥½¹}Ñ¥•ÉÌèmt(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹Á½±±]M½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±• ¤°ìÑ¥µ•½ÕÐè€ÐÀÀÀô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡¡å‘É…Ñ•I•Á…¥È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€½¹¹•Ñ½É}¥è€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€€€€€É•Á…¥É}½¹±äèÑÉÕ”°(€€€€€€€€€Í½Á•}ÑåÁ”è€Í¥¹±•}…½Õ¹Ðœ°(€€€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€±½Õ‘™½Éµ…Ñ¥½¸œ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€ô¤ì((€¥Ð ¥¹½É•ÌÍÑ…±”]LÙ…±¥‘…Ñ¥½¸É•ÍÁ½¹Í•Ì…™Ñ•ÈÍÝ¥Ñ¡¥¹œ•¹Ù¥É½¹µ•¹ÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œœ°(€€€€€€€€€¹…µ”è€MÑ…¥¹œœ°(€€€€€€€€€Í±Õœè€ÍÑ…¥¹œœ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€MÑ…¥¹œ]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ì½¹¹•Ñ¥½¸èÁÉ½©•Ñ%€ôôô€ÁÉ½‘ÕÑ¥½¸œ€ü½¹¹•Ñ•‘]L€è‘¥Í½¹¹•Ñ•‘]Lô¤(€€€€¤ì(€€€½¹ÍÐÙ…±¥‘…Ñ¥½¹I•ÍÁ½¹Í”€ô‘•™•ÉÉ•ñì½¹¹•Ñ¥½¸è]M½¹¹•Ñ¥½¹MÑ…ÑÕÌôø ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€Ù…±¥‘…Ñ•]M½¹¹•Ñ½Èœ¤¹µ½­I•ÑÕÉ¹Y…±Õ”¡Ù…±¥‘…Ñ¥½¹I•ÍÁ½¹Í”¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€]L½¹¹•Ñ•ÍÕµµ…Éäœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½5…¹…”½¹¹•Ñ¥½¸½¤ô¤¤ì(€½¹ÍÐÍÕ‰µ¥Ñ	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yY…±¥‘…Ñ”É½±”½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÕ‰µ¥Ñ	ÕÑÑ½¸¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹Ù…±¥‘…Ñ•]M½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€…ÝÌµ½¹¹•Ñ½È´Äœ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ìÑ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œœôô¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€Ù…±¥‘…Ñ¥½¹I•ÍÁ½¹Í”¹É•Í½±Ù”¡ì(€€€€€€€½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘]L°‘¥ÍÁ±…å}¹…µ”è€Y…±¥‘…Ñ•ÁÉ½‘ÕÑ¥½¸]Lœ°…½Õ¹Ñ}¥è€œÄÄÄÄÄÄÄÄÄÄÄÄœô(€€€€€ô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” ÍÑ…¥¹œœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ]L½¹¹•Ñ½È¥Ì…Ñ¥Ù”¸œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ Y…±¥‘…Ñ•ÁÉ½‘ÕÑ¥½¸]Lœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ±½…‘Ì]L½¹¹•Ð…Ñ¥½¹Ì™½ÈÑ¡”Í•±•Ñ••¹Ù¥É½¹µ•¹Ð•Ù•¸Ý¡•¸¥Ð¥Ì½ÕÑÍ¥‘”Ñ¡”™¥ÉÍÐÁ…”œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€½¹ÍÐ±¥ÍÑAÉ½©•ÑÌ€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèÉÉ…ä¹™É½´¡ì±•¹Ñ è€ÔÀô°€¡|°¥¹‘•à¤€ôø€¡ì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥èÉ••¹Ðµ•¹Ù¥É½¹µ•¹Ð´‘í¥¹‘•à€¬€Åõ€°(€€€€€€€¹…µ”èI••¹Ð¹Ù¥É½¹µ•¹Ð€‘í¥¹‘•à€¬€Åõ€°(€€€€€€€Í±ÕœèÉ••¹Ðµ•¹Ù¥É½¹µ•¹Ð´‘í¥¹‘•à€¬€Åõ€°(€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô¤¤(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥è€½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€¹…µ”è€=±‘•ÈAÉ½‘ÕÑ¥½¸œ°(€€€€€€€Í±Õœè€½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€1½¹œµ±¥Ù•ÁÉ½‘ÕÑ¥½¸‰½Õ¹‘…Éä¸œ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈÔ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈÔ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€½¹ÍÐ•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘]Lô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹Ðõ½±‘•ÈµÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” ½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€]L½¹¹•Ñ•ÍÕµµ…Éäœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼Q¡”½¹¹•Ñ•µÍÑ…Ñ”ÁÉ¥µ…ÉäQ¥ÌÑ¡”]L½Ù•ÉÙ¥•Ü±¥¹¬¸(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½]L½Ù•ÉÙ¥•Ü½¤ô¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€¡É•˜œ°(€€€€€€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌý•¹Ù¥É½¹µ•¹Ðõ½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ(€€€€¤ì(€€€€¼¼Q¡”Á…”µÕÍÐÍÑ¥±°¡…Ù”™•Ñ¡•Ñ¡”]L½¹¹•Ñ¥½¸™½ÈÑ¡”(€€€€¼¼É•ÅÕ•ÍÑ••¹Ù¥É½¹µ•¹Ð€¡Ñ¡”•¹¥¹••É¥¹œM•ÑÕÀÁ…å±½…€¼Ù…±¥‘…Ñ¥½¸(€€€€¼¼¡…É¹•ÍÌ€¼½±±•Ñ½È½¹ÑÉ…ÐÁ…¹•±Ì¡…Ù”‰••¸É•µ½Ù•™É½´Ñ¡”(€€€€¼¼ÕÍÑ½µ•ÈU$‰ÕÐÑ¡”½¹¹•Ñ¥½¸™•Ñ ¥ÌÕ¹¡…¹•¤¸(€€€•áÁ•Ð¡±¥ÍÑAÉ½©•ÑÌ¤¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€•áÁ•Ð¡•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€¤ì(€ô¤ì((€¥Ð ÅÕ…±¥™¥•Ì½É…¹¥é…Ñ¥½¸…±°µ…½Õ¹ÐÍÕµµ…É¥•ÌÝ¡•¸…½Õ¹ÑÌ…É”•á±Õ‘•œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸]L‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘]L°(€€€€€€€Í½Á•}ÑåÁ”è€½É…¹¥é…Ñ¥½¸œ°(€€€€€€€‘•Á±½åµ•¹Ñ}µ•Ñ¡½è€ÍÑ…­Í•Ñ}Í•ÉÙ¥•}µ…¹…•œ°(€€€€€€€Ñ…É•Ñ}…½Õ¹Ñ}¥‘Ìèmt°(€€€€€€€Ñ…É•Ñ}½Õ}¥‘ÌèlÈµ…‰t°(€€€€€€€•á±Õ‘•‘}…½Õ¹Ñ}¥‘ÌèlœÄÄÄÄÄÄÄÄÄÄÄÄœ°€œÈÈÈÈÈÈÈÈÈÈÈÈt°(€€€€€€€…ÕÑ½}½¹‰½…É‘}¹•Ý}…½Õ¹ÑÌèÑÉÕ”°(€€€€€€€Ñ…É•Ñ}ÍÕµµ…Éäèì(€€€€€€€€€…½Õ¹Ñ}½Õ¹Ðè€À°(€€€€€€€€€…½Õ¹Ñ}½Õ¹Ñ}­¹½Ý¸è™…±Í”°(€€€€€€€€€½Õ}½Õ¹Ðè€À°(€€€€€€€€€É•¥½¹}½Õ¹Ðè€Ä°(€€€€€€€€€•á±Õ‘•‘}…½Õ¹Ñ}½Õ¹Ðè€È°(€€€€€€€€€•áÁ•Ñ•‘}ÍÑ…­}¥¹ÍÑ…¹•Ìè€À°(€€€€€€€€€•áÁ•Ñ•‘}ÍÑ…­}¥¹ÍÑ…¹•Í}­¹½Ý¸è™…±Í”°(€€€€€€€€€…±±}…½Õ¹ÑÌèÑÉÕ”(€€€€€€€ô(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€½¹ÍÐÍÕµµ…Éä€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€]L½¹¹•Ñ•ÍÕµµ…Éäœô¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åQ•áÐ =É…¹¥é…Ñ¥½¸°…±°…½Õ¹ÑÌ•á•ÁÐ€È•á±Õ‘•…½Õ¹ÑÌœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åQ•áÐ ±°½É…¹¥é…Ñ¥½¸…½Õ¹ÑÌ•á•ÁÐ€È•á±Õ‘•…½Õ¹ÑÌœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ­••ÁÌÉ•ÅÕ•ÍÑ••¹Ù¥É½¹µ•¹ÐÍ•±•Ñ•Ý¡•¸•ÑAÉ½©•Ð¡•¬™…¥±Ì™½È„ÑÉ…¹Í¥•¹Ð•ÉÉ½Èœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèÉÉ…ä¹™É½´¡ì±•¹Ñ è€ÔÀô°€¡|°¥¹‘•à¤€ôø€¡ì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥èÉ••¹Ðµ•¹Ù¥É½¹µ•¹Ð´‘í¥¹‘•à€¬€Åõ€°(€€€€€€€¹…µ”èI••¹Ð¹Ù¥É½¹µ•¹Ð€‘í¥¹‘•à€¬€Åõ€°(€€€€€€€Í±ÕœèÉ••¹Ðµ•¹Ù¥É½¹µ•¹Ð´‘í¥¹‘•à€¬€Åõ€°(€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô¤¤(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•©•Ñ•‘Y…±Õ”¡¹•Ü…Á¤¹Á¥ÉÉ½È Ñ•µÁ½É…Éä½ÕÑ…”œ°€ÔÀÌ¤¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ½µ…¥¹I½ÕÑ•A…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìý•¹Ù¥É½¹µ•¹Ðõ½±‘•ÈµÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ½µ…¥¹I½ÕÑ•A…”‘½µ…¥¸ô‰¥Ñ¡ÕˆˆÉ½ÕÑ•%ô‰É•Á½Í¥Ñ½É¥•Ìˆ€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” ½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½½¹¹•Ð¥Ñ!Õˆ½¤ô¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€¡É•˜œ°(€€€€€€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹Ðõ½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ(€€€€¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½U¹…‰±”Ñ¼Ù•É¥™äÍ•±•Ñ••¹Ù¥É½¹µ•¹Ð½±‘•ÈµÁÉ½‘ÕÑ¥½¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð É•ÑÉ¥•ÌÉ•ÅÕ•ÍÑ••¹Ù¥É½¹µ•¹ÐÙ•É¥™¥…Ñ¥½¸…™Ñ•ÈÑÉ…¹Í¥•¹Ð•ÑAÉ½©•Ð™…¥±ÕÉ•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÉ••¹ÑAÉ½©•ÑÌ€ôÉÉ…ä¹™É½´¡ì±•¹Ñ è€ÔÀô°€¡|°¥¹‘•à¤€ôø€¡ì(€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€ÁÉ½©•Ñ}¥èÉ••¹Ðµ•¹Ù¥É½¹µ•¹Ð´‘í¥¹‘•à€¬€Åõ€°(€€€€€¹…µ”èI••¹Ð¹Ù¥É½¹µ•¹Ð€‘í¥¹‘•à€¬€Åõ€°(€€€€€Í±ÕœèÉ••¹Ðµ•¹Ù¥É½¹µ•¹Ð´‘í¥¹‘•à€¬€Åõ€°(€€€€€‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€ô¤¤ì(€€€½¹ÍÐ½±‘•ÉAÉ½‘ÕÑ¥½¸€ôì(€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€ÁÉ½©•Ñ}¥è€½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ°(€€€€€¹…µ”è€=±‘•ÈAÉ½‘ÕÑ¥½¸œ°(€€€€€Í±Õœè€½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ°(€€€€€‘•ÍÉ¥ÁÑ¥½¸è€1½¹œµ±¥Ù•ÁÉ½‘ÕÑ¥½¸‰½Õ¹‘…Éä¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈÔ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈÔ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€ôì(€€€½¹ÍÐ±¥ÍÑAÉ½©•ÑÌ€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèÉ••¹ÑAÉ½©•ÑÌô¤ì(€€€½¹ÍÐ•ÑAÉ½©•Ð€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤(€€€€€€¹µ½­I•©•Ñ•‘Y…±Õ•=¹”¡¹•Ü…Á¤¹Á¥ÉÉ½È Ñ•µÁ½É…Éä½ÕÑ…”œ°€ÔÀÌ¤¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ìÁÉ½©•Ðè½±‘•ÉAÉ½‘ÕÑ¥½¸ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ½µ…¥¹I½ÕÑ•A…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐÉ•¹‘•ÉI•Á½Í¥Ñ½É¥•ÍA…”€ô€ ¤€ôø(€€€€€É•¹‘•È (€€€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìý•¹Ù¥É½¹µ•¹Ðõ½±‘•ÈµÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìˆ(€€€€€€€€€€€€€•±•µ•¹ÐõìñAÉ½‘ÕÑ½µ…¥¹I½ÕÑ•A…”‘½µ…¥¸ô‰¥Ñ¡ÕˆˆÉ½ÕÑ•%ô‰É•Á½Í¥Ñ½É¥•Ìˆ€¼ùô(€€€€€€€€€€€€¼ø(€€€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€€€¤ì((€€€½¹ÍÐ™¥ÉÍÑI•¹‘•È€ôÉ•¹‘•ÉI•Á½Í¥Ñ½É¥•ÍA…” ¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” ½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½U¹…‰±”Ñ¼Ù•É¥™äÍ•±•Ñ••¹Ù¥É½¹µ•¹Ð½±‘•ÈµÁÉ½‘ÕÑ¥½¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡•ÑAÉ½©•Ð¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€™¥ÉÍÑI•¹‘•È¹Õ¹µ½Õ¹Ð ¤ì((€€€É•¹‘•ÉI•Á½Í¥Ñ½É¥•ÍA…” ¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” ½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡±¥ÍÑAÉ½©•ÑÌ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡•ÑAÉ½©•Ð¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½U¹…‰±”Ñ¼Ù•É¥™äÍ•±•Ñ••¹Ù¥É½¹µ•¹Ð½±‘•ÈµÁÉ½‘ÕÑ¥½¸½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤(€€€€¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½ÐÍ¥±•¹Ñ±äÍÝ¥Ñ ]L½¹¹•ÐÑ¼„™…±±‰…¬•¹Ù¥É½¹µ•¹ÐÝ¡•¸•ÑAÉ½©•Ð¡•¬™…¥±ÌÑÉ…¹Í¥•¹Ñ±äœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­]M	…Í•±¥¹”¡…Á¤¤ì(€€€½¹ÍÐ±¥ÍÑAÉ½©•ÑÌ€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€…Ñ¥Ù”µÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€Ñ¥Ù”AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€…Ñ¥Ù”µÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€Ñ¥Ù”ÁÉ½‘ÕÑ¥½¸‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•©•Ñ•‘Y…±Õ”¡¹•Ü…Á¤¹Á¥ÉÉ½È Ñ•µÁ½É…Éä½ÕÑ…”œ°€ÔÀÌ¤¤ì(€€€½¹ÍÐ•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è‘¥Í½¹¹•Ñ•‘]Lô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ]M½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹Ðõ½±‘•ÈµÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ]M½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€½¹¹•Ð]Lœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” ½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½U¹…‰±”Ñ¼Ù•É¥™äÍ•±•Ñ••¹Ù¥É½¹µ•¹Ð½±‘•ÈµÁÉ½‘ÕÑ¥½¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡±¥ÍÑAÉ½©•ÑÌ¤¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€•áÁ•Ð¡•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€½±‘•ÈµÁÉ½‘ÕÑ¥½¸œ°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€¤ì(€ô¤ì((€¥Ð ™…±±Ì‰…¬Ñ¼…¸…Ñ¥Ù”•¹Ù¥É½¹µ•¹ÐÝ¡•¸Ñ¡”É•ÅÕ•ÍÑ••¹Ù¥É½¹µ•¹Ð¥Ì…É¡¥Ù•œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèl(€€€€€€€ì(€€€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€…Ñ¥Ù”µÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€¹…µ”è€Ñ¥Ù”AÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€Í±Õœè€…Ñ¥Ù”µÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€Ñ¥Ù”ÁÉ½‘ÕÑ¥½¸‰½Õ¹‘…Éä¸œ°(€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€€€ô(€€€€€t(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥è€…É¡¥Ù•µÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€¹…µ”è€É¡¥Ù•AÉ½‘ÕÑ¥½¸œ°(€€€€€€€Í±Õœè€…É¡¥Ù•µÁÉ½‘ÕÑ¥½¸œ°(€€€€€€€‘•ÍÉ¥ÁÑ¥½¸è€I•Ñ¥É•‰½Õ¹‘…Éä¸œ°(€€€€€€€…É¡¥Ù•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈÔ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ½µ…¥¹I½ÕÑ•A…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½¥‘•¹Ñ¥Ñ¥•Ìý•¹Ù¥É½¹µ•¹Ðõ…É¡¥Ù•µÁÉ½‘ÕÑ¥½¸uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½…ÝÌ½¥‘•¹Ñ¥Ñ¥•Ìˆ(€€€€€€€€€€€•±•µ•¹ÐõìñAÉ½‘ÕÑ½µ…¥¹I½ÕÑ•A…”‘½µ…¥¸ô‰…ÝÌˆÉ½ÕÑ•%ô‰¥‘•¹Ñ¥Ñ¥•Ìˆ€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” …Ñ¥Ù”µÁÉ½‘ÕÑ¥½¸œ¤¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½½¹¹•Ð]L½¤ô¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€¡É•˜œ°(€€€€€€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½½¹¹•Ðý•¹Ù¥É½¹µ•¹Ðõ…Ñ¥Ù”µÁÉ½‘ÕÑ¥½¸œ(€€€€¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½]L™¥¹‘¥¹Ì½¤ô¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€¡É•˜œ°(€€€€€€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½…ÝÌ½™¥¹‘¥¹Ìý•¹Ù¥É½¹µ•¹Ðõ…Ñ¥Ù”µÁÉ½‘ÕÑ¥½¸œ(€€€€¤ì(€ô¤ì((€¥Ð É•…Ñ•Ì„¹•ÜÕ¹¥ÅÕ”•¹Ù¥É½¹µ•¹Ð­•ä¥¹ÍÑ•…½˜½Ù•ÉÝÉ¥Ñ¥¹œ…¸•á¥ÍÑ¥¹œ•¹Ù¥É½¹µ•¹Ðœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐ™¥ÉÍÑA…•AÉ½©•ÑÌ€ôÉÉ…ä¹™É½´¡ì±•¹Ñ è€ÔÀô°€¡|°¥¹‘•à¤€ôø€¡ì(€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€ÁÉ½©•Ñ}¥èÉ••¹Ðµ•¹Ù¥É½¹µ•¹Ð´‘í¥¹‘•à€¬€Åõ€°(€€€€€¹…µ”èI••¹Ð¹Ù¥É½¹µ•¹Ð€‘í¥¹‘•à€¬€Åõ€°(€€€€€Í±ÕœèÉ••¹Ðµ•¹Ù¥É½¹µ•¹Ð´‘í¥¹‘•à€¬€Åõ€°(€€€€€‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€ô¤¤ì(€€€½¹ÍÐ•á¥ÍÑ¥¹AÉ½©•Ð€ôì(€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°(€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€‘•ÍÉ¥ÁÑ¥½¸è€á¥ÍÑ¥¹œÁÉ½‘ÕÑ¥½¸‰½Õ¹‘…Éä¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€ôì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡}Ý½É­ÍÁ…•%°™¥±Ñ•ÉÌè…¹ä¤€ôøì(€€€€€¥˜€¡™¥±Ñ•ÉÌü¹±¥µ¥Ð€ôôô€ÔÀ¤ì(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌè™¥ÉÍÑA…•AÉ½©•ÑÌôì(€€€€€ô(€€€€€¥˜€¡™¥±Ñ•ÉÌü¹ÕÉÍ½È€ôôô€½±‘•ÈµÁ…”œ¤ì(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèm•á¥ÍÑ¥¹AÉ½©•Ñtôì(€€€€€ô(€€€€€É•ÑÕÉ¸ì¥Ñ•µÌè™¥ÉÍÑA…•AÉ½©•ÑÌ°¹•áÑ}ÕÉÍ½Èè€½±‘•ÈµÁ…”œôì(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÕÁÍ•ÉÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡}Ý½É­ÍÁ…•%°Á…å±½…è…¹ä¤€ôø€¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥èÁ…å±½…¹ÁÉ½©•Ñ}¥°(€€€€€€€¹…µ”èÁ…å±½…¹¹…µ”°(€€€€€€€Í±ÕœèÁ…å±½…¹Í±Õœ°(€€€€€€€‘•ÍÉ¥ÁÑ¥½¸èÁ…å±½…¹‘•ÍÉ¥ÁÑ¥½¸€üü€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ°(€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤¤ì((€€€½¹ÍÐìAÉ½‘ÕÑAÉ½©•ÑÍA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€™Õ¹Ñ¥½¸1½…Ñ¥½¹AÉ½‰” ¤ì(€€€€€½¹ÍÐ±½…Ñ¥½¸€ôÕÍ•1½…Ñ¥½¸ ¤ì(€€€€€É•ÑÕÉ¸€ñÀ‘…Ñ„µÑ•ÍÑ¥ô‰±½…Ñ¥½¸ˆùí€‘í±½…Ñ¥½¸¹Á…Ñ¡¹…µ•ô‘í±½…Ñ¥½¸¹Í•…É¡õôð½Àøì(€€€ô((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½ÁÉ½©•ÑÌýÍ½ÕÉ”õ…ÝÌuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½ÁÉ½©•ÑÌˆ(€€€€€€€€€€€•±•µ•¹Ðõì(€€€€€€€€€€€€€€ðø(€€€€€€€€€€€€€€€€ñ1½…Ñ¥½¹AÉ½‰”€¼ø(€€€€€€€€€€€€€€€€ñAÉ½‘ÕÑAÉ½©•ÑÍA…”€¼ø(€€€€€€€€€€€€€€ð¼ø(€€€€€€€€€€€ô(€€€€€€€€€€¼ø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½ÁÉ½©•ÑÌ¼éÁÉ½©•Ñ%ˆ•±•µ•¹Ðõìñ1½…Ñ¥½¹AÉ½‰”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¹Ù¥É½¹µ•¹ÑÌœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½¹Ù¥É½¹µ•¹Ð¹…µ”½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½É•…Ñ”•¹Ù¥É½¹µ•¹Ð½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ±½…Ñ¥½¸œ¤¤¹Ñ½!…Ù•Q•áÑ½¹Ñ•¹Ð (€€€€€€€€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½ÁÉ½©•ÑÌ½ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´´ÈýÍ½ÕÉ”õ…ÝÌœ(€€€€€€¤(€€€€¤ì(€€€•áÁ•Ð¡…Á¤¹…Á¥±¥•¹Ð¹ÕÁÍ•ÉÑAÉ½©•Ð¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´´Èœ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´´Èœô¤°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€¤ì(€ô¤ì((€¥Ð É•…Ñ•ÌÍÑ…‰±”¡¥‘‘•¸­•åÌ™½È¹½¸µM%$•¹Ù¥É½¹µ•¹Ð¹…µ•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÕÁÍ•ÉÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡}Ý½É­ÍÁ…•%°Á…å±½…è…¹ä¤€ôø€¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥èÁ…å±½…¹ÁÉ½©•Ñ}¥°(€€€€€€€¹…µ”èÁ…å±½…¹¹…µ”°(€€€€€€€Í±ÕœèÁ…å±½…¹Í±Õœ°(€€€€€€€‘•ÍÉ¥ÁÑ¥½¸èÁ…å±½…¹‘•ÍÉ¥ÁÑ¥½¸€üü€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ°(€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÍPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤¤ì((€€€½¹ÍÐìAÉ½‘ÕÑAÉ½©•ÑÍA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€™Õ¹Ñ¥½¸1½…Ñ¥½¹AÉ½‰” ¤ì(€€€€€½¹ÍÐ±½…Ñ¥½¸€ôÕÍ•1½…Ñ¥½¸ ¤ì(€€€€€É•ÑÕÉ¸€ñÀ‘…Ñ„µÑ•ÍÑ¥ô‰±½…Ñ¥½¸ˆùí€‘í±½…Ñ¥½¸¹Á…Ñ¡¹…µ•ô‘í±½…Ñ¥½¸¹Í•…É¡õôð½Àøì(€€€ô((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½ÁÉ½©•ÑÌýÍ½ÕÉ”õ¥Ñ¡Õˆuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½ÁÉ½©•ÑÌˆ(€€€€€€€€€€€•±•µ•¹Ðõì(€€€€€€€€€€€€€€ðø(€€€€€€€€€€€€€€€€ñ1½…Ñ¥½¹AÉ½‰”€¼ø(€€€€€€€€€€€€€€€€ñAÉ½‘ÕÑAÉ½©•ÑÍA…”€¼ø(€€€€€€€€€€€€€€ð¼ø(€€€€€€€€€€€ô(€€€€€€€€€€¼ø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½ÁÉ½©•ÑÌ¼éÁÉ½©•Ñ%ˆ•±•µ•¹Ðõìñ1½…Ñ¥½¹AÉ½‰”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¹Ù¥É½¹µ•¹ÑÌœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½¹Ù¥É½¹µ•¹Ð¹…µ”½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€Ÿšr³žV«žJÃ–Šœôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½É•…Ñ”•¹Ù¥É½¹µ•¹Ð½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ±½…Ñ¥½¸œ¤¤¹Ñ½!…Ù•Q•áÑ½¹Ñ•¹Ð œ½ÁÉ½©•ÑÌ½•¹Ù¥É½¹µ•¹Ð´œ¤¤ì(€€€½¹ÍÐÁ…å±½…€ô€¡…Á¤¹…Á¥±¥•¹Ð¹ÕÁÍ•ÉÑAÉ½©•Ð…Ì…¹ä¤¹µ½¬¹…±±ÍlÁulÅtì(€€€•áÁ•Ð¡Á…å±½…¹ÁÉ½©•Ñ}¥¤¹Ñ½5…Ñ  ½y•¹Ù¥É½¹µ•¹Ðµm„µèÀ´åt¬¼¤ì(€€€•áÁ•Ð¡Á…å±½…¹ÁÉ½©•Ñ}¥¤¹¹½Ð¹Ñ½	” ‘•™…Õ±Ðµ•¹Ù¥É½¹µ•¹Ðœ¤ì(€ô¤ì((€¥Ð É•ÅÕ¥É•ÌÑ¡”•¹Ù¥É½¹µ•¹Ð­•ä‰•™½É”‘•±•Ñ¥¹œ…¸•¹Ù¥É½¹µ•¹Ðœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÁÉ½©•Ð€ôì(€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°(€€€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸‰½Õ¹‘…Éä¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€ôì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½©•Ñtô¤ì(€€€½¹ÍÐ‘•±•Ñ•AÉ½©•Ð€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€‘•±•Ñ•AÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡Õ¹‘•™¥¹•¤ì((€€€½¹ÍÐìAÉ½‘ÕÑAÉ½©•ÑÍA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½ÁÉ½©•ÑÌuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½ÁÉ½©•ÑÌˆ•±•µ•¹ÐõìñAÉ½‘ÕÑAÉ½©•ÑÍA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¹Ù¥É½¹µ•¹ÑÌœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€•±•Ñ”•¹Ù¥É½¹µ•¹Ðœô¤¤ì((€€€½¹ÍÐµ½‘…°€ôÍÉ••¸¹•Ñ	åI½±” ‘¥…±½œœ°ì¹…µ”è€•±•Ñ”AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œô¤ì(€€€½¹ÍÐ½¹Ñ¥¹Õ•	ÕÑÑ½¸€ôÝ¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µ½¹Ñ¥¹Õ”œ¤ì(€€€•áÁ•Ð¡½¹Ñ¥¹Õ•	ÕÑÑ½¸¤¹Ñ½	•¥Í…‰±• ¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µÑåÁ•œ¤°ìÑ…É•ÐèìÙ…±Õ”èÁÉ½©•Ð¹ÁÉ½©•Ñ}¥ôô¤ì(€€€•áÁ•Ð¡½¹Ñ¥¹Õ•	ÕÑÑ½¸¤¹Ñ½	•¹…‰±• ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡½¹Ñ¥¹Õ•	ÕÑÑ½¸¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡‘•±•Ñ•AÉ½©•Ð¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½Ð…ÁÁ±ä„Á•¹‘¥¹œ‘•±•Ñ”Ñ¼Ñ¡”¹•áÐÝ½É­ÍÁ…”œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÝ½É­ÍÁ…•AÉ½©•Ð€ôì(€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€ÁÉ½©•Ñ}¥è€Í¡…É•µ•¹Ù¥É½¹µ•¹Ðœ°(€€€€€¹…µ”è€]½É­ÍÁ…”¹Ù¥É½¹µ•¹Ðœ°(€€€€€Í±Õœè€Í¡…É•µ•¹Ù¥É½¹µ•¹Ðœ°(€€€€€‘•ÍÉ¥ÁÑ¥½¸è€]½É­ÍÁ…”‰½Õ¹‘…Éä¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€ôì(€€€½¹ÍÐÝ½É­ÍÁ…•	AÉ½©•Ð€ôì(€€€€€€¸¸¹Ý½É­ÍÁ…•AÉ½©•Ð°(€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µˆœ°(€€€€€¹…µ”è€]½É­ÍÁ…”¹Ù¥É½¹µ•¹Ðœ°(€€€€€‘•ÍÉ¥ÁÑ¥½¸è€]½É­ÍÁ…”‰½Õ¹‘…Éä¸œ(€€€ôì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡Ý½É­ÍÁ…•%¤€ôø€¡ì(€€€€€¥Ñ•µÌèmÝ½É­ÍÁ…•%€ôôô€Ý½É­ÍÁ…”µ„œ€üÝ½É­ÍÁ…•AÉ½©•Ð€èÝ½É­ÍÁ…•	AÉ½©•Ñt(€€€ô¤¤ì(€€€±•ÐÉ•Í½±Ù••±•Ñ”„è€ ¤€ôøÙ½¥ì(€€€½¹ÍÐ‘•±•Ñ•AÉ½©•Ð€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€‘•±•Ñ•AÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ (€€€€€€ ¤€ôø¹•ÜAÉ½µ¥Í”ñÙ½¥ø ¡É•Í½±Ù”¤€ôøì(€€€€€€€É•Í½±Ù••±•Ñ”€ôÉ•Í½±Ù”ì(€€€€€ô¤(€€€€¤ì((€€€½¹ÍÐìAÉ½‘ÕÑAÉ½©•ÑÍA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€™Õ¹Ñ¥½¸]½É­ÍÁ…•MÝ¥Ñ¡•È ¤ì(€€€€€½¹ÍÐ¹…Ù¥…Ñ”€ôÕÍ•9…Ù¥…Ñ” ¤ì(€€€€€É•ÑÕÉ¸€ (€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôø¹…Ù¥…Ñ” œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µˆ½ÁÉ½©•ÑÌœ¥ôø(€€€€€€€€€MÝ¥Ñ Ý½É­ÍÁ…”(€€€€€€€€ð½‰ÕÑÑ½¸ø(€€€€€€¤ì(€€€ô((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½ÁÉ½©•ÑÌuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½ÁÉ½©•ÑÌˆ(€€€€€€€€€€€•±•µ•¹Ðõì(€€€€€€€€€€€€€€ðø(€€€€€€€€€€€€€€€€ñ]½É­ÍÁ…•MÝ¥Ñ¡•È€¼ø(€€€€€€€€€€€€€€€€ñAÉ½‘ÕÑAÉ½©•ÑÍA…”€¼ø(€€€€€€€€€€€€€€ð¼ø(€€€€€€€€€€€ô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ]½É­ÍÁ…”¹Ù¥É½¹µ•¹Ðœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€•±•Ñ”•¹Ù¥É½¹µ•¹Ðœô¤¤ì(€€€½¹ÍÐµ½‘…°€ôÍÉ••¸¹•Ñ	åI½±” ‘¥…±½œœ°ì¹…µ”è€•±•Ñ”]½É­ÍÁ…”¹Ù¥É½¹µ•¹Ðœô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µÑåÁ•œ¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”èÝ½É­ÍÁ…•AÉ½©•Ð¹ÁÉ½©•Ñ}¥ô(€€€ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µ½¹Ñ¥¹Õ”œ¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡‘•±•Ñ•AÉ½©•Ð¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€Í¡…É•µ•¹Ù¥É½¹µ•¹Ðœ°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€MÝ¥Ñ Ý½É­ÍÁ…”œô¤¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ]½É­ÍÁ…”¹Ù¥É½¹µ•¹Ðœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‘¥…±½œœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€É•Í½±Ù••±•Ñ” ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€…Ý…¥ÐAÉ½µ¥Í”¹É•Í½±Ù” ¤ì(€€€ô¤ì(€€€•áÁ•Ð¡‘•±•Ñ•AÉ½©•Ð¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ]½É­ÍÁ…”¹Ù¥É½¹µ•¹Ðœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½Á•¹Ì¹•ÍÑ•¥Ñ!Õˆ$É¥Í¬É½ÕÑ•Ì™É½´Ñ¡”Í¥‘•‰…È‘½µ…¥¸™±å½ÕÐœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐìAÉ½‘ÕÑM¡•±±1…å½ÕÐô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì((€€€½¹ÍÐì½¹Ñ…¥¹•Èô€ôÉ•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½…•¹Ñ¥ŒµÉ¥Í¬½µÀµÑ½½±Ìuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%ˆ•±•µ•¹ÐõìñAÉ½‘ÕÑM¡•±±1…å½ÕÐ€¼ùôø(€€€€€€€€€€€€ñI½ÕÑ”Á…Ñ ô‰¥Ñ¡Õˆ½…•¹Ñ¥ŒµÉ¥Í¬½µÀµÑ½½±Ìˆ•±•µ•¹Ðõìñ Èù5@Ñ½½±Ì½¹Ñ•¹Ðð½ Èùô€¼ø(€€€€€€€€€€ð½I½ÕÑ”ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€½5@Ñ½½±Ì½¹Ñ•¹Ð½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€¥Ñ!Õˆœô¤¤ì((€€€½¹ÍÐ¥Ñ¡Õ‰±å½ÕÐ€ôÍÉ••¸¹•Ñ	åI½±” ‘¥…±½œœ°ì¹…µ”è€¥Ñ!Õˆœô¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡¥Ñ¡Õ‰±å½ÕÐ¤¹•Ñ±±	åQ•áÐ $€¼•¹Ñ¥ŒI¥Í¬œ¤¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ À¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡¥Ñ¡Õ‰±å½ÕÐ¤¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€¥Ñ!Õˆ$€¼•¹Ñ¥ŒI¥Í¬5@€¼Ñ½½±Ìœô¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€…É¥„µÕÉÉ•¹Ðœ°(€€€€€€Á…”œ(€€€€¤ì(€€€•áÁ•Ð¡½¹Ñ…¥¹•È¹ÅÕ•ÉåM•±•Ñ½È ‘•Ñ…¥±Ì¹¥‘Ðµ‘½µ…¥¸µ™±å½ÕÐµ¹•ÍÑ•œ¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” ½Á•¸œ¤ì(€ô¤ì)ô¤ì(((€…Íå¹Œ™Õ¹Ñ¥½¸É•¹‘•É¥¹‘¥¹Ì (€€€½ÁÑ¥½¹Ìèì(€€€€€É•Á½M…¹ÌüèI•Á½M…¹I•½É‘mtì(€€€€€É•Á½¥¹‘¥¹Ìüè¥¹‘¥¹mtì(€€€€€É•Á½¥¹‘¥¹MÕµµ…ÉäüèI•Á½¥¹‘¥¹ÍMÕµµ…Éäì(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìüè€ (€€€€€€€Á…É…µÌèÕ¹­¹½Ý¸°(€€€€€€€…±°è¹Õµ‰•È(€€€€€€¤€ôøì¥Ñ•µÌè¥¹‘¥¹mtìÍÕµµ…ÉäüèI•Á½¥¹‘¥¹ÍMÕµµ…ÉäôðAÉ½µ¥Í”ñì¥Ñ•µÌè¥¹‘¥¹mtìÍÕµµ…ÉäüèI•Á½¥¹‘¥¹ÍMÕµµ…Éäôøì(€€€€€•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ìüè€¡Á…É…µÌèÕ¹­¹½Ý¸¤€ôøì¥Ñ•µÌèQÉ•¹‘A½¥¹Ñmtôì(€€€€€•ÑI•Á½I¥Í­É…Á üè€¡Á…É…µÌèÕ¹­¹½Ý¸¤€ôøI•Á½I¥Í­É…Á ì(€€€€€É½±”üèÕÉÉ•¹ÑUÍ•É½¹Ñ•áÑlÉ½±”tì(€€€ô€ôíô(€€¤ì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€€€Ù¤¹‘½5½¬ œ¸½¡½½­Ì½ÕÍ•5”œ°€ ¤€ôø€¡ì(€€€€€ÕÍ•5”è€ ¤€ôø€¡ì(€€€€€€€µ”èì€¸¸¹±½•‘%¹]¥Ñ¡½ÕÑ]½É­ÍÁ…”°É½±”è½ÁÑ¥½¹Ì¹É½±”€üü€½Ý¹•Èœô…ÌÕÉÉ•¹ÑUÍ•É½¹Ñ•áÐ°(€€€€€€€±½…‘¥¹œè™…±Í”°(€€€€€€€•ÉÉ½Èè€œœ°(€€€€€€€Õ¹…ÕÑ¡•¹Ñ¥…Ñ•è™…±Í”°(€€€€€€€É•™É•Í èÙ¤¹™¸ ¤(€€€€€ô¤(€€€ô¤¤ì((€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½M…¹Ì€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌè½ÁÑ¥½¹Ì¹É•Á½M…¹Ì€üümtô¤ì(€€€±•Ð±¥ÍÑI•Á½¥¹‘¥¹Í…±°€ô€Àì(€€€½¹ÍÐ±¥ÍÑI•Á½¥¹‘¥¹Ì€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤(€€€€€€¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡Á…É…µÌ¤€ôøì(€€€€€€€±¥ÍÑI•Á½¥¹‘¥¹Í…±°€¬ô€Äì(€€€€€€€¥˜€¡½ÁÑ¥½¹Ì¹±¥ÍÑI•Á½¥¹‘¥¹Ì¤ì(€€€€€€€€€É•ÑÕÉ¸½ÁÑ¥½¹Ì¹±¥ÍÑI•Á½¥¹‘¥¹Ì¡Á…É…µÌ°±¥ÍÑI•Á½¥¹‘¥¹Í…±°¤ì(€€€€€€€ô(€€€€€€€€¼¼ÁÁ±äÑ¡”Í•ÉÙ•ÈµÍ¥‘”™¥±Ñ•ÉÌ€¡Í•Ù•É¥Ñä½ÑåÁ”¤Ñ¡”½µÁ½¹•¹ÐÁ…ÍÍ•ÌÍ¼(€€€€€€€€¼¼Ñ•ÍÑÌÑ¡…Ð•á•É¥Í”™¥±Ñ•É¥¹œ½‰Í•ÉÙ”„É•…±¥ÍÑ¥Œ•µÁÑäÉ•ÍÕ±Ð¸(€€€€€€€±•Ð¥Ñ•µÌ€ô½ÁÑ¥½¹Ì¹É•Á½¥¹‘¥¹Ì€üümtì(€€€€€€€¥˜€¡Á…É…µÌü¹Í•Ù•É¥Ñä¤ì(€€€€€€€€€¥Ñ•µÌ€ô¥Ñ•µÌ¹™¥±Ñ•È ¡™¥¹‘¥¹œ¤€ôø™¥¹‘¥¹œ¹Í•Ù•É¥Ñä€ôôôÁ…É…µÌ¹Í•Ù•É¥Ñä¤ì(€€€€€€€ô(€€€€€€€¥˜€¡Á…É…µÌü¹ÑåÁ”¤ì(€€€€€€€€€¥Ñ•µÌ€ô¥Ñ•µÌ¹™¥±Ñ•È ¡™¥¹‘¥¹œ¤€ôø™¥¹‘¥¹œ¹ÑåÁ”€ôôôÁ…É…µÌ¹ÑåÁ”¤ì(€€€€€€€ô(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌ°ÍÕµµ…Éäè½ÁÑ¥½¹Ì¹É•Á½¥¹‘¥¹MÕµµ…Éäôì(€€€€€ô¤ì(€€€½¹ÍÐÑÉ¥…•¥¹‘¥¹œ€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÑÉ¥…•¥¹‘¥¹œœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡™¥¹‘¥¹%°Á…å±½…°Í…¹%¤€ôøì(€€€€€½¹ÍÐ•á¥ÍÑ¥¹œ€ô½ÁÑ¥½¹Ì¹É•Á½¥¹‘¥¹Ìü¹™¥¹ ¡™¥¹‘¥¹œ¤€ôø™¥¹‘¥¹œ¹¥€ôôô™¥¹‘¥¹%¤€üü½ÁÑ¥½¹Ì¹É•Á½¥¹‘¥¹Ìü¹lÁtì(€€€€€É•ÑÕÉ¸ì(€€€€€€€™¥¹‘¥¹œèì(€€€€€€€€€€¸¸¸¡•á¥ÍÑ¥¹œ€üüì(€€€€€€€€€€€¥è™¥¹‘¥¹%°(€€€€€€€€€€€Í…¹}¥èÍ…¹%€üü€É•Á¼µÍ…¸µ‘•™…Õ±Ðœ°(€€€€€€€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€€€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€€€€€€€Ñ¥Ñ±”è€•™…Õ±Ð™¥¹‘¥¹œœ°(€€€€€€€€€€€¡Õµ…¹}ÍÕµµ…Éäè€•™…Õ±Ð™¥¹‘¥¹œÍÕµµ…Éä¸œ°(€€€€€€€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”…¹É•µ½Ù”Ñ¡”•áÁ½Í•Í•É•Ð¸œ°(€€€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ(€€€€€€€€€ô¤°(€€€€€€€€€ÑÉ¥…”èì(€€€€€€€€€€€ÍÑ…ÑÕÌèÁ…å±½…¹ÍÑ…ÑÕÌ€üü•á¥ÍÑ¥¹œü¹ÑÉ¥…”ü¹ÍÑ…ÑÕÌ€üü€½Á•¸œ°(€€€€€€€€€€€…ÍÍ¥¹•”èÁ…å±½…¹…ÍÍ¥¹•”€üü•á¥ÍÑ¥¹œü¹ÑÉ¥…”ü¹…ÍÍ¥¹•”°(€€€€€€€€€€€ÍÕÁÁÉ•ÍÍ¥½¹}•áÁ¥É•Í}…ÐèÁ…å±½…¹ÍÕÁÁÉ•ÍÍ¥½¹}•áÁ¥É•Í}…Ð€üü•á¥ÍÑ¥¹œü¹ÑÉ¥…”ü¹ÍÕÁÁÉ•ÍÍ¥½¹}•áÁ¥É•Í}…Ð°(€€€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÄÈèÀÁhœ°(€€€€€€€€€€€ÕÁ‘…Ñ•‘}‰äè€Ñ•ÍÐµ½Á•É…Ñ½Èœ(€€€€€€€€€ô(€€€€€€€ô(€€€€€ôì(€€€ô¤ì(€€€½¹ÍÐ‘•±•Ñ•I•Á½¥¹‘¥¹œ€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€‘•±•Ñ•I•Á½¥¹‘¥¹œœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡Õ¹‘•™¥¹•¤ì(€€€½¹ÍÐ‘•±•Ñ•I•Á½M…¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€‘•±•Ñ•I•Á½M…¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡Õ¹‘•™¥¹•¤ì(€€€½¹ÍÐ‘•±•Ñ•I•Á½¥¹‘¥¹Ì€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€‘•±•Ñ•I•Á½¥¹‘¥¹Ìœ¤(€€€€€€¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡¥Ñ•µÌ¤€ôø€¡ì‘•±•Ñ•è¥Ñ•µÌô¤¤ì(€€€½¹ÍÐ•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ìœ¤(€€€€€€¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡Á…É…µÌ¤€ôøì(€€€€€€€¥˜€¡½ÁÑ¥½¹Ì¹•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì¤ì(€€€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌè½ÁÑ¥½¹Ì¹•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì¡Á…É…µÌ¤¹¥Ñ•µÌôì(€€€€€€€ô(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèmtôì(€€€€€ô¤ì(€€€½¹ÍÐ•ÑI•Á½I¥Í­É…Á €ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡Á…É…µÌ¤€ôøì(€€€€€¥˜€¡½ÁÑ¥½¹Ì¹•ÑI•Á½I¥Í­É…Á ¤ì(€€€€€€€É•ÑÕÉ¸½ÁÑ¥½¹Ì¹•ÑI•Á½I¥Í­É…Á ¡Á…É…µÌ¤ì(€€€€€ô(€€€€€É•ÑÕÉ¸ì(€€€€€€€É•Á½Í¥Ñ½Éäè€É•Á¼µ„œ°(€€€€€€€¹½‘•Ìèmt°(€€€€€€€•‘•Ìèmt°(€€€€€€€Í½É•Ìèmt°(€€€€€€€ÍÕµµ…Éäèì(€€€€€€€€€™¥¹‘¥¹}½Õ¹Ðè€À°(€€€€€€€€€¹½‘•}½Õ¹Ðè€À°(€€€€€€€€€•‘•}½Õ¹Ðè€À°(€€€€€€€€€Õ¹­¹½Ý¹}¹½‘•}½Õ¹Ðè€À°(€€€€€€€€€Õ¹­¹½Ý¹}•‘•}½Õ¹Ðè€À°(€€€€€€€€€¡¥¡}É¥Í­}™¥¹‘¥¹Ìè€À°(€€€€€€€€€É¥Ñ¥…±}™¥¹‘¥¹Ìè€À(€€€€€€€ô(€€€€€ôì(€€€ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥¹‘¥¹ÍA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½™¥¹‘¥¹Ìuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½™¥¹‘¥¹Ìˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥¹‘¥¹ÍA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€É•ÑÕÉ¸ì(€€€€€±¥ÍÑI•Á½M…¹Ì°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ì°(€€€€€ÑÉ¥…•¥¹‘¥¹œ°(€€€€€‘•±•Ñ•I•Á½¥¹‘¥¹œ°(€€€€€‘•±•Ñ•I•Á½M…¸°(€€€€€‘•±•Ñ•I•Á½¥¹‘¥¹Ì°(€€€€€•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì°(€€€€€•ÑI•Á½I¥Í­É…Á (€€€ôì(€ô()‘•ÍÉ¥‰” AÉ½‘ÕÑ¥¹‘¥¹ÍA…”ÍÑ…Ñ•Ìœ°€ ¤€ôøì(€…™Ñ•É…   ¤€ôøì(€€€Ý¥¹‘½Ü¹±½…±MÑ½É…”¹±•…È ¤ì(€€€Ù¤¹É•ÍÑ½É•±±5½­Ì ¤ì(€€€Ù¤¹‘½U¹µ½¬ œ¸½¡½½­Ì½ÕÍ•5”œ¤ì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€ô¤ì((€¥Ð Í¡½ÝÌ„™¥ÉÍÐµÍ…¸½¹‰½…É‘¥¹œÍÑ…Ñ”Ý¡•¸¹¼Í…¹Ì¡…Ù”ÉÕ¸œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹Ìèmtô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ IÕ¸å½ÕÈ™¥ÉÍÐÉ•Á½Í¥Ñ½ÉäÍ…¸œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼Q¡”é•É¼µ™¥±±•‘…Í¡‰½…É¡É½µ”µÕÍÐ¹½ÐÉ•¹‘•È¥¸Ñ¡”•µÁÑäÍÑ…Ñ”¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½µÁ±•Ñ•Í…¹Ìœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ÍÕÉ™…•Ì„™…¥±ÕÉ”ÍÑ…Ñ”¥¹ÍÑ•…½˜é•É½ÌÝ¡•¸•Ù•ÉäÍ…¸™…¥±•œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ™…¥±•œ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÔèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€I•Á½Í¥Ñ½Éä¹½Ð™½Õ¹½È…•ÍÌÉ•Ù½­•œ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹Ìèm™…¥±•‘M…¹tô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ e½ÕÈ±…ÍÐÉ•Á½Í¥Ñ½ÉäÍ…¸™…¥±•œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½I•Á½Í¥Ñ½Éä¹½Ð™½Õ¹½È…•ÍÌÉ•Ù½­•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½µÁ±•Ñ•Í…¹Ìœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð Í¡½ÝÌ„±•…¸€‰¹¼•áÁ½ÍÕÉ”ˆÍÑ…Ñ”Ý¡•¸„Í…¸ÍÕ••‘•Ý¥Ñ é•É¼™¥¹‘¥¹Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍÕ••‘•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÍÕ••‘•œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÔèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹ÌèmÍÕ••‘•‘M…¹tô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 9¼•áÁ½ÍÕÉ”™½Õ¹œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼Q¡”½¹Í½±¥‘…Ñ•-A$ÍÑÉ¥ÀÉ•¹‘•ÉÌ™½È„ÍÕ••‘•Í…¸¸(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½µÁ±•Ñ•Í…¹Ìœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼]¥Ñ ¹¼™¥¹‘¥¹Ì…¹¹¼…Ñ¥Ù”™¥±Ñ•ÉÌ°Ñ¡”™¥±Ñ•ÈÁ…¹•°…¹Ñ¡”•µÁÑä(€€€€¼¼‘•Ñ…¥°Á…¹”…É”…Ñ•½ÕÐ€¡¹¼É•‘Õ¹‘…¹Ð•µÁÑäÁ±…•¡½±‘•ÉÌ¤¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ¥±Ñ•ÉÌ…¹Í½ÉÑ¥¹œœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ M•±•Ð„™¥¹‘¥¹œœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½ÐÍ¡½Ü™…¥±•ÍÑ…Ñ”Ý¡•¸„…¹•±•Í…¸¥ÌÑ¡”±…Ñ•ÍÐœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ™…¥±•µ±•…äœ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€I•Á½Í¥Ñ½Éä¹½Ð™½Õ¹½È…•ÍÌÉ•Ù½­•œ(€€€ôì(€€€½¹ÍÐ…¹•±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ…¹•±•µ±…Ñ•ÍÐœ°(€€€€€ÍÑ…ÑÕÌè€…¹•±•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÔèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€UÍ•È…¹•±•Í…¸™É½´A$œ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹Ìèm…¹•±•‘M…¸°™…¥±•‘M…¹tô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 9¼½µÁ±•Ñ•Í…¸É•ÍÕ±ÑÌœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ e½ÕÈ±…ÍÐÉ•Á½Í¥Ñ½ÉäÍ…¸™…¥±•œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð Í¡½ÝÌ€‰9¼½µÁ±•Ñ•Í…¸É•ÍÕ±ÑÌˆÝ¡¥±”…¸…Ñ¥Ù”Í…¸¥ÌÍÑ¥±°ÉÕ¹¹¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ™…¥±•µ¥¸µ™±¥¡Ðœ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÌèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€I•Á½Í¥Ñ½Éä…•ÍÌÉ•Ù½­•œ(€€€ôì(€€€½¹ÍÐÅÕ•Õ•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÅÕ•Õ•µ¥¸µ™±¥¡Ðœ°(€€€€€ÍÑ…ÑÕÌè€ÅÕ•Õ•œ°(€€€€€™¥¹¥Í¡•‘}…ÐèÕ¹‘•™¥¹•(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹ÌèmÅÕ•Õ•‘M…¸°™…¥±•‘M…¹tô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 9¼½µÁ±•Ñ•Í…¸É•ÍÕ±ÑÌœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ 9¼•áÁ½ÍÕÉ”™½Õ¹œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ e½ÕÈ±…ÍÐÉ•Á½Í¥Ñ½ÉäÍ…¸™…¥±•œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ­••ÁÌ™¥¹‘¥¹ÌÙ¥Í¥‰±”Ý¡•¸™…¥±•Í…¹ÌÍÑ¥±°É•ÑÕÉ¸¡¥ÍÑ½É¥…°™¥¹‘¥¹Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ™…¥±•µ±…Ñ•ÍÐœ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÄèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€I•Á½Í¥Ñ½Éä¹½Ð™½Õ¹½È…•ÍÌÉ•Ù½­•œ(€€€ôì(€€€½¹ÍÐ½±‘MÕ••‘•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÍÕ••‘•µ½±‘•Èœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÌÀèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€È(€€€ôì(€€€½¹ÍÐ¡¥ÍÑ½É¥¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ±•…äœ°(€€€€€Í…¹}¥è€É•Á¼µÍ…¸µÍÕ••‘•µ½±‘•Èœ°(€€€€€ÑåÁ”è€Í•É•ÑÌœ°(€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€Ñ¥Ñ±”è€1•…ä™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€1•…äÉ¥Í­äÍ•É•Ð•áÁ½ÍÕÉ”œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”…¹±•…¸ÕÀÉ•Á½Í¥Ñ½ÉäÍ•É•Ð¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÄÀèÀÁhœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹Ìèm™…¥±•‘M…¸°½±‘MÕ••‘•‘M…¹t°(€€€€€É•Á½¥¹‘¥¹Ìèm¡¥ÍÑ½É¥¥¹‘¥¹t(€€€ô¤ì((€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ e½ÕÈ±…ÍÐÉ•Á½Í¥Ñ½ÉäÍ…¸™…¥±•œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½µÁ±•Ñ•Í…¹Ìœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 1•…ä™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ±•ÑÌ½Á•É…Ñ½ÉÌÉ•µ½Ù”„™…¥±•Í…¸‰…¹¹•ÈÝ¥Ñ¡½ÕÐ¡¥‘¥¹œ™¥¹‘¥¹Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ™…¥±•µ‘¥Íµ¥ÍÍ¥‰±”œ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÄèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€I•Á½Í¥Ñ½Éä¹½Ð™½Õ¹½È…•ÍÌÉ•Ù½­•œ(€€€ôì(€€€½¹ÍÐ½±‘MÕ••‘•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ‘¥Íµ¥ÍÍ¥‰±”µÍÕ••‘•œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÌÀèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì(€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ‘¥Íµ¥ÍÍ¥‰±”œ°(€€€€€Í…¹}¥è½±‘MÕ••‘•‘M…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€Ñ¥Ñ±”è€!¥ÍÑ½É¥…°Ý½É­™±½Ü™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€ôì((€€€½¹ÍÐì‘•±•Ñ•I•Á½M…¸ô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹Ìèm™…¥±•‘M…¸°½±‘MÕ••‘•‘M…¹t°(€€€€€É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yI•µ½Ù”½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€™…¥±•‘M…¸¹¥°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤ì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ !¥ÍÑ½É¥…°Ý½É­™±½Ü™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ±•…ÉÌ„Í•±•Ñ•™…¥±•Í…¸™¥±Ñ•È‰•™½É”É•™É•Í¡¥¹œ…™Ñ•ÈÉ•µ½Ù…°œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ™…¥±•µÍ•±•Ñ•µ™¥±Ñ•Èœ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÄèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€I•Á½Í¥Ñ½Éä¹½Ð™½Õ¹½È…•ÍÌÉ•Ù½­•œ(€€€ôì(€€€½¹ÍÐ½±‘MÕ••‘•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÍ•±•Ñ•µ™¥±Ñ•ÈµÍÕ••‘•œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÌÀèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì(€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµÍ•±•Ñ•µ™¥±Ñ•Èœ°(€€€€€Í…¹}¥è½±‘MÕ••‘•‘M…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€Ñ¥Ñ±”è€!¥ÍÑ½É¥…°Í•±•Ñ•µ™¥±Ñ•È™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€ôì((€€€½¹ÍÐì‘•±•Ñ•I•Á½M…¸°±¥ÍÑI•Á½¥¹‘¥¹Ì°•ÑI•Á½I¥Í­É…Á ô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹Ìèm™…¥±•‘M…¸°½±‘MÕ••‘•‘M…¹t°(€€€€€É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€½¹ÍÐÉ•Á½Í¥Ñ½ÉåM…¹¥±Ñ•È€ôÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸½¤¤…Ì!Q51M•±•Ñ±•µ•¹Ðì(€€€™¥É•Ù•¹Ð¹¡…¹”¡É•Á½Í¥Ñ½ÉåM…¹¥±Ñ•È°ìÑ…É•ÐèìÙ…±Õ”è™…¥±•‘M…¸¹¥ôô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð (€€€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½¬¹…±±Ì¹Í½µ” (€€€€€€€€€€¡mÁ…É…µÍt¤€ôø€¡Á…É…µÌ…ÌìÉ•Á½}Í…¹}¥üèÍÑÉ¥¹œôðÕ¹‘•™¥¹•¤ü¹É•Á½}Í…¹}¥€ôôô™…¥±•‘M…¸¹¥(€€€€€€€€¤(€€€€€€¤¹Ñ½	”¡ÑÉÕ”¤ì(€€€ô¤ì((€€€±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½­±•…È ¤ì(€€€•ÑI•Á½I¥Í­É…Á ¹µ½­±•…È ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yI•µ½Ù”½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€™…¥±•‘M…¸¹¥°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤ì(€€€€€•áÁ•Ð ¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸½¤¤…Ì!Q51M•±•Ñ±•µ•¹Ð¤¹Ù…±Õ”¤¹Ñ½	” œœ¤ì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€•áÁ•Ð (€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½¬¹…±±Ì¹Í½µ” (€€€€€€€€¡mÁ…É…µÍt¤€ôø€¡Á…É…µÌ…ÌìÉ•Á½}Í…¹}¥üèÍÑÉ¥¹œôðÕ¹‘•™¥¹•¤ü¹É•Á½}Í…¹}¥€ôôô™…¥±•‘M…¸¹¥(€€€€€€¤(€€€€¤¹Ñ½	”¡™…±Í”¤ì(€€€•áÁ•Ð (€€€€€•ÑI•Á½I¥Í­É…Á ¹µ½¬¹…±±Ì¹Í½µ” (€€€€€€€€¡mÁ…É…µÍt¤€ôø€¡Á…É…µÌ…ÌìÉ•Á½}Í…¹}¥üèÍÑÉ¥¹œôðÕ¹‘•™¥¹•¤ü¹É•Á½}Í…¹}¥€ôôô™…¥±•‘M…¸¹¥(€€€€€€¤(€€€€¤¹Ñ½	”¡™…±Í”¤ì(€ô¤ì((€¥Ð ±•…ÉÌ„™…¥±•Í…¸™¥±Ñ•ÈÍ•±•Ñ•Ý¡¥±”É•µ½Ù…°¥Ì¥¸™±¥¡Ðœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ™…¥±•µ±¥Ù”µ™¥±Ñ•Èœ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÄèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€I•Á½Í¥Ñ½Éä¹½Ð™½Õ¹½È…•ÍÌÉ•Ù½­•œ(€€€ôì(€€€½¹ÍÐ½±‘MÕ••‘•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ±¥Ù”µ™¥±Ñ•ÈµÍÕ••‘•œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÌÀèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì(€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ±¥Ù”µ™¥±Ñ•Èœ°(€€€€€Í…¹}¥è½±‘MÕ••‘•‘M…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€Ñ¥Ñ±”è€!¥ÍÑ½É¥…°±¥Ù”µ™¥±Ñ•È™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€ôì(€€€½¹ÍÐ‘•±•Ñ•½µÁ±•Ñ¥½¸€ô‘•™•ÉÉ•ñÙ½¥ø ¤ì((€€€½¹ÍÐì‘•±•Ñ•I•Á½M…¸°±¥ÍÑI•Á½¥¹‘¥¹Ì°•ÑI•Á½I¥Í­É…Á ô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹Ìèm™…¥±•‘M…¸°½±‘MÕ••‘•‘M…¹t°(€€€€€É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t(€€€ô¤ì(€€€‘•±•Ñ•I•Á½M…¸¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø‘•±•Ñ•½µÁ±•Ñ¥½¸¹ÁÉ½µ¥Í”¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yI•µ½Ù”½¤ô¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€™…¥±•‘M…¸¹¥°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤ì(€€€ô¤ì((€€€½¹ÍÐÉ•Á½Í¥Ñ½ÉåM…¹¥±Ñ•È€ôÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸½¤¤…Ì!Q51M•±•Ñ±•µ•¹Ðì(€€€™¥É•Ù•¹Ð¹¡…¹”¡É•Á½Í¥Ñ½ÉåM…¹¥±Ñ•È°ìÑ…É•ÐèìÙ…±Õ”è™…¥±•‘M…¸¹¥ôô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð (€€€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½¬¹…±±Ì¹Í½µ” (€€€€€€€€€€¡mÁ…É…µÍt¤€ôø€¡Á…É…µÌ…ÌìÉ•Á½}Í…¹}¥üèÍÑÉ¥¹œôðÕ¹‘•™¥¹•¤ü¹É•Á½}Í…¹}¥€ôôô™…¥±•‘M…¸¹¥(€€€€€€€€¤(€€€€€€¤¹Ñ½	”¡ÑÉÕ”¤ì(€€€ô¤ì((€€€±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½­±•…È ¤ì(€€€•ÑI•Á½I¥Í­É…Á ¹µ½­±•…È ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€‘•±•Ñ•½µÁ±•Ñ¥½¸¹É•Í½±Ù” ¤ì(€€€€€…Ý…¥Ð‘•±•Ñ•½µÁ±•Ñ¥½¸¹ÁÉ½µ¥Í”ì(€€€ô¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð ¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸½¤¤…Ì!Q51M•±•Ñ±•µ•¹Ð¤¹Ù…±Õ”¤¹Ñ½	” œœ¤ì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€•áÁ•Ð (€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½¬¹…±±Ì¹Í½µ” (€€€€€€€€¡mÁ…É…µÍt¤€ôø€¡Á…É…µÌ…ÌìÉ•Á½}Í…¹}¥üèÍÑÉ¥¹œôðÕ¹‘•™¥¹•¤ü¹É•Á½}Í…¹}¥€ôôô™…¥±•‘M…¸¹¥(€€€€€€¤(€€€€¤¹Ñ½	”¡™…±Í”¤ì(€€€•áÁ•Ð (€€€€€•ÑI•Á½I¥Í­É…Á ¹µ½¬¹…±±Ì¹Í½µ” (€€€€€€€€¡mÁ…É…µÍt¤€ôø€¡Á…É…µÌ…ÌìÉ•Á½}Í…¹}¥üèÍÑÉ¥¹œôðÕ¹‘•™¥¹•¤ü¹É•Á½}Í…¹}¥€ôôô™…¥±•‘M…¸¹¥(€€€€€€¤(€€€€¤¹Ñ½	”¡™…±Í”¤ì(€ô¤ì((€¥Ð ÕÍ•Ì±¥Ù”™¥¹‘¥¹œ™¥±Ñ•ÉÌÝ¡•¸™…¥±•Í…¸É•µ½Ù…°É•™É•Í¡•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ™…¥±•µ±¥Ù”µ™¥¹‘¥¹œµ™¥±Ñ•ÉÌœ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÄèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€I•Á½Í¥Ñ½Éä¹½Ð™½Õ¹½È…•ÍÌÉ•Ù½­•œ(€€€ôì(€€€½¹ÍÐ½±‘MÕ••‘•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ±¥Ù”µ™¥¹‘¥¹œµ™¥±Ñ•ÈµÍÕ••‘•œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÌÀèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì(€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ±¥Ù”µ™¥¹‘¥¹œµ™¥±Ñ•Èœ°(€€€€€Í…¹}¥è½±‘MÕ••‘•‘M…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€!¥ÍÑ½É¥…°±¥Ù”™¥¹‘¥¹œµ™¥±Ñ•È™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€ôì(€€€½¹ÍÐ‘•±•Ñ•½µÁ±•Ñ¥½¸€ô‘•™•ÉÉ•ñÙ½¥ø ¤ì((€€€½¹ÍÐì‘•±•Ñ•I•Á½M…¸°±¥ÍÑI•Á½¥¹‘¥¹Ì°•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì°•ÑI•Á½I¥Í­É…Á ô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹Ìèm™…¥±•‘M…¸°½±‘MÕ••‘•‘M…¹t°(€€€€€É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t(€€€ô¤ì(€€€‘•±•Ñ•I•Á½M…¸¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø‘•±•Ñ•½µÁ±•Ñ¥½¸¹ÁÉ½µ¥Í”¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yI•µ½Ù”½¤ô¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€™…¥±•‘M…¸¹¥°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤ì(€€€ô¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½M•Ù•É¥Ñä½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€É¥Ñ¥…°œôô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð (€€€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½¬¹…±±Ì¹Í½µ” (€€€€€€€€€€¡mÁ…É…µÍt¤€ôø€¡Á…É…µÌ…ÌìÍ•Ù•É¥ÑäüèÍÑÉ¥¹œôðÕ¹‘•™¥¹•¤ü¹Í•Ù•É¥Ñä€ôôô€É¥Ñ¥…°œ(€€€€€€€€¤(€€€€€€¤¹Ñ½	”¡ÑÉÕ”¤ì(€€€ô¤ì((€€€±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½­±•…È ¤ì(€€€•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì¹µ½­±•…È ¤ì(€€€•ÑI•Á½I¥Í­É…Á ¹µ½­±•…È ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€‘•±•Ñ•½µÁ±•Ñ¥½¸¹É•Í½±Ù” ¤ì(€€€€€…Ý…¥Ð‘•±•Ñ•½µÁ±•Ñ¥½¸¹ÁÉ½µ¥Í”ì(€€€ô¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€€•áÁ•Ð¡±¥ÍÑI•Á½¥¹‘¥¹Ì¤¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€€€•áÁ•Ð¡•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì¤¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€€€•áÁ•Ð¡•ÑI•Á½I¥Í­É…Á ¤¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€ô¤ì(€€€•áÁ•Ð (€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½¬¹…±±Ì¹•Ù•Éä (€€€€€€€€¡mÁ…É…µÍt¤€ôø€¡Á…É…µÌ…ÌìÍ•Ù•É¥ÑäüèÍÑÉ¥¹œôðÕ¹‘•™¥¹•¤ü¹Í•Ù•É¥Ñä€ôôô€É¥Ñ¥…°œ(€€€€€€¤(€€€€¤¹Ñ½	”¡ÑÉÕ”¤ì(€€€•áÁ•Ð (€€€€€•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì¹µ½¬¹…±±Ì¹•Ù•Éä (€€€€€€€€¡mÁ…É…µÍt¤€ôø€¡Á…É…µÌ…ÌìÍ•Ù•É¥ÑäüèÍÑÉ¥¹œôðÕ¹‘•™¥¹•¤ü¹Í•Ù•É¥Ñä€ôôô€É¥Ñ¥…°œ(€€€€€€¤(€€€€¤¹Ñ½	”¡ÑÉÕ”¤ì(€€€•áÁ•Ð (€€€€€•ÑI•Á½I¥Í­É…Á ¹µ½¬¹…±±Ì¹•Ù•Éä (€€€€€€€€¡mÁ…É…µÍt¤€ôø€¡Á…É…µÌ…ÌìÍ•Ù•É¥ÑäüèÍÑÉ¥¹œôðÕ¹‘•™¥¹•¤ü¹Í•Ù•É¥Ñä€ôôô€É¥Ñ¥…°œ(€€€€€€¤(€€€€¤¹Ñ½	”¡ÑÉÕ”¤ì(€ô¤ì((€¥Ð ±•ÑÌÙ¥•Ý•ÉÌ‘¥Íµ¥ÍÌ„™…¥±•Í…¸‰…¹¹•ÈÝ¥Ñ¡½ÕÐ‘•±•Ñ¥¹œÑ¡”Í…¸œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ™…¥±•µÙ¥•Ý•Èµ‘¥Íµ¥ÍÍ¥‰±”œ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÄèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€I•Á½Í¥Ñ½Éä¹½Ð™½Õ¹½È…•ÍÌÉ•Ù½­•œ(€€€ôì(€€€½¹ÍÐ½±‘MÕ••‘•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÙ¥•Ý•Èµ‘¥Íµ¥ÍÍ¥‰±”µÍÕ••‘•œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÌÀèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì(€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµÙ¥•Ý•Èµ‘¥Íµ¥ÍÍ¥‰±”œ°(€€€€€Í…¹}¥è½±‘MÕ••‘•‘M…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€Ñ¥Ñ±”è€!¥ÍÑ½É¥…°Ù¥•Ý•ÈÝ½É­™±½Ü™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€ôì((€€€½¹ÍÐì‘•±•Ñ•I•Á½M…¸ô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹Ìèm™…¥±•‘M…¸°½±‘MÕ••‘•‘M…¹t°(€€€€€É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t°(€€€€€É½±”è€Ù¥•Ý•Èœ(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½y¥Íµ¥ÍÌ½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½M…¸¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ !¥ÍÑ½É¥…°Ù¥•Ý•ÈÝ½É­™±½Ü™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ±•ÑÌ½Á•É…Ñ½ÉÌÉ•µ½Ù”„™…¥±•µ½¹±äÍ…¸ÍÑ…Ñ”œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ™…¥±•µ½¹±äµ‘¥Íµ¥ÍÍ¥‰±”œ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÔèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€I•Á½Í¥Ñ½Éä¹½Ð™½Õ¹½È…•ÍÌÉ•Ù½­•œ(€€€ôì((€€€½¹ÍÐì‘•±•Ñ•I•Á½M…¸ô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹Ìèm™…¥±•‘M…¹tô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ e½ÕÈ±…ÍÐÉ•Á½Í¥Ñ½ÉäÍ…¸™…¥±•œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yI•µ½Ù”½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€™…¥±•‘M…¸¹¥°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤ì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ e½ÕÈ±…ÍÐÉ•Á½Í¥Ñ½ÉäÍ…¸™…¥±•œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 9¼½µÁ±•Ñ•Í…¸É•ÍÕ±ÑÌœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ™…±±Ì‰…¬Ñ¼¡¥‘¥¹œ™…¥±•Í…¸‰…¹¹•ÉÌÝ¡•¸Í…¸É•µ½Ù…°¥Ì¹½Ð‘•Á±½å•å•Ðœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ™…¥±•µÉ•µ½Ù”µÕ¹ÍÕÁÁ½ÉÑ•œ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÄèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€I•Á½Í¥Ñ½Éä¹½Ð™½Õ¹½È…•ÍÌÉ•Ù½­•œ(€€€ôì(€€€½¹ÍÐ½±‘MÕ••‘•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÉ•µ½Ù”µÕ¹ÍÕÁÁ½ÉÑ•µÍÕ••‘•œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÌÀèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì(€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµÉ•µ½Ù”µÕ¹ÍÕÁÁ½ÉÑ•œ°(€€€€€Í…¹}¥è½±‘MÕ••‘•‘M…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€Ñ¥Ñ±”è€!¥ÍÑ½É¥…°Õ¹ÍÕÁÁ½ÉÑ•É•µ½Ù”™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€ôì((€€€½¹ÍÐì‘•±•Ñ•I•Á½M…¸ô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹Ìèm™…¥±•‘M…¸°½±‘MÕ••‘•‘M…¹t°(€€€€€É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t(€€€ô¤ì(€€€½¹ÍÐìÁ¥ÉÉ½Èô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€‘•±•Ñ•I•Á½M…¸¹µ½­I•©•Ñ•‘Y…±Õ•=¹”¡¹•ÜÁ¥ÉÉ½È I•ÅÕ•ÍÐ™…¥±•€ ÐÀÐ¤œ°€ÐÀÐ¤¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yI•µ½Ù”½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤ì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1…ÍÐÍ…¸™…¥±•è½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ !¥ÍÑ½É¥…°Õ¹ÍÕÁÁ½ÉÑ•É•µ½Ù”™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½ÐÉ•Á½ÉÐ…¹•±±…Ñ¥½¸…Ì„™…¥±•Í…¸œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ…¹•±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ…¹•±•œ°(€€€€€ÍÑ…ÑÕÌè€…¹•±•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀäèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€UÍ•È…¹•±•Í…¸™É½´A$œ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹Ìèm…¹•±•‘M…¹tô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 9¼½µÁ±•Ñ•Í…¸É•ÍÕ±ÑÌœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ e½ÕÈ±…ÍÐÉ•Á½Í¥Ñ½ÉäÍ…¸™…¥±•œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð É•ÍÑ½É•Ì™½ÕÌÑ¼Ñ¡”ÑÉ¥•É¥¹œÉ½ÜÝ¡•¸Ñ¡”™¥¹‘¥¹œ‘•Ñ…¥°‘¥…±½œ±½Í•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÝ¥Ñ µ™¥¹‘¥¹Ìœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œ´Äœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€…ÝÍ}…•ÍÍ}­•äœ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€%4É½±”Ý¥Ñ Ý¥±‘…ÉÑÉÕÍÐœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€ÍÍÕµ•I½±”ÑÉÕÍÐÁ½±¥ä…±±½ÝÌ…¹äÁÉ¥¹¥Á…°¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€Q¥¡Ñ•¸ÑÉÕÍÐÁ½±¥äÁÉ¥¹¥Á…±Ì¸œ°(€€€€€Í½ÕÉ•}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°½‰±½ˆ½µ…¥¸½Á½±¥ä¹Ñ˜0Üœ°(€€€€€±¥¹•}Í¹¥ÁÁ•Ðè€ €´Ä€¬Äq¸¬…±±½Ü€ôÑÉÕ•q¸´…±±½Ü€ô™…±Í”œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹ÌèmÍ…¹t°É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹tô¤ì((€€€½¹ÍÐÉ½Ý	ÕÑÑ½¸€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì %4É½±”Ý¥Ñ Ý¥±‘…ÉÑÉÕÍÐœ¤(€€€€¤…Ì!Q51	ÕÑÑ½¹±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡É½Ý	ÕÑÑ½¸¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …É½Ý	ÕÑÑ½¸¤É•ÑÕÉ¸ì(€€€É½Ý	ÕÑÑ½¸¹™½ÕÌ ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡É½Ý	ÕÑÑ½¸¤ì((€€€½¹ÍÐ…‘‘•‘1¥¹”€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ¡|°•±•µ•¹Ð¤€ôø(€€€€€	½½±•…¸¡•±•µ•¹Ðü¹±…ÍÍ1¥ÍÐ¹½¹Ñ…¥¹Ì ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±¥¹”œ¤€˜˜•±•µ•¹Ð¹Ñ•áÑ½¹Ñ•¹Ð€ôôô€œ¬…±±½Ü€ôÑÉÕ”œ¤(€€€€¤ì(€€€½¹ÍÐÉ•µ½Ù•‘1¥¹”€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ¡|°•±•µ•¹Ð¤€ôø(€€€€€	½½±•…¸¡•±•µ•¹Ðü¹±…ÍÍ1¥ÍÐ¹½¹Ñ…¥¹Ì ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±¥¹”œ¤€˜˜•±•µ•¹Ð¹Ñ•áÑ½¹Ñ•¹Ð€ôôô€œ´…±±½Ü€ô™…±Í”œ¤(€€€€¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ Ù¥‘•¹”±¥¹”œ¤¤¹Ñ½!…Ù•±…ÍÌ ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±…‰•°œ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ  €´Ä€¬Ä œ¤¤¹Ñ½!…Ù•±…ÍÌ ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±¥¹”œ¤ì(€€€•áÁ•Ð¡…‘‘•‘1¥¹”¤¹Ñ½!…Ù•±…ÍÌ ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±¥¹”œ°€¥Ìµ…‘œ¤ì(€€€•áÁ•Ð¡É•µ½Ù•‘1¥¹”¤¹Ñ½!…Ù•±…ÍÌ ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±¥¹”œ°€¥ÌµÉ•µ½Ù”œ¤ì(€€€•áÁ•Ð¡…‘‘•‘1¥¹”¤¹¹½Ð¹Ñ½!…Ù•±…ÍÌ ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±…‰•°œ¤ì(€€€•áÁ•Ð¡É•µ½Ù•‘1¥¹”¤¹¹½Ð¹Ñ½!…Ù•±…ÍÌ ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±…‰•°œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡…‘‘•‘1¥¹”¤¹•Ñ	åQ•áÐ œ¬œ¤¤¹Ñ½!…Ù•±…ÍÌ ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µµ…É­•Èœ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡É•µ½Ù•‘1¥¹”¤¹•Ñ	åQ•áÐ œ´œ¤¤¹Ñ½!…Ù•±…ÍÌ ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µµ…É­•Èœ¤ì((€€€½¹ÍÐ±½Í•	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½±½Í”™¥¹‘¥¹œ‘•Ñ…¥°½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡±½Í•	ÕÑÑ½¸¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½±½Í”™¥¹‘¥¹œ‘•Ñ…¥°½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘½Õµ•¹Ð¹…Ñ¥Ù•±•µ•¹Ð¤¹Ñ½	”¡É½Ý	ÕÑÑ½¸¤ì(€€€ô¤ì(€ô¤ì((€¥Ð ‘•±•Ñ•ÌÉ•Á½Í¥Ñ½Éä™¥¹‘¥¹Ì™É½´Ñ¡”É½Ü½Ù•É™±½Üµ•¹Ôœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÝ¥Ñ µ…Ñ¥½¹…‰±”µ™¥¹‘¥¹œœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ…Ñ¥½¸´Äœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€A½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸Ý½É­™±½Ü¡¥ÍÑ½Éäœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„½µµ¥ÑÑ•Ý½É­™±½Ü¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€Í½ÕÉ•}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°½‰±½ˆ½µ…¥¸¼¹¥Ñ¡Õˆ½Ý½É­™±½ÝÌ½‘•Á±½ä¹åµ°0ÄÈœ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì((€€€½¹ÍÐì‘•±•Ñ•I•Á½¥¹‘¥¹œô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôøì(€€€€€€€¥˜€¡…±°€ôôô€Ä¤ì(€€€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèm™¥¹‘¥¹tôì(€€€€€€€ô(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèmtôì(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÉ½Ü€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì A½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸Ý½É­™±½Ü¡¥ÍÑ½Éäœ¤(€€€€¤…Ì!Q51±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡É½Ü¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …É½Ü¤É•ÑÕÉ¸ì((€€€½¹ÍÐ…Ñ¥½¹	ÕÑÑ½¸€ôÝ¥Ñ¡¥¸¡É½Ü¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½=Á•¸…Ñ¥½¹Ì™½ÈA½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡…Ñ¥½¹	ÕÑÑ½¸¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” µ•¹Õ¥Ñ•´œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì((€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½•±•Ñ”™¥¹‘¥¹œ½¤ô¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åQ•áÐ ½I•µ½Ù”½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ¡•…‘¥¹œœ°ì¹…µ”è€¥¹‘¥¹œ…Ñ¥½¹Ìœô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€½¹ÍÐ½¹™¥Éµ…¹•±	ÕÑÑ½¸€ôÝ¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½…¹•°½¤ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘½Õµ•¹Ð¹…Ñ¥Ù•±•µ•¹Ð¤¹Ñ½	”¡½¹™¥Éµ…¹•±	ÕÑÑ½¸¤ì(€€€ô¤ì((€€€™¥É•Ù•¹Ð¹­•å½Ý¸¡‘½Õµ•¹Ð¹…Ñ¥Ù•±•µ•¹Ð„°ì­•äè€Í…Á”œô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‘¥…±½œœ°ì¹…µ”è€½•±•Ñ”™¥¹‘¥¹œ½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘½Õµ•¹Ð¹…Ñ¥Ù•±•µ•¹Ð¤¹Ñ½	”¡…Ñ¥½¹	ÕÑÑ½¸¤ì(€€€ô¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½=Á•¸…Ñ¥½¹Ì™½ÈA½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•½¤ô¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” µ•¹Õ¥Ñ•´œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì((€€€½¹ÍÐÉ•½Á•¹½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½•±•Ñ”™¥¹‘¥¹œ½¤ô¤ì(€€€•áÁ•Ð¡É•½Á•¹½¹™¥Éµ¥…±½œ¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡É•½Á•¹½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½¥¹‘¥¹œ¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€™¥¹‘¥¹œ¹¥°(€€€€€€€Í…¸¹¥°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ A½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸Ý½É­™±½Ü¡¥ÍÑ½Éäœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€ô¤ì((€¥Ð É•™É•Í¡•ÌÑÉ•¹…¹É¥Í¬É…Á¡Ì…™Ñ•È‘•±•Ñ¥¹œ„™¥¹‘¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÝ¥Ñ µ…Ñ¥½¹…‰±”µ™¥¹‘¥¹œµÉ•™É•Í œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµÉ•™É•Í ´Äœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€Ñ¥Ñ±”è€A½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸ÍÑ…±”ÑÉ•¹‘…Ñ„œ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„ÍÑ…±”Ý½É­™±½Ü™¥±”¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”ÍÑ…±”•Ù¥‘•¹”¸œ°(€€€€€Í½ÕÉ•}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°½‰±½ˆ½µ…¥¸¼¹¥Ñ¡Õˆ½Ý½É­™±½ÝÌ½ÍÑ…±”¹åµ°0ÄÈœ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì((€€€€€½¹ÍÐì‘•±•Ñ•I•Á½¥¹‘¥¹œ°•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì°•ÑI•Á½I¥Í­É…Á ô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t°(€€€€€•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ìè€ ¤€ôø€¡ì(€€€€€€€¥Ñ•µÌèl(€€€€€€€€€ì(€€€€€€€€€€€Í…¹}¥è€É•Á¼µÍ…¸µÝ¥Ñ µ…Ñ¥½¹…‰±”µ™¥¹‘¥¹œµÉ•™É•Í œ°(€€€€€€€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€€€€€€€Ñ½Ñ…°è€Ä°(€€€€€€€€€€€‰å}Í•Ù•É¥Ñäèì(€€€€€€€€€€€€€É¥Ñ¥…°è€À°(€€€€€€€€€€€€€¡¥ è€Ä°(€€€€€€€€€€€€€µ•‘¥Õ´è€À°(€€€€€€€€€€€€€±½Üè€À(€€€€€€€€€€€ô(€€€€€€€€€ô(€€€€€€€t(€€€€€ô¤°(€€€€€•ÑI•Á½I¥Í­É…Á è€ ¤€ôø€¡ì(€€€€€€€É•Á½Í¥Ñ½Éäè€É•Á¼µ„œ°(€€€€€€€¹½‘•Ìèmt°(€€€€€€€•‘•Ìèmt°(€€€€€€€Í½É•Ìèmt°(€€€€€€€ÍÕµµ…Éäèì(€€€€€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä°(€€€€€€€€€¹½‘•}½Õ¹Ðè€À°(€€€€€€€€€•‘•}½Õ¹Ðè€À°(€€€€€€€€€Õ¹­¹½Ý¹}¹½‘•}½Õ¹Ðè€À°(€€€€€€€€€Õ¹­¹½Ý¹}•‘•}½Õ¹Ðè€À°(€€€€€€€€€¡¥¡}É¥Í­}™¥¹‘¥¹Ìè€À°(€€€€€€€€€É¥Ñ¥…±}™¥¹‘¥¹Ìè€À(€€€€€€€ô(€€€€€ô¤(€€€ô¤ì((€€€½¹ÍÐÉ½Ü€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì A½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸ÍÑ…±”ÑÉ•¹‘…Ñ„œ¤(€€€€¤…Ì!Q51±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡É½Ü¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …É½Ü¤É•ÑÕÉ¸ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì¤¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€€€•áÁ•Ð¡•ÑI•Á½I¥Í­É…Á ¤¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€ô¤ì(€€€½¹ÍÐ¥¹¥Ñ¥…±QÉ•¹‘…±±Ì€ô•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì¹µ½¬¹…±±Ì¹±•¹Ñ ì(€€€½¹ÍÐ¥¹¥Ñ¥…±I¥Í­…±±Ì€ô•ÑI•Á½I¥Í­É…Á ¹µ½¬¹…±±Ì¹±•¹Ñ ì(€€€•áÁ•Ð¡¥¹¥Ñ¥…±QÉ•¹‘…±±Ì¤¹Ñ½	•É•…Ñ•ÉQ¡…¹=ÉÅÕ…° Ä¤ì(€€€•áÁ•Ð¡¥¹¥Ñ¥…±I¥Í­…±±Ì¤¹Ñ½	•É•…Ñ•ÉQ¡…¹=ÉÅÕ…° Ä¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡É½Ü¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½=Á•¸…Ñ¥½¹Ì™½ÈA½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•½¤ô¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” µ•¹Õ¥Ñ•´œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì(€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½•±•Ñ”™¥¹‘¥¹œ½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½¥¹‘¥¹œ¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€™¥¹‘¥¹œ¹¥°(€€€€€€€Í…¸¹¥°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡•ÑI•Á½¥¹‘¥¹ÍQÉ•¹‘Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì¡¥¹¥Ñ¥…±QÉ•¹‘…±±Ì€¬€Ä¤ì(€€€€€•áÁ•Ð¡•ÑI•Á½I¥Í­É…Á ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì¡¥¹¥Ñ¥…±I¥Í­…±±Ì€¬€Ä¤ì(€€€ô¤ì(€ô¤ì((€¥Ð ¡¥‘•ÌÑ¡”É¥Í¬É…Á Ý¡•¸Õ¹ÍÕÁÁ½ÉÑ•™¥¹‘¥¹œ™¥±Ñ•ÉÌ…É”…Ñ¥Ù”œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÉ¥Í¬µÉ…Á µÍ½ÕÉ”µ™¥±Ñ•Èœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì(€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµÉ¥Í¬µÉ…Á µÍ½ÕÉ”µ™¥±Ñ•Èœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€Ñ¥Ñ±”è€M½ÕÉ”µ™¥±Ñ•É•Ý½É­™±½ÜÁ•Éµ¥ÍÍ¥½¸œ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€…‘…ÁÑ•É}Í½ÕÉ”è€¥Ñ¡Õ‰}½‘•}Í…¹¹¥¹œœ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t°(€€€€€•ÑI•Á½I¥Í­É…Á è€ ¤€ôø€¡ì(€€€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€€€€€¹½‘•Ìèl(€€€€€€€€€ì(€€€€€€€€€€€¥è€¹½‘”´Äœ°(€€€€€€€€€€€­¥¹è€™¥¹‘¥¹œœ°(€€€€€€€€€€€±…‰•°è€¥¹‘¥¹œœ°(€€€€€€€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€€€€€€€€€•Ù¥‘•¹•}ÍÑ…Ñ”è€­¹½Ý¸œ(€€€€€€€€€ô(€€€€€€€t°(€€€€€€€•‘•Ìèmt°(€€€€€€€Í½É•Ìèl(€€€€€€€€€ì(€€€€€€€€€€€™¥¹‘¥¹}¥è™¥¹‘¥¹œ¹¥°(€€€€€€€€€€€™¥¹‘¥¹}¹½‘•}¥è€¹½‘”´Äœ°(€€€€€€€€€€€Í½É”è€äÈ°(€€€€€€€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€€€€€€€½¹™¥‘•¹”è€À¸äÈ°(€€€€€€€€€€€™…Ñ½ÉÌèì(€€€€€€€€€€€€€Í•Ù•É¥Ñäè€àÀ°(€€€€€€€€€€€€€½¹™¥‘•¹”è€äÈ°(€€€€€€€€€€€€€•áÁ±½¥Ñ…‰¥±¥Ñäè€àÀ°(€€€€€€€€€€€€€ÁÉ¥Ù¥±•”è€ÜÀ°(€€€€€€€€€€€€€•áÁ½ÍÕÉ”è€ÜÀ°(€€€€€€€€€€€€€•¹Ù¥É½¹µ•¹Ñ}É¥Ñ¥…±¥Ñäè€ØÀ°(€€€€€€€€€€€€€™É•Í¡¹•ÍÌè€äÀ°(€€€€€€€€€€€€€Á½ÍÑÕÉ•}…µÁ±¥™¥•Èè€À(€€€€€€€€€€€ô°(€€€€€€€€€€€Õ¹­¹½Ý¹Ìèmt(€€€€€€€€€ô(€€€€€€€t°(€€€€€€€ÍÕµµ…Éäèì(€€€€€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä°(€€€€€€€€€¹½‘•}½Õ¹Ðè€Ä°(€€€€€€€€€•‘•}½Õ¹Ðè€À°(€€€€€€€€€Õ¹­¹½Ý¹}¹½‘•}½Õ¹Ðè€À°(€€€€€€€€€Õ¹­¹½Ý¹}•‘•}½Õ¹Ðè€À°(€€€€€€€€€¡¥¡}É¥Í­}™¥¹‘¥¹Ìè€Ä°(€€€€€€€€€É¥Ñ¥…±}™¥¹‘¥¹Ìè€À(€€€€€€€ô(€€€€€ô¤(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ œÄ¹½‘•Ìƒ
+Ü€ÀÁ…Ñ¡Ìƒ
+Ü¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	åA±…•¡½±‘•ÉQ•áÐ M½ÕÉ”¹…µ”œ¤°ìÑ…É•ÐèìÙ…±Õ”è€¥Ñ¡Õ‰}½‘•}Í…¹¹¥¹œœôô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ !¥‘‘•¸™½ÈÕÉÉ•¹Ð™¥±Ñ•ÉÌœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ±•…ÈÍ½ÕÉ”°…ÍÍ¥¹•”°½È±¥™•å±”™¥±Ñ•ÉÌÑ¼Ù¥•ÜÑ¡”É…Á ¸œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ !¥ µÉ¥Í¬™¥¹‘¥¹Ìœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ¥¹½É•ÌÍÑ…±”™¥¹‘¥¹œ‘•±•Ñ”½µÁ±•Ñ¥½¹Ì…™Ñ•ÈÉ•™É•Í¡¥¹œÑ¡”™¥¹‘¥¹Ì±¥ÍÐœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÝ¥Ñ µ…Ñ¥½¹…‰±”µ™¥¹‘¥¹œœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ…Ñ¥½¸´Èœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€A½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸É•±•…Í”…ÉÑ¥™…ÑÌœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸É•±•…Í”µ•Ñ…‘…Ñ„¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”•áÁ½Í•Ù…±Õ”¸œ°(€€€€€Í½ÕÉ•}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°½‰±½ˆ½µ…¥¸¼¹¥Ñ¡Õˆ½Ý½É­™±½ÝÌ½É•±•…Í”¹åµ°0ÈÈœ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì(€€€½¹ÍÐ‘•±•Ñ•½µÁ±•Ñ¥½¸€ô‘•™•ÉÉ•ñÙ½¥ø ¤ì((€€€½¹ÍÐì‘•±•Ñ•I•Á½¥¹‘¥¹œô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹ÌèmÍ…¹t°É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹tô¤ì(€€€‘•±•Ñ•I•Á½¥¹‘¥¹œ¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø‘•±•Ñ•½µÁ±•Ñ¥½¸¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐÉ½Ü€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì A½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸É•±•…Í”…ÉÑ¥™…ÑÌœ¤(€€€€¤…Ì!Q51±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡É½Ü¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …É½Ü¤É•ÑÕÉ¸ì((€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡É½Ü¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½=Á•¸…Ñ¥½¹Ì™½ÈA½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸É•±•…Í”…ÉÑ¥™…ÑÌ½¤ô¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” µ•¹Õ¥Ñ•´œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì((€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½•±•Ñ”™¥¹‘¥¹œ½¤ô¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åQ•áÐ ½I•µ½Ù”½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yI•™É•Í ½¤ô¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½¥¹‘¥¹œ¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€™¥¹‘¥¹œ¹¥°(€€€€€€€Í…¸¹¥°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤ì(€€€ô¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€‘•±•Ñ•½µÁ±•Ñ¥½¸¹É•Í½±Ù” ¤ì(€€€ô¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ A½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸É•±•…Í”…ÉÑ¥™…ÑÌœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€ô¤ì((€¥Ð É•½¹¥±•Ì…±°µÍ…¸‘•‘ÕÁ•É½ÝÌ…™Ñ•È‘•±•Ñ¥¹œ„™¥¹‘¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÝ¥Ñ µ…Ñ¥½¹…‰±”µ™¥¹‘¥¹œœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€È(€€€ôì((€€€½¹ÍÐ‘•±•Ñ•‘¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ…Ñ¥½¸´Äœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€A½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸Ý½É­™±½Ü¡¥ÍÑ½Éäœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„½µµ¥ÑÑ•Ý½É­™±½Ü¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€Í½ÕÉ•}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°½‰±½ˆ½µ…¥¸¼¹¥Ñ¡Õˆ½Ý½É­™±½ÝÌ½‘•Á±½ä¹åµ°0ÄÈœ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì((€€€½¹ÍÐÁÉ½µ½Ñ•‘¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ…Ñ¥½¸µÁÉ½µ½Ñ•œ°(€€€€€Í…¹}¥è€É•Á¼µÍ…¸µ½±‘•Èµ•Ù¥‘•¹”œ°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€AÉ½µ½Ñ•Ñ½­•¸•áÁ½ÍÕÉ”™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸…¸½±‘•ÈÍ…¸±¥™•å±”É•ÍÕ±Ð¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€Í½ÕÉ•}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°½‰±½ˆ½µ…¥¸¼¹¥Ñ¡Õˆ½Ý½É­™±½ÝÌ½‘•Á±½ä¹åµ°0ÄÌœ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÀÀèÀÁhœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôøì(€€€€€€€¥˜€¡…±°€ôôô€Ä¤ì(€€€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèm‘•±•Ñ•‘¥¹‘¥¹tôì(€€€€€€€ô(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèmÁÉ½µ½Ñ•‘¥¹‘¥¹tôì(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÉ½Ü€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì A½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸Ý½É­™±½Ü¡¥ÍÑ½Éäœ¤(€€€€¤…Ì!Q51±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡É½Ü¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …É½Ü¤É•ÑÕÉ¸ì((€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡É½Ü¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½=Á•¸…Ñ¥½¹Ì™½ÈA½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•½¤ô¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” µ•¹Õ¥Ñ•´œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì(€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½•±•Ñ”™¥¹‘¥¹œ½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ A½Ñ•¹Ñ¥…°Ñ½­•¸•áÁ½Í•¥¸Ý½É­™±½Ü¡¥ÍÑ½Éäœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ AÉ½µ½Ñ•Ñ½­•¸•áÁ½ÍÕÉ”™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€ô¤ì((€¥Ð ÁÉ•Í•ÉÙ•ÌÍ•ÉÙ•È™¥¹‘¥¹œÍÕµµ…ÉäÑ½Ñ…±Ì…™Ñ•È‘•±•Ñ¥¹œ„Á…¥¹…Ñ•É½Üœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÝ¥Ñ µµ…¹äµ™¥¹‘¥¹Ìœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€ÈÌÀ(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµÙ¥Í¥‰±”µÁ…”´Äœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€‘•Ñ•Ñ½Èè€¥Ñ¡Õ‰}Í•É•Ñ}Í…¹¹¥¹œœ°(€€€€€Ñ¥Ñ±”è€Y¥Í¥‰±”Á…¥¹…Ñ•Ñ½­•¸™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„½µµ¥ÑÑ•Ý½É­™±½Ü¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€½Ý¹•Èè€Á±…Ñ™½É´œ°(€€€€€™¥ÉÍÑ}Í••¹}…Ðè€œÈÀÈØ´ÀÔ´ÀÅPÄÄèÀØèÀÁhœ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÀÅPÄÄèÀØèÀÁhœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôøì(€€€€€€€¥˜€¡…±°€ôôô€Ä¤ì(€€€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèm™¥¹‘¥¹t°ÍÕµµ…Éäèì(€€€€€€€€€€€Ñ½Ñ…±}½Á•¸è€ÈÌÀ°(€€€€€€€€€€€™¥á•‘}½Õ¹Ðè€Ð°(€€€€€€€€€€€É•½Á•¹•‘}½Õ¹Ðè€Ì°(€€€€€€€€€€€ÍÕÁÁÉ•ÍÍ•‘}½Õ¹Ðè€È°(€€€€€€€€€€€Í±…}…•‘}½Õ¹Ðè€à°(€€€€€€€€€€€µÑÑÉ}É•…‘å}É•Í½±Ù•‘}½Õ¹Ðè€Ð°(€€€€€€€€€€€µ•…¹}Ñ¥µ•}Ñ½}É•Í½±Ù•}Í•½¹‘Ìè€ØÀ€¨€ØÀ€¨€ÈÐ°(€€€€€€€€€€€½±‘•ÍÑ}½Á•¹}™¥ÉÍÑ}Í••¹}…Ðè€œÈÀÈØ´ÀÔ´ÀÅPÄÄèÀØèÀÁhœ°(€€€€€€€€€€€‰å}½Ý¹•ÈèìÁ±…Ñ™½É´è€ÄÈô°(€€€€€€€€€€€‰å}‘•Ñ•Ñ½Èèì¥Ñ¡Õ‰}Í•É•Ñ}Í…¹¹¥¹œè€ÄÜô°(€€€€€€€€€€€‰å}Í•Ù•É¥ÑäèìÉ¥Ñ¥…°è€ÄÄô(€€€€€€€€€õôì(€€€€€€€ô(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèmt°ÍÕµµ…Éäèì(€€€€€€€€€Ñ½Ñ…±}½Á•¸è€ÈÈä°(€€€€€€€€€™¥á•‘}½Õ¹Ðè€Ì°(€€€€€€€€€É•½Á•¹•‘}½Õ¹Ðè€Ì°(€€€€€€€€€ÍÕÁÁÉ•ÍÍ•‘}½Õ¹Ðè€È°(€€€€€€€€€Í±…}…•‘}½Õ¹Ðè€à°(€€€€€€€€€µÑÑÉ}É•…‘å}É•Í½±Ù•‘}½Õ¹Ðè€Ð°(€€€€€€€€€µ•…¹}Ñ¥µ•}Ñ½}É•Í½±Ù•}Í•½¹‘Ìè€ØÀ€¨€ØÀ€¨€ÈÐ°(€€€€€€€€€½±‘•ÍÑ}½Á•¹}™¥ÉÍÑ}Í••¹}…Ðè€œÈÀÈØ´ÀÔ´ÀÅPÄÄèÀØèÀÁhœ°(€€€€€€€€€‰å}½Ý¹•ÈèìÁ±…Ñ™½É´è€ÄÄô°(€€€€€€€€€‰å}‘•Ñ•Ñ½Èèì¥Ñ¡Õ‰}Í•É•Ñ}Í…¹¹¥¹œè€ÄØô°(€€€€€€€€€‰å}Í•Ù•É¥ÑäèìÉ¥Ñ¥…°è€ÄÀô(€€€€€€€õôì(€€€€€ô°(€€€€€É•Á½¥¹‘¥¹MÕµµ…Éäèì(€€€€€€€Ñ½Ñ…±}½Á•¸è€ÈÌÀ°(€€€€€€€™¥á•‘}½Õ¹Ðè€Ð°(€€€€€€€É•½Á•¹•‘}½Õ¹Ðè€Ì°(€€€€€€€ÍÕÁÁÉ•ÍÍ•‘}½Õ¹Ðè€È°(€€€€€€€Í±…}…•‘}½Õ¹Ðè€à°(€€€€€€€µÑÑÉ}É•…‘å}É•Í½±Ù•‘}½Õ¹Ðè€Ð°(€€€€€€€µ•…¹}Ñ¥µ•}Ñ½}É•Í½±Ù•}Í•½¹‘Ìè€ØÀ€¨€ØÀ€¨€ÈÐ°(€€€€€€€½±‘•ÍÑ}½Á•¹}™¥ÉÍÑ}Í••¹}…Ðè€œÈÀÈØ´ÀÔ´ÀÅPÄÄèÀØèÀÁhœ°(€€€€€€€‰å}½Ý¹•ÈèìÁ±…Ñ™½É´è€ÄÈô°(€€€€€€€‰å}‘•Ñ•Ñ½Èèì¥Ñ¡Õ‰}Í•É•Ñ}Í…¹¹¥¹œè€ÄÜô°(€€€€€€€‰å}Í•Ù•É¥ÑäèìÉ¥Ñ¥…°è€ÄÄô(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÍÕµµ…Éä€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	å1…‰•±Q•áÐ I•Á½Í¥Ñ½Éä™¥¹‘¥¹œÍÕµµ…Éäœ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹±…ÍÍ1¥ÍÐ¹½¹Ñ…¥¹Ì ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµÍÑ…ÑÌœ¤(€€€€¤…Ì!Q51±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡ÍÕµµ…Éä¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …ÍÕµµ…Éä¤É•ÑÕÉ¸ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åQ•áÐ œÈÌÀœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€½¹ÍÐÉ½Ü€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì Y¥Í¥‰±”Á…¥¹…Ñ•Ñ½­•¸™¥¹‘¥¹œœ¤(€€€€¤…Ì!Q51±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡É½Ü¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …É½Ü¤É•ÑÕÉ¸ì((€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡É½Ü¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½=Á•¸…Ñ¥½¹Ì™½ÈY¥Í¥‰±”Á…¥¹…Ñ•Ñ½­•¸™¥¹‘¥¹œ½¤ô¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” µ•¹Õ¥Ñ•´œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì(€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½•±•Ñ”™¥¹‘¥¹œ½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ Y¥Í¥‰±”Á…¥¹…Ñ•Ñ½­•¸™¥¹‘¥¹œœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åQ•áÐ œÈÈäœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€ô¤ì((€¥Ð ±•…ÉÌ…±°Ù¥Í¥‰±”É•Á½Í¥Ñ½Éä™¥¹‘¥¹Ì…¹ÕÁ‘…Ñ•Ì±½…‘•½Õ¹ÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ±•…Èµ…±°µ™¥¹‘¥¹Ìœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€È(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹Ìè¥¹‘¥¹mt€ôl(€€€€€ì(€€€€€€€¥è€™¥¹‘¥¹œµ±•…Èµ…±°´Äœ°(€€€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€€€Ñ¥Ñ±”è€¥ÉÍÐ±•…É…‰±”Ñ½­•¸™¥¹‘¥¹œœ°(€€€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„½µµ¥ÑÑ•Ý½É­™±½Ü¸œ°(€€€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€€€ô°(€€€€€ì(€€€€€€€¥è€™¥¹‘¥¹œµ±•…Èµ…±°´Èœ°(€€€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€€€Ñ¥Ñ±”è€M•½¹±•…É…‰±”Ý½É­™±½Ü™¥¹‘¥¹œœ°(€€€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€€€ô(€€€tì((€€€½¹ÍÐì‘•±•Ñ•I•Á½¥¹‘¥¹œ°‘•±•Ñ•I•Á½¥¹‘¥¹Ìô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôø€¡ì¥Ñ•µÌè…±°€ôôô€Ä€ü™¥¹‘¥¹Ì€èmtô¤(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ¥ÉÍÐ±•…É…‰±”Ñ½­•¸™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ M•½¹±•…É…‰±”Ý½É­™±½Ü™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½y±•…È…±°½¤ô¤¤ì(€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½±•…È™¥¹‘¥¹Ì½¤ô¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åQ•áÐ ¼ÈÙ¥Í¥‰±”™¥¹‘¥¹Ì½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”…±°½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½¥¹‘¥¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€l(€€€€€€€€€ì™¥¹‘¥¹}¥è™¥¹‘¥¹ÍlÁt¹¥°É•Á½}Í…¹}¥èÍ…¸¹¥ô°(€€€€€€€€€ì™¥¹‘¥¹}¥è™¥¹‘¥¹ÍlÅt¹¥°É•Á½}Í…¹}¥èÍ…¸¹¥ô(€€€€€€€t°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤ì(€€€ô¤ì(€€€•áÁ•Ð¡‘•±•Ñ•I•Á½¥¹‘¥¹œ¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ¥ÉÍÐ±•…É…‰±”Ñ½­•¸™¥¹‘¥¹œœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ M•½¹±•…É…‰±”Ý½É­™±½Ü™¥¹‘¥¹œœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 9¼•áÁ½ÍÕÉ”™½Õ¹œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½ÐÉ•Á½ÉÐ±•…È…±°ÍÕ•ÍÌÝ¡•¸Ñ¡”‰Õ±¬•¹‘Á½¥¹Ð¥Ì¹½Ð‘•Á±½å•å•Ðœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ±•…Èµ…±°µ‰Õ±¬µµ¥ÍÍ¥¹œœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€È(€€€ôì(€€€½¹ÍÐ™¥¹‘¥¹Ìè¥¹‘¥¹mt€ôl(€€€€€ì(€€€€€€€¥è€™¥¹‘¥¹œµ±•…Èµ™…±±‰…¬µ™¥ÉÍÐœ°(€€€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€€€Ñ¥Ñ±”è€…±±‰…¬±•…É…‰±”Ñ½­•¸™¥¹‘¥¹œœ°(€€€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„½µµ¥ÑÑ•Ý½É­™±½Ü¸œ°(€€€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€€€ô°(€€€€€ì(€€€€€€€¥è€™¥¹‘¥¹œµ±•…Èµ™…±±‰…¬µÍ•½¹œ°(€€€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€€€Ñ¥Ñ±”è€…±±‰…¬±•…É…‰±”Ý½É­™±½Ü™¥¹‘¥¹œœ°(€€€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€€€ô(€€€tì((€€€½¹ÍÐì‘•±•Ñ•I•Á½¥¹‘¥¹œ°‘•±•Ñ•I•Á½¥¹‘¥¹Ìô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôø€¡ì¥Ñ•µÌè…±°€ôôô€Ä€ü™¥¹‘¥¹Ì€èm™¥¹‘¥¹ÍlÅutô¤(€€€ô¤ì(€€€½¹ÍÐìÁ¥ÉÉ½Èô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€‘•±•Ñ•I•Á½¥¹‘¥¹Ì¹µ½­I•©•Ñ•‘Y…±Õ•=¹”¡¹•ÜÁ¥ÉÉ½È I•ÅÕ•ÍÐ™…¥±•€ ÐÀÐ¤œ°€ÐÀÐ¤¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ …±±‰…¬±•…É…‰±”Ñ½­•¸™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ …±±‰…¬±•…É…‰±”Ý½É­™±½Ü™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½y±•…È…±°½¤ô¤¤ì(€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½±•…È™¥¹‘¥¹Ì½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”…±°½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½¥¹‘¥¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤ì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½¥¹‘¥¹œ¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€ô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½±•…È…±°É•ÅÕ¥É•ÌÑ¡”‰Õ±¬‘•±•Ñ”A$½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ …±±‰…¬±•…É…‰±”Ñ½­•¸™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ …±±‰…¬±•…É…‰±”Ý½É­™±½Ü™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ 9¼•áÁ½ÍÕÉ”™½Õ¹œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åQ•áÐ ¼ÈÙ¥Í¥‰±”™¥¹‘¥¹Ì½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð É•±½…‘ÌÉ•Á½Í¥Ñ½Éä™¥¹‘¥¹Ì…™Ñ•È±•…É¥¹œ„Á…•±¥ÍÐœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ±•…Èµ…±°µÁ…•œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€È(€€€ôì(€€€½¹ÍÐ™¥ÉÍÑA…•¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ±•…ÈµÁ…•µ™¥ÉÍÐœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€¥ÉÍÐÁ…”±•…É…‰±”Ñ½­•¸™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„½µµ¥ÑÑ•Ý½É­™±½Ü¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì(€€€½¹ÍÐ¹•áÑA…•¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ±•…ÈµÁ…•µ¹•áÐœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€Ñ¥Ñ±”è€9•áÐÁ…”Ý½É­™±½Ü™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€ôì((€€€½¹ÍÐì±¥ÍÑI•Á½¥¹‘¥¹Ìô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôø€¡ì¥Ñ•µÌè…±°€ôôô€Ä€üm™¥ÉÍÑA…•¥¹‘¥¹t€èm¹•áÑA…•¥¹‘¥¹tô¤(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ¥ÉÍÐÁ…”±•…É…‰±”Ñ½­•¸™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½y±•…È…±°½¤ô¤¤ì(€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½±•…È™¥¹‘¥¹Ì½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”…±°½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡±¥ÍÑI•Á½¥¹‘¥¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤ì(€€€ô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ¥ÉÍÐÁ…”±•…É…‰±”Ñ½­•¸™¥¹‘¥¹œœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 9•áÐÁ…”Ý½É­™±½Ü™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ¡Õ¹­Ì±•…È…±°Ñ…É•ÑÌ…ÐÑ¡”É•Á½Í¥Ñ½Éä™¥¹‘¥¹œ‰Õ±¬±¥µ¥Ðœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐì¡Õ¹­I•Á½¥¹‘¥¹•±•Ñ•Q…É•ÑÌ°IA=}%9%9}	U1-}1Q}	Q!}M%iô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐÑ…É•ÑÌ€ôÉÉ…ä¹™É½´¡ì±•¹Ñ èIA=}%9%9}	U1-}1Q}	Q!}M%i€¬€Äô°€¡|°¥¹‘•à¤€ôø€¡ì(€€€€€™¥¹‘¥¹}¥è™¥¹‘¥¹œµ‰Õ±¬µ±¥µ¥Ð´‘í¥¹‘•áõ€°(€€€€€É•Á½}Í…¹}¥è€É•Á¼µÍ…¸µ‰Õ±¬µ±¥µ¥Ðœ(€€€ô¤¤ì((€€€½¹ÍÐ‰…Ñ¡•Ì€ô¡Õ¹­I•Á½¥¹‘¥¹•±•Ñ•Q…É•ÑÌ¡Ñ…É•ÑÌ¤ì((€€€•áÁ•Ð¡‰…Ñ¡•Ì¤¹Ñ½!…Ù•1•¹Ñ  È¤ì(€€€•áÁ•Ð¡‰…Ñ¡•ÍlÁt¤¹Ñ½!…Ù•1•¹Ñ ¡IA=}%9%9}	U1-}1Q}	Q!}M%i¤ì(€€€•áÁ•Ð¡‰…Ñ¡•ÍlÅt¤¹Ñ½ÅÕ…°¡mì™¥¹‘¥¹}¥è€™¥¹‘¥¹œµ‰Õ±¬µ±¥µ¥Ð´ÔÀÀÀœ°É•Á½}Í…¹}¥è€É•Á¼µÍ…¸µ‰Õ±¬µ±¥µ¥Ðœõt¤ì(€ô¤ì((€¥Ð ÁÉ•Í•ÉÙ•Ì½µÁ±•Ñ•±•…È…±°‰…Ñ¡•ÌÝ¡•¸„±…Ñ•È‰…Ñ É•ÅÕ•ÍÐ™…¥±Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐì‘•±•Ñ•I•Á½¥¹‘¥¹Q…É•ÑÍ%¹	…Ñ¡•Ìô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐÑ…É•ÑÌ€ôÉÉ…ä¹™É½´¡ì±•¹Ñ è€Ìô°€¡|°¥¹‘•à¤€ôø€¡ì(€€€€€™¥¹‘¥¹}¥è™¥¹‘¥¹œµ‰Õ±¬µÁ…ÉÑ¥…°´‘í¥¹‘•áõ€°(€€€€€É•Á½}Í…¹}¥è€É•Á¼µÍ…¸µ‰Õ±¬µÁ…ÉÑ¥…°œ(€€€ô¤¤ì(€€€½¹ÍÐ‘•±•Ñ•Q…É•ÑÌ€ôÙ¤(€€€€€€¹™¸ ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ì‘•±•Ñ•èÑ…É•ÑÌ¹Í±¥” À°€È¤ô¤(€€€€€€¹µ½­I•©•Ñ•‘Y…±Õ•=¹”¡¹•ÜÉÉ½È É…Ñ”±¥µ¥Ð•á••‘•œ¤¤ì((€€€½¹ÍÐÉ•ÍÕ±Ð€ô…Ý…¥Ð‘•±•Ñ•I•Á½¥¹‘¥¹Q…É•ÑÍ%¹	…Ñ¡•Ì¡Ñ…É•ÑÌ°‘•±•Ñ•Q…É•ÑÌ°€È¤ì((€€€•áÁ•Ð¡‘•±•Ñ•Q…É•ÑÌ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤ì(€€€•áÁ•Ð¡É•ÍÕ±Ð¹É•ÍÁ½¹Í”¹‘•±•Ñ•¤¹Ñ½ÅÕ…°¡Ñ…É•ÑÌ¹Í±¥” À°€È¤¤ì(€€€•áÁ•Ð¡É•ÍÕ±Ð¹É•ÍÁ½¹Í”¹™…¥±•¤¹Ñ½ÅÕ…°¡mt¤ì(€€€•áÁ•Ð¡É•ÍÕ±Ð¹•ÉÉ½É5•ÍÍ…”¤¹Ñ½	” É…Ñ”±¥µ¥Ð•á••‘•œ¤ì(€ô¤ì((€¥Ð Í•¹‘Ì±…É”±•…È…±°É•ÅÕ•ÍÑÌ‰•±½ÜÑ¡”Í•ÉÙ•È±¥µ¥Ð…Ì½¹”É•Á½Í¥Ñ½Éä™¥¹‘¥¹œ‰Õ±¬½Á•É…Ñ¥½¸œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ±•…Èµ…±°µ±…É”œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€ÄÀÄ(€€€ôì(€€€½¹ÍÐ™¥¹‘¥¹Ìè¥¹‘¥¹mt€ôÉÉ…ä¹™É½´¡ì±•¹Ñ è€ÄÀÄô°€¡|°¥¹‘•à¤€ôø€¡ì(€€€€€¥è™¥¹‘¥¹œµ±•…Èµ…±°µ±…É”´‘í¥¹‘•áõ€°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€Ñ¥Ñ±”è1…É”±•…È…±°™¥¹‘¥¹œ€‘í¥¹‘•áõ€°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€ô¤¤ì((€€€½¹ÍÐì‘•±•Ñ•I•Á½¥¹‘¥¹Ìô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôø€¡ì¥Ñ•µÌè…±°€ôôô€Ä€ü™¥¹‘¥¹Ì€èm™¥¹‘¥¹ÍlÄÀÁutô¤(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 1…É”±•…È…±°™¥¹‘¥¹œ€Àœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½y±•…È…±°½¤ô¤¤ì(€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½±•…È™¥¹‘¥¹Ì½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”…±°½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½¥¹‘¥¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤ì(€€€ô¤ì(€€€½¹ÍÐÑ…É•ÑÌ€ô‘•±•Ñ•I•Á½¥¹‘¥¹Ì¹µ½¬¹…±±ÍlÁtü¹lÁt€üümtì(€€€•áÁ•Ð¡Ñ…É•ÑÌ¤¹Ñ½!…Ù•1•¹Ñ  ÄÀÄ¤ì(€€€•áÁ•Ð¡Ñ…É•ÑÍlÁt¤¹Ñ½ÅÕ…°¡ì™¥¹‘¥¹}¥è™¥¹‘¥¹ÍlÁt¹¥°É•Á½}Í…¹}¥èÍ…¸¹¥ô¤ì(€€€•áÁ•Ð¡Ñ…É•ÑÍlÄÀÁt¤¹Ñ½ÅÕ…°¡ì™¥¹‘¥¹}¥è™¥¹‘¥¹ÍlÄÀÁt¹¥°É•Á½}Í…¹}¥èÍ…¸¹¥ô¤ì(€ô¤ì((€¥Ð ÁÉ•Í•ÉÙ•Ì½µÁ±•Ñ•±•…È…±°‘•±•Ñ•ÌÝ¡•¸Ñ¡”‰Õ±¬É•ÍÁ½¹Í”¥ÌÁ…ÉÑ¥…°œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ±•…Èµ…±°µ‰…Ñ µ™…¥±ÕÉ”œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ì(€€€ôì(€€€½¹ÍÐ™¥¹‘¥¹Ìè¥¹‘¥¹mt€ôÉÉ…ä¹™É½´¡ì±•¹Ñ è€Ìô°€¡|°¥¹‘•à¤€ôø€¡ì(€€€€€¥è™¥¹‘¥¹œµ±•…Èµ…±°µ‰…Ñ µ™…¥±ÕÉ”´‘í¥¹‘•áõ€°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€Ñ¥Ñ±”è	…Ñ ™…¥±ÕÉ”™¥¹‘¥¹œ€‘í¥¹‘•áõ€°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€ô¤¤ì((€€€½¹ÍÐì‘•±•Ñ•I•Á½¥¹‘¥¹Ìô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôø€¡ì¥Ñ•µÌè…±°€ôôô€Ä€ü™¥¹‘¥¹Ì€èm™¥¹‘¥¹ÍlÉutô¤(€€€ô¤ì(€€€‘•±•Ñ•I•Á½¥¹‘¥¹Ì¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ì(€€€€€‘•±•Ñ•è™¥¹‘¥¹Ì¹Í±¥” À°€È¤¹µ…À ¡™¥¹‘¥¹œ¤€ôø€¡ì(€€€€€€€™¥¹‘¥¹}¥è™¥¹‘¥¹œ¹¥°(€€€€€€€É•Á½}Í…¹}¥è™¥¹‘¥¹œ¹Í…¹}¥(€€€€€ô¤¤°(€€€€€™…¥±•èmì™¥¹‘¥¹}¥è™¥¹‘¥¹ÍlÉt¹¥°É•Á½}Í…¹}¥è™¥¹‘¥¹ÍlÉt¹Í…¹}¥°•ÉÉ½Èè€É•Á¼™¥¹‘¥¹œ¹½Ð™½Õ¹œõt(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 	…Ñ ™…¥±ÕÉ”™¥¹‘¥¹œ€Àœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 	…Ñ ™…¥±ÕÉ”™¥¹‘¥¹œ€Èœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½y±•…È…±°½¤ô¤¤ì(€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½±•…È™¥¹‘¥¹Ì½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”…±°½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡‘•±•Ñ•I•Á½¥¹‘¥¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤ì(€€€ô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ œÈ‘•±•Ñ•¸€ÄÉ•µ…¥¹¥¹œ¸œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ 	…Ñ ™…¥±ÕÉ”™¥¹‘¥¹œ€Àœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ 	…Ñ ™…¥±ÕÉ”™¥¹‘¥¹œ€Èœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åQ•áÐ ¼ÄÙ¥Í¥‰±”™¥¹‘¥¹œ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ­••ÁÌ½¹±ä™…¥±•É•Á½Í¥Ñ½Éä™¥¹‘¥¹Ì¥¸Ñ¡”±•…È…±°‘¥…±½œœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ±•…Èµ…±°µÁ…ÉÑ¥…°œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€È(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹Ìè¥¹‘¥¹mt€ôl(€€€€€ì(€€€€€€€¥è€™¥¹‘¥¹œµ±•…ÈµÁ…ÉÑ¥…°µ‘•±•Ñ•œ°(€€€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€€€Ñ¥Ñ±”è€•±•Ñ•‰Õ±¬Ñ½­•¸™¥¹‘¥¹œœ°(€€€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„½µµ¥ÑÑ•Ý½É­™±½Ü¸œ°(€€€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€€€ô°(€€€€€ì(€€€€€€€¥è€™¥¹‘¥¹œµ±•…ÈµÁ…ÉÑ¥…°µÉ•µ…¥¹¥¹œœ°(€€€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€€€Ñ¥Ñ±”è€I•µ…¥¹¥¹œ‰Õ±¬Ý½É­™±½Ü™¥¹‘¥¹œœ°(€€€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÉ…¹ÑÌ‰É½…É•Á½Í¥Ñ½ÉäÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÜèÀÁhœ(€€€€€ô(€€€tì((€½¹ÍÐì‘•±•Ñ•I•Á½¥¹‘¥¹Ìô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€É•Á½M…¹ÌèmÍ…¹t°(€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôø€¡ì¥Ñ•µÌè…±°€ôôô€Ä€ü™¥¹‘¥¹Ì€èm™¥¹‘¥¹ÍlÅutô¤(€ô¤ì(€€€‘•±•Ñ•I•Á½¥¹‘¥¹Ì¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ì(€€€€€‘•±•Ñ•èmì™¥¹‘¥¹}¥è™¥¹‘¥¹ÍlÁt¹¥°É•Á½}Í…¹}¥èÍ…¸¹¥õt°(€€€€€™…¥±•èmì™¥¹‘¥¹}¥è™¥¹‘¥¹ÍlÅt¹¥°É•Á½}Í…¹}¥èÍ…¸¹¥°•ÉÉ½Èè€É•Á¼™¥¹‘¥¹œ¹½Ð™½Õ¹œõt(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ •±•Ñ•‰Õ±¬Ñ½­•¸™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ I•µ…¥¹¥¹œ‰Õ±¬Ý½É­™±½Ü™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½±•…È…±°½¤ô¤¤ì(€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½±•…È™¥¹‘¥¹Ì½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”…±°½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ •±•Ñ•‰Õ±¬Ñ½­•¸™¥¹‘¥¹œœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ I•µ…¥¹¥¹œ‰Õ±¬Ý½É­™±½Ü™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ œÄ‘•±•Ñ•¸€ÄÉ•µ…¥¹¥¹œ¸œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åQ•áÐ ¼ÄÙ¥Í¥‰±”™¥¹‘¥¹œ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ‘¥Í…‰±•Ì±•…È…±°Ý¡¥±”É•Á½Í¥Ñ½Éä™¥¹‘¥¹Ì…É”É•™É•Í¡¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ±•…Èµ…±°µÉ•™É•Í¡¥¹œœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ±•…Èµ…±°µÉ•™É•Í¡¥¹œœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€I•™É•Í µÁÉ½Ñ•Ñ•Ñ½­•¸™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„½µµ¥ÑÑ•Ý½É­™±½Ü¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì(€€€½¹ÍÐÉ•™É•Í¡¥¹‘¥¹Ì€ô‘•™•ÉÉ•ñì¥Ñ•µÌè¥¹‘¥¹mtôø ¤ì((€€€½¹ÍÐì‘•±•Ñ•I•Á½¥¹‘¥¹œô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôø€¡…±°€ôôô€Ä€üì¥Ñ•µÌèm™¥¹‘¥¹tô€èÉ•™É•Í¡¥¹‘¥¹Ì¹ÁÉ½µ¥Í”¤(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ I•™É•Í µÁÉ½Ñ•Ñ•Ñ½­•¸™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yI•™É•Í ½¤ô¤¤ì(€€€½¹ÍÐ±•…É±±	ÕÑÑ½¸€ôÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½±•…È…±°½¤ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡±•…É±±	ÕÑÑ½¸¤¹Ñ½	•¥Í…‰±• ¤ì(€€€ô¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡±•…É±±	ÕÑÑ½¸¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‘¥…±½œœ°ì¹…µ”è€½±•…È™¥¹‘¥¹Ì½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡‘•±•Ñ•I•Á½¥¹‘¥¹œ¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€É•™É•Í¡¥¹‘¥¹Ì¹É•Í½±Ù”¡ì¥Ñ•µÌèmtô¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ I•™É•Í µÁÉ½Ñ•Ñ•Ñ½­•¸™¥¹‘¥¹œœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€ô¤ì((€¥Ð ±½Í•Ì½Á•¸™¥¹‘¥¹œ‘•±•Ñ”µ•¹ÕÌÝ¡¥±”É•Á½Í¥Ñ½Éä™¥¹‘¥¹Ì…É”É•™É•Í¡¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÉ½Üµµ•¹ÔµÉ•™É•Í¡¥¹œœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµÉ½Üµµ•¹ÔµÉ•™É•Í¡¥¹œœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€I•™É•Í µÁÉ½Ñ•Ñ•É½Üµ•¹Ô™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„½µµ¥ÑÑ•Ý½É­™±½Ü¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì(€€€½¹ÍÐÉ•™É•Í¡¥¹‘¥¹Ì€ô‘•™•ÉÉ•ñì¥Ñ•µÌè¥¹‘¥¹mtôø ¤ì((€€€½¹ÍÐì‘•±•Ñ•I•Á½¥¹‘¥¹œô€ô…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôø€¡…±°€ôôô€Ä€üì¥Ñ•µÌèm™¥¹‘¥¹tô€èÉ•™É•Í¡¥¹‘¥¹Ì¹ÁÉ½µ¥Í”¤(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ I•™É•Í µÁÉ½Ñ•Ñ•É½Üµ•¹Ô™¥¹‘¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€½¹ÍÐÉ½Ü€ôÍÉ••¸(€€€€€€¹•Ñ±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤(€€€€€€¹™¥¹ ¡¹½‘”¤€ôø¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì I•™É•Í µÁÉ½Ñ•Ñ•É½Üµ•¹Ô™¥¹‘¥¹œœ¤¤…Ì!Q51±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡É½Ü¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …É½Ü¤É•ÑÕÉ¸ì((€€€½¹ÍÐ…Ñ¥½¹	ÕÑÑ½¸€ôÝ¥Ñ¡¥¸¡É½Ü¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½=Á•¸…Ñ¥½¹Ì™½ÈI•™É•Í µÁÉ½Ñ•Ñ•É½Üµ•¹Ô™¥¹‘¥¹œ½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡…Ñ¥½¹	ÕÑÑ½¸¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” µ•¹Õ¥Ñ•´œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½yI•™É•Í ½¤ô¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡…Ñ¥½¹	ÕÑÑ½¸¤¹Ñ½	•¥Í…‰±• ¤ì(€€€ô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” µ•¹Õ¥Ñ•´œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡…Ñ¥½¹	ÕÑÑ½¸¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‘¥…±½œœ°ì¹…µ”è€½•±•Ñ”™¥¹‘¥¹œ½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡‘•±•Ñ•I•Á½¥¹‘¥¹œ¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€É•™É•Í¡¥¹‘¥¹Ì¹É•Í½±Ù”¡ì¥Ñ•µÌèmtô¤ì(€€€ô¤ì(€ô¤ì((€¥Ð É•½µÁÕÑ•Ìµ•…¸Ñ¥µ”Ñ¼™¥à…™Ñ•È‘•±•Ñ¥¹œ™¥á•™¥¹‘¥¹Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÝ¥Ñ µ™¥á•µ™¥¹‘¥¹œœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì((€€€½¹ÍÐ™¥á•‘¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ™¥á•´Äœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€™¥á•œ°(€€€€€Ñ¥Ñ±”è€¥á•Ñ½­•¸•áÁ½ÍÕÉ”™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Q¡¥Ì™¥¹‘¥¹œÝ…ÌÉ•Í½±Ù•±…ÍÐÝ••¬¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€9¼…Ñ¥½¸É•ÅÕ¥É•¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÀÀèÀÁhœ(€€€ôì((€€€½¹ÍÐ¥¹¥Ñ¥…±MÕµµ…ÉäèI•Á½¥¹‘¥¹ÍMÕµµ…Éä€ôì(€€€€€Ñ½Ñ…±}½Á•¸è€À°(€€€€€™¥á•‘}½Õ¹Ðè€Ä°(€€€€€É•½Á•¹•‘}½Õ¹Ðè€À°(€€€€€ÍÕÁÁÉ•ÍÍ•‘}½Õ¹Ðè€À°(€€€€€Í±…}…•‘}½Õ¹Ðè€À°(€€€€€µÑÑÉ}É•…‘å}É•Í½±Ù•‘}½Õ¹Ðè€Ä°(€€€€€µ•…¹}Ñ¥µ•}Ñ½}É•Í½±Ù•}Í•½¹‘Ìè€ÌØÀÀ°(€€€€€‰å}½Ý¹•Èèíô°(€€€€€‰å}‘•Ñ•Ñ½Èèì¥Ñ¡Õ‰}Í•É•Ñ}Í…¹¹¥¹œè€Äô°(€€€€€‰å}Í•Ù•É¥ÑäèìÉ¥Ñ¥…°è€Äô°(€€€€€½±‘•ÍÑ}½Á•¹}™¥ÉÍÑ}Í••¹}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÀÀèÀÁhœ(€€€ôì((€€€½¹ÍÐÉ•™É•Í¡•‘MÕµµ…ÉäèI•Á½¥¹‘¥¹ÍMÕµµ…Éä€ôì(€€€€€Ñ½Ñ…±}½Á•¸è€À°(€€€€€™¥á•‘}½Õ¹Ðè€À°(€€€€€É•½Á•¹•‘}½Õ¹Ðè€À°(€€€€€ÍÕÁÁÉ•ÍÍ•‘}½Õ¹Ðè€À°(€€€€€Í±…}…•‘}½Õ¹Ðè€À°(€€€€€µÑÑÉ}É•…‘å}É•Í½±Ù•‘}½Õ¹Ðè€À°(€€€€€µ•…¹}Ñ¥µ•}Ñ½}É•Í½±Ù•}Í•½¹‘Ìè€ÄàÀÀ°(€€€€€‰å}½Ý¹•Èèíô°(€€€€€‰å}‘•Ñ•Ñ½Èèíô°(€€€€€‰å}Í•Ù•É¥Ñäèíô°(€€€€€½±‘•ÍÑ}½Á•¹}™¥ÉÍÑ}Í••¹}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÀÀèÀÁhœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ìè€¡}Á…É…µÌ°…±°¤€ôøì(€€€€€€€¥˜€¡…±°€ôôô€Ä¤ì(€€€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèm™¥á•‘¥¹‘¥¹t°ÍÕµµ…Éäè¥¹¥Ñ¥…±MÕµµ…Éäôì(€€€€€€€ô(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèmt°ÍÕµµ…ÉäèÉ•™É•Í¡•‘MÕµµ…Éäôì(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÍÕµµ…Éä€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	å1…‰•±Q•áÐ I•Á½Í¥Ñ½Éä™¥¹‘¥¹œÍÕµµ…Éäœ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹±…ÍÍ1¥ÍÐ¹½¹Ñ…¥¹Ì ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµÍÑ…ÑÌœ¤(€€€€¤…Ì!Q51±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡ÍÕµµ…Éä¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …ÍÕµµ…Éä¤É•ÑÕÉ¸ì(€€€½¹ÍÐµÑÑÉ…É€ôÝ¥Ñ¡¥¸¡ÍÕµµ…Éä¤¹•Ñ	åQ•áÐ 5•…¸Ñ¥µ”Ñ¼™¥àœ¤¹±½Í•ÍÐ …ÉÑ¥±”œ¤ì(€€€•áÁ•Ð¡µÑÑÉ…É¤¹Ñ½	•QÉÕÑ¡ä ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡µÑÑÉ…É„¤¹•Ñ	åQ•áÐ œÅ œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€½¹ÍÐÉ½Ü€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì ¥á•Ñ½­•¸•áÁ½ÍÕÉ”™¥¹‘¥¹œœ¤(€€€€¤…Ì!Q51±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡É½Ü¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …É½Ü¤É•ÑÕÉ¸ì((€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡É½Ü¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½=Á•¸…Ñ¥½¹Ì™½È¥á•Ñ½­•¸•áÁ½ÍÕÉ”™¥¹‘¥¹œ½¤ô¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” µ•¹Õ¥Ñ•´œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì(€€€½¹ÍÐ½¹™¥Éµ¥…±½œ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‘¥…±½œœ°ì¹…µ”è€½•±•Ñ”™¥¹‘¥¹œ½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹™¥Éµ¥…±½œ¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ¥á•Ñ½­•¸•áÁ½ÍÕÉ”™¥¹‘¥¹œœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡µÑÑÉ…É„¤¹•Ñ	åQ•áÐ œÌÁ´œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€ô¤ì((€¥Ð ‘•É•µ•¹ÑÌÕ¹­¹½Ý¸‘•Ñ•Ñ½È½Í•Ù•É¥Ñä‰Õ­•ÑÌÝ¡•¸‘•±•Ñ¥¹œ™¥¹‘¥¹ÌÝ¥Ñ¡½ÕÐÑ¡½Í”Ù…±Õ•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐì‘•É•µ•¹ÑI•Á½¥¹‘¥¹ÍMÕµµ…Éå½É•±•Ñ•‘¥¹‘¥¹œô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐÍÕµµ…ÉäèI•Á½¥¹‘¥¹ÍMÕµµ…Éä€ôì(€€€€€Ñ½Ñ…±}½Á•¸è€Ä°(€€€€€™¥á•‘}½Õ¹Ðè€À°(€€€€€É•½Á•¹•‘}½Õ¹Ðè€À°(€€€€€ÍÕÁÁÉ•ÍÍ•‘}½Õ¹Ðè€À°(€€€€€Í±…}…•‘}½Õ¹Ðè€À°(€€€€€µÑÑÉ}É•…‘å}É•Í½±Ù•‘}½Õ¹Ðè€À°(€€€€€‰å}½Ý¹•ÈèìÁ±…Ñ™½É´è€Äô°(€€€€€‰å}‘•Ñ•Ñ½ÈèìÕ¹­¹½Ý¸è€Äô°(€€€€€‰å}Í•Ù•É¥ÑäèìÕ¹­¹½Ý¸è€Äô°(€€€€€½±‘•ÍÑ}½Á•¹}™¥ÉÍÑ}Í••¹}…Ðè€œÈÀÈØ´ÀÔ´ÀÅPÄÄèÀÀèÀÁhœ(€€€ôì(€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµÕ¹­¹½Ý¸µÍÕµµ…Éäœ°(€€€€€Í…¹}¥è€É•Á¼µÍ…¸µÍÕµµ…ÉäµÕ¹­¹½Ý¸œ°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€œœ°(€€€€€½Ý¹•Èè€Á±…Ñ™½É´œ°(€€€€€Ñ¥Ñ±”è€¥¹‘¥¹œÝ¥Ñ Õ¹­¹½Ý¸µ•Ñ…‘…Ñ„œ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€™¥¹‘¥¹œÝ¥Ñ Õ¹Í•Ð‘•Ñ•Ñ½È…¹Í•Ù•É¥Ñä¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€QÉ•…Ð…Ì„¹½¸µ…Ñ¥½¹…‰±”Á±…•¡½±‘•È¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÀÅPÄÄèÀÀèÀÁhœ(€€€ôì((€€€½¹ÍÐ¹•áÑMÕµµ…Éä€ô‘•É•µ•¹ÑI•Á½¥¹‘¥¹ÍMÕµµ…Éå½É•±•Ñ•‘¥¹‘¥¹œ¡ÍÕµµ…Éä°™¥¹‘¥¹œ¤ì(€€€•áÁ•Ð¡¹•áÑMÕµµ…Éä¤¹Ñ½	•QÉÕÑ¡ä ¤ì(€€€•áÁ•Ð¡¹•áÑMÕµµ…Éä¤¹Ñ½5…Ñ¡=‰©•Ð¡ì(€€€€€‰å}‘•Ñ•Ñ½ÈèìÕ¹­¹½Ý¸è€Àô°(€€€€€‰å}Í•Ù•É¥ÑäèìÕ¹­¹½Ý¸è€Àô°(€€€€€Ñ½Ñ…±}½Á•¸è€À°(€€€€€‰å}½Ý¹•ÈèìÁ±…Ñ™½É´è€Àô(€€€ô¤ì(€ô¤ì((€¥Ð ¥¹Ù…±¥‘…Ñ•Ì¥Ñ!Õˆ‘½µ…¥¸…¡”•Á½¡ÌÝ¥Ñ¡½ÕÐÉ•Ù¥Í¥Ñ¥¹œÉ•¥¹Í•ÉÑ•­•åÌœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€ÁÉ½‘ÕÑM¡•±°¹±•…ÉAÉ½‘ÕÑÕÑ¡M•ÍÍ¥½¹…¡•½ÉQ•ÍÑÌ ¤ì(€€€½¹ÍÐµ…Ñ¡¥¹-•ä€ôÁÉ½‘ÕÑM¡•±°¹ÁÉ¥µ•¥Ñ!Õ‰½µ…¥¹…Ñ……¡•Á½¡½ÉQ•ÍÑÌ (€€€€€ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô°(€€€€€€ÁÉ½©•Ðµ„œ°(€€€€€€ÔÀ°(€€€€€€È(€€€€¤ì(€€€½¹ÍÐÍ•½¹‘5…Ñ¡¥¹-•ä€ôÁÉ½‘ÕÑM¡•±°¹ÁÉ¥µ•¥Ñ!Õ‰½µ…¥¹…Ñ……¡•Á½¡½ÉQ•ÍÑÌ (€€€€€ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô°(€€€€€€ÁÉ½©•Ðµˆœ°(€€€€€€ÔÀ°(€€€€€€Ð(€€€€¤ì(€€€½¹ÍÐÕ¹É•±…Ñ•‘-•ä€ôÁÉ½‘ÕÑM¡•±°¹ÁÉ¥µ•¥Ñ!Õ‰½µ…¥¹…Ñ……¡•Á½¡½ÉQ•ÍÑÌ (€€€€€ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµˆœ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µˆœô°(€€€€€€ÁÉ½©•Ðµ„œ°(€€€€€€ÔÀ°(€€€€€€Ü(€€€€¤ì((€€€ÁÉ½‘ÕÑM¡•±°¹¥¹Ù…±¥‘…Ñ•¥Ñ!Õ‰½µ…¥¹…Ñ……¡•½ÉM½Á•½ÉQ•ÍÑÌ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤ì((€€€•áÁ•Ð¡ÁÉ½‘ÕÑM¡•±°¹É•…‘¥Ñ!Õ‰½µ…¥¹…Ñ……¡•Á½¡½ÉQ•ÍÑÌ¡µ…Ñ¡¥¹-•ä¤¤¹Ñ½	” Ì¤ì(€€€•áÁ•Ð¡ÁÉ½‘ÕÑM¡•±°¹É•…‘¥Ñ!Õ‰½µ…¥¹…Ñ……¡•Á½¡½ÉQ•ÍÑÌ¡Í•½¹‘5…Ñ¡¥¹-•ä¤¤¹Ñ½	” Ô¤ì(€€€•áÁ•Ð¡ÁÉ½‘ÕÑM¡•±°¹É•…‘¥Ñ!Õ‰½µ…¥¹…Ñ……¡•Á½¡½ÉQ•ÍÑÌ¡Õ¹É•±…Ñ•‘-•ä¤¤¹Ñ½	” Ü¤ì(€ô¤ì((€¥Ð ¡¥‘•ÌÑ¡”É•Á½Í¥Ñ½Éä™¥¹‘¥¹œ‘•±•Ñ”µ•¹Ô™É½´É•…µ½¹±äÕÍ•ÉÌœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÉ•…µ½¹±äµ™¥¹‘¥¹œœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµÉ•…µ½¹±äµ…Ñ¥½¸œ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€Y¥•Ý•ÈµÙ¥Í¥‰±”Ñ½­•¸™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„½µµ¥ÑÑ•Ý½É­™±½Ü¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹ÌèmÍ…¹t°É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t°É½±”è€Ù¥•Ý•Èœô¤ì((€€€½¹ÍÐÉ½Ü€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì Y¥•Ý•ÈµÙ¥Í¥‰±”Ñ½­•¸™¥¹‘¥¹œœ¤(€€€€¤ì(€€€•áÁ•Ð¡É½Ü¤¹Ñ½	••™¥¹• ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½=Á•¸…Ñ¥½¹Ì™½ÈY¥•Ý•ÈµÙ¥Í¥‰±”Ñ½­•¸™¥¹‘¥¹œ½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ­••ÁÌ­•å‰½…É¥¹Ñ•É…Ñ¥½¸½¸Ñ¡”É½Ü½Ù•É™±½Üµ•¹Ô½ÕÐ½˜Ñ¡”‘•Ñ…¥°‘¥…±½œœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ­•å‰½…Éµ…Ñ¥½¸œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ­•å‰½…Éµ…Ñ¥½¸œ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€-•å‰½…Éµ•¹Ô™¥¹‘¥¹œœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ñ½­•¸µ±¥­”Ù…±Õ”…ÁÁ•…ÉÌ¥¸„½µµ¥ÑÑ•Ý½É­™±½Ü¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”Ñ¡”É•‘•¹Ñ¥…°…¹É•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹ÌèmÍ…¹t°É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹tô¤ì((€€€½¹ÍÐÑÉ¥•È€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½=Á•¸…Ñ¥½¹Ì™½È-•å‰½…Éµ•¹Ô™¥¹‘¥¹œ½¤ô¤ì(€€€ÑÉ¥•È¹™½ÕÌ ¤ì(€€€™¥É•Ù•¹Ð¹­•å½Ý¸¡ÑÉ¥•È°ì­•äè€¹Ñ•Èœô¤ì((€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‘¥…±½œœ°ì¹…µ”è€½-•å‰½…Éµ•¹Ô™¥¹‘¥¹œ½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÑÉ¥•È¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” µ•¹Õ¥Ñ•´œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹­•å½Ý¸¡ÑÉ¥•È°ì­•äè€Í…Á”œô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” µ•¹Õ¥Ñ•´œ°ì¹…µ”è€½•±•Ñ”½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‘¥…±½œœ°ì¹…µ”è€½-•å‰½…Éµ•¹Ô™¥¹‘¥¹œ½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½Ðµ…É¬½É‘¥¹…ÉäÍ½ÕÉ”±¥¹•ÌÑ¡…ÐÍÑ…ÉÐÝ¥Ñ Á±ÕÌ½È‘…Í ÁÉ•™¥á•Ì…Ì‘¥™™Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÝ¥Ñ µå…µ°µÍ½ÕÉ”œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµå…µ°µ±¥ÍÐœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€µ•‘¥Õ´œ°(€€€€€Ñ¥Ñ±”è€]½É­™±½ÜÉ…¹ÑÌ‰É½…Á•Éµ¥ÍÍ¥½¹Ìœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÁ•Éµ¥ÍÍ¥½¸•¹ÑÉä¹••‘ÌÉ•Ù¥•Ü¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€Í½ÕÉ•}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°½‰±½ˆ½µ…¥¸½Ý½É­™±½Ü¹åµ°0ÄÈœ°(€€€€€±¥¹•}Í¹¥ÁÁ•Ðè€œ­•¹…‰±•‘q¸´¹…µ”èÁÉ½œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹ÌèmÍ…¹t°É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹tô¤ì((€€€½¹ÍÐÉ½Ý	ÕÑÑ½¸€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì ]½É­™±½ÜÉ…¹ÑÌ‰É½…Á•Éµ¥ÍÍ¥½¹Ìœ¤(€€€€¤…Ì!Q51	ÕÑÑ½¹±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡É½Ý	ÕÑÑ½¸¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …É½Ý	ÕÑÑ½¸¤É•ÑÕÉ¸ì(€€€™¥É•Ù•¹Ð¹±¥¬¡É½Ý	ÕÑÑ½¸¤ì((€€€½¹ÍÐÁ±ÕÍM½ÕÉ•1¥¹”€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ¡|°•±•µ•¹Ð¤€ôø(€€€€€	½½±•…¸¡•±•µ•¹Ðü¹±…ÍÍ1¥ÍÐ¹½¹Ñ…¥¹Ì ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±¥¹”œ¤€˜˜•±•µ•¹Ð¹Ñ•áÑ½¹Ñ•¹Ð€ôôô€œ­•¹…‰±•œ¤(€€€€¤ì(€€€½¹ÍÐå…µ±M½ÕÉ•1¥¹”€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ¡|°•±•µ•¹Ð¤€ôø(€€€€€	½½±•…¸¡•±•µ•¹Ðü¹±…ÍÍ1¥ÍÐ¹½¹Ñ…¥¹Ì ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±¥¹”œ¤€˜˜•±•µ•¹Ð¹Ñ•áÑ½¹Ñ•¹Ð€ôôô€œ´¹…µ”èÁÉ½œ¤(€€€€¤ì(€€€•áÁ•Ð¡Á±ÕÍM½ÕÉ•1¥¹”¤¹¹½Ð¹Ñ½!…Ù•±…ÍÌ ¥Ìµ…‘œ¤ì(€€€•áÁ•Ð¡å…µ±M½ÕÉ•1¥¹”¤¹¹½Ð¹Ñ½!…Ù•±…ÍÌ ¥ÌµÉ•µ½Ù”œ¤ì(€€€•áÁ•Ð¡Á±ÕÍM½ÕÉ•1¥¹”¹ÅÕ•ÉåM•±•Ñ½È œ¹¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µµ…É­•Èœ¤¤¹Ñ½	•9Õ±° ¤ì(€€€•áÁ•Ð¡å…µ±M½ÕÉ•1¥¹”¹ÅÕ•ÉåM•±•Ñ½È œ¹¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µµ…É­•Èœ¤¤¹Ñ½	•9Õ±° ¤ì(€ô¤ì((€¥Ð µ…É­Ì½¹”µÍ¥‘•É•Á½Í¥Ñ½Éä‘¥™˜¡Õ¹­Ì…Ì¡…¹•±¥¹•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÝ¥Ñ µ½¹”µÍ¥‘•µ‘¥™˜œ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€È(€€€ôì((€€€½¹ÍÐ…‘‘¥Ñ¥½¹¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ…‘µ½¹±äµ‘¥™˜œ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€Ý½É­™±½Ý}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€Í•Ù•É¥Ñäè€µ•‘¥Õ´œ°(€€€€€Ñ¥Ñ±”è€]½É­™±½Ü…‘‘Ì‰É½…Á•Éµ¥ÍÍ¥½¹Ìœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÁ•Éµ¥ÍÍ¥½¸•¹ÑÉäÝ…Ì…‘‘•¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€1¥µ¥ÐÝ½É­™±½ÜÁ•Éµ¥ÍÍ¥½¹Ì¸œ°(€€€€€Í½ÕÉ•}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°½‰±½ˆ½µ…¥¸½Ý½É­™±½Ü¹åµ°0ÄÈœ°(€€€€€±¥¹•}Í¹¥ÁÁ•Ðèl(€€€€€€€€‘¥™˜€´µ¥Ð„½Ý½É­™±½Ü¹åµ°ˆ½Ý½É­™±½Ü¹åµ°œ°(€€€€€€€€¹•Ü™¥±”µ½‘”€ÄÀÀØÐÐœ°(€€€€€€€€¥¹‘•à€ÀÀÀÀÀÀÀ¸¸ÄÄÄÄÄÄÄœ°(€€€€€€€€œ´´´€½‘•Ø½¹Õ±°œ°(€€€€€€€€œ¬¬¬ˆ½Ý½É­™±½Ü¹åµ°œ°(€€€€€€€€ €´À°À€¬Ä œ°(€€€€€€€€œ¬¬­½Õ¹Ðœ(€€€€€t¹©½¥¸ q¸œ¤°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì(€€€½¹ÍÐÉ•µ½Ù…±¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€€¸¸¹…‘‘¥Ñ¥½¹¥¹‘¥¹œ°(€€€€€¥è€™¥¹‘¥¹œµÉ•µ½Ù”µ½¹±äµ‘¥™˜œ°(€€€€€Ñ¥Ñ±”è€]½É­™±½ÜÉ•µ½Ù•ÌÕ…É‘É…¥°œ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½ÜÕ…É‘É…¥°Ý…ÌÉ•µ½Ù•¸œ°(€€€€€±¥¹•}Í¹¥ÁÁ•Ðè€ €´Ä€¬À°Àq¸´´µ½Õ¹Ðœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ìÉ•Á½M…¹ÌèmÍ…¹t°É•Á½¥¹‘¥¹Ìèm…‘‘¥Ñ¥½¹¥¹‘¥¹œ°É•µ½Ù…±¥¹‘¥¹tô¤ì((€€€½¹ÍÐ…‘‘I½Ü€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì ]½É­™±½Ü…‘‘Ì‰É½…Á•Éµ¥ÍÍ¥½¹Ìœ¤(€€€€¤…Ì!Q51	ÕÑÑ½¹±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡…‘‘I½Ü¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ ……‘‘I½Ü¤É•ÑÕÉ¸ì(€€€™¥É•Ù•¹Ð¹±¥¬¡…‘‘I½Ü¤ì((€€€½¹ÍÐ…‘‘•‘1¥¹”€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ¡|°•±•µ•¹Ð¤€ôø(€€€€€	½½±•…¸¡•±•µ•¹Ðü¹±…ÍÍ1¥ÍÐ¹½¹Ñ…¥¹Ì ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±¥¹”œ¤€˜˜•±•µ•¹Ð¹Ñ•áÑ½¹Ñ•¹Ð€ôôô€œ¬¬­½Õ¹Ðœ¤(€€€€¤ì(€€€•áÁ•Ð¡…‘‘•‘1¥¹”¤¹Ñ½!…Ù•±…ÍÌ ¥Ìµ…‘œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡…‘‘•‘1¥¹”¤¹•Ñ	åQ•áÐ œ¬œ¤¤¹Ñ½!…Ù•±…ÍÌ ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µµ…É­•Èœ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½±½Í”™¥¹‘¥¹œ‘•Ñ…¥°½¤ô¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½±½Í”™¥¹‘¥¹œ‘•Ñ…¥°½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì((€€€½¹ÍÐÉ•µ½Ù•I½Ü€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ±¥ÍÑ¥Ñ•´œ¤¤¹™¥¹ ¡¹½‘”¤€ôø(€€€€€¹½‘”¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì ]½É­™±½ÜÉ•µ½Ù•ÌÕ…É‘É…¥°œ¤(€€€€¤…Ì!Q51	ÕÑÑ½¹±•µ•¹ÐðÕ¹‘•™¥¹•ì(€€€•áÁ•Ð¡É•µ½Ù•I½Ü¤¹Ñ½	••™¥¹• ¤ì(€€€¥˜€ …É•µ½Ù•I½Ü¤É•ÑÕÉ¸ì(€€€™¥É•Ù•¹Ð¹±¥¬¡É•µ½Ù•I½Ü¤ì((€€€½¹ÍÐÉ•µ½Ù•‘1¥¹”€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ¡|°•±•µ•¹Ð¤€ôø(€€€€€	½½±•…¸¡•±•µ•¹Ðü¹±…ÍÍ1¥ÍÐ¹½¹Ñ…¥¹Ì ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µ±¥¹”œ¤€˜˜•±•µ•¹Ð¹Ñ•áÑ½¹Ñ•¹Ð€ôôô€œ´´µ½Õ¹Ðœ¤(€€€€¤ì(€€€•áÁ•Ð¡É•µ½Ù•‘1¥¹”¤¹Ñ½!…Ù•±…ÍÌ ¥ÌµÉ•µ½Ù”œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡É•µ½Ù•‘1¥¹”¤¹•Ñ	åQ•áÐ œ´œ¤¤¹Ñ½!…Ù•±…ÍÌ ¥‘ÐµÉ•Á¼µ™¥¹‘¥¹œµ½‘”µµ…É­•Èœ¤ì(€ô¤ì((€¥Ð ­••ÁÌÙ¥Í¥‰±”™¥±Ñ•ÉÌÝ¡•¸…Ñ¥Ù”™¥±Ñ•ÉÌµ…Ñ ¹¼™¥¹‘¥¹Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÝ¥Ñ µ™¥¹‘¥¹Ìœ°(€€€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä(€€€ôì((€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œ´Äœ°(€€€€€Í…¹}¥èÍ…¸¹¥°(€€€€€ÑåÁ”è€…ÝÍ}…•ÍÍ}­•äœ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€Ñ¥Ñ±”è€%4É½±”Ý¥Ñ Ý¥±‘…ÉÑÉÕÍÐœ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€ÍÍÕµ•I½±”ÑÉÕÍÐÁ½±¥ä…±±½ÝÌ…¹äÁÉ¥¹¥Á…°¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€Q¥¡Ñ•¸ÑÉÕÍÐÁ½±¥äÁÉ¥¹¥Á…±Ì¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀØèÀÁhœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥¹‘¥¹Ì¡ì(€€€€€É•Á½M…¹ÌèmÍ…¹t°(€€€€€É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t(€€€ô¤ì((€€€•áÁ•Ð ¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åQ•áÐ %4É½±”Ý¥Ñ Ý¥±‘…ÉÑÉÕÍÐœ¤¤¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ À¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ¥±Ñ•ÉÌ…¹Í½ÉÑ¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€½¹ÍÐÍ•Ù•É¥Ñå¥±Ñ•È€ôÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ M•Ù•É¥Ñäœ¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Í•Ù•É¥Ñå¥±Ñ•È°ìÑ…É•ÐèìÙ…±Õ”è€¡¥ œôô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì¹…µ”è€9¼™¥¹‘¥¹Ìµ…Ñ Ñ¡•Í”™¥±Ñ•ÉÌœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ I•Á½Í¥Ñ½Éä™¥¹‘¥¹œ™¥±Ñ•ÉÌ…¹Í½ÉÑ¥¹œœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‘¥…±½œœ°ì¹…µ”è€½%4É½±”Ý¥Ñ Ý¥±‘…ÉÑÉÕÍÐ½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì)ô¤ì()‘•ÍÉ¥‰” ¥Ñ!Õˆ‘½µ…¥¸Á…•Ì€ ŒÄÌàÈ¤œ°€ ¤€ôøì(€½¹ÍÐÁÉ½‘ÕÑ¥½¹AÉ½©•Ð€ôì(€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°(€€€Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€‘•ÍÉ¥ÁÑ¥½¸è€AÉ½‘ÕÑ¥½¸¥‘•¹Ñ¥Ñä‰½Õ¹‘…Éä¸œ°(€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€ôì((€½¹ÍÐÍÕ••‘•‘I•Á½M…¸èI•Á½M…¹I•½É€ôì(€€€¥è€É•Á¼µÍ…¸µÍÕ••‘•œ°(€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔÀèÀÁhœ°(€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔÔèÀÁhœ°(€€€½µµ¥ÑÍ}Í…¹¹•è€ÄÈ°(€€€™¥±•Í}Í…¹¹•è€ÌÐÀ°(€€€™¥¹‘¥¹}½Õ¹Ðè€Ì°(€€€ÑÉÕ¹…Ñ•è™…±Í”°(€€€Í…¹}µ½‘”è€ÅÕ¥¬œ(€ôì((€½¹ÍÐ‘•™…Õ±ÑM…¹A½±¥äèM…¹A½±¥åI•½É€ôì(€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€Á½±¥å}¥è€‘•™…Õ±Ðœ°(€€€¹…µ”è€•™…Õ±ÐÁ½±¥äœ°(€€€•¹…‰±•èÑÉÕ”°(€€€ÑÉ¥•É}µ½‘”è€•Ù•¹Ðœ°(€€€µ…á}½¹ÕÉÉ•¹Ñ}Í…¹Ìè€Ä°(€€€¡¥ÍÑ½Éå}±¥µ¥Ðè€ÔÀÀ°(€€€µ…á}™¥¹‘¥¹Ìè€ÈÀÀ°(€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€ôì((€½¹ÍÐ‘•™…Õ±ÑI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”è¥Ñ!Õ‰I•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”€ôì(€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€¥¹ÍÑ…±±…Ñ¥½¹}¥è€ÄÈÌÐÔ°(€€€½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔÔèÀÁhœ°(€€€É…Ñ•}±¥µ¥Ðèì±¥µ¥Ðè€ÔÀÀÀ°É•µ…¥¹¥¹œè€ÐääÀô°(€€€¡•­Ìèl(€€€€€ì(€€€€€€€¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°(€€€€€€€…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°(€€€€€€€ÍÑ…Ñ”è€¥¹Í•ÕÉ”œ°(€€€€€€€É•…Í½¸è€µ¥ÍÍ¥¹}É•ÅÕ¥É•‘}É•Ù¥•ÝÌœ°(€€€€€€€ÍÕµµ…Éäè€•™…Õ±Ð‰É…¹ ¥Ìµ¥ÍÍ¥¹œÉ•ÅÕ¥É•ÁÕ±°É•ÅÕ•ÍÐÉ•Ù¥•ÝÌ¸œ(€€€€€ô°(€€€€€ì(€€€€€€€¥è€Í•É•ÐµÍ…¹¹¥¹œœ°(€€€€€€€…Ñ•½Éäè€Í•ÕÉ¥Ñäœ°(€€€€€€€ÍÑ…Ñ”è€Í•ÕÉ”œ°(€€€€€€€ÍÕµµ…Éäè€M•É•ÐÍ…¹¹¥¹œ¥Ì•¹…‰±•¸œ(€€€€€ô(€€€t(€ôì((€½¹ÍÐ‘•™…Õ±Ñ=É…¹¥é…Ñ¥½¹A½ÍÑÕÉ”è¥Ñ!Õ‰=É…¹¥é…Ñ¥½¹A½ÍÑÕÉ”€ôì(€€€½É…¹¥é…Ñ¥½¸è€¥‘•¹ÑÉ…¥°œ°(€€€¥¹ÍÑ…±±…Ñ¥½¹}¥è€ÄÈÌÐÔ°(€€€½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€¡•­Ìèl(€€€€€ì(€€€€€€€¥è€½ÉœµÑÝ¼µ™…Ñ½Èœ°(€€€€€€€…Ñ•½Éäè€½É…¹¥é…Ñ¥½¸Í•ÕÉ¥Ñäœ°(€€€€€€€ÍÑ…Ñ”è€Í•ÕÉ”œ°(€€€€€€€ÍÕµµ…Éäè€=É…¹¥é…Ñ¥½¸ÑÝ¼µ™…Ñ½È…ÕÑ¡•¹Ñ¥…Ñ¥½¸¥Ì•¹™½É•¸œ(€€€€€ô(€€€t(€ôì((€…™Ñ•É…   ¤€ôøì(€€€Ù¤¹É•ÍÑ½É•±±5½­Ì ¤ì(€€€Ù¤¹‘½U¹µ½¬ œ¸½¡½½­Ì½ÕÍ•	…­•¹‘•…ÑÕÉ•Ìœ¤ì(€€€Ù¤¹‘½U¹µ½¬ œ¸½Á…•Ì½½¹‰½…É‘¥¹œ½½¹‰½…É‘¥¹UÑ¥±Ìœ¤ì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€ô¤ì((€…Íå¹Œ™Õ¹Ñ¥½¸É•¹‘•É¥Ñ!Õ‰A…” (€€€Á…•9…µ”è€½¹ÑÉ½°µ•¹Ñ•Èœð€½¹¹•Ðœð€É•Á½Í¥Ñ½É¥•Ìœð€…Ñ¥½¹Ìœð€É•µ•‘¥…Ñ¥½¸œ°(€€€½ÁÑ¥½¹Ìèì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸üè¥Ñ!Õ‰½¹¹•Ñ¥½¹MÑ…ÑÕÌð¹Õ±°ì(€€€€€Í…¹ÌüèI•Á½M…¹I•½É‘mtì(€€€€€Í…¹A½±¥¥•ÌüèM…¹A½±¥åI•½É‘mtì(€€€€€É•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”üè¥Ñ!Õ‰I•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”ì(€€€€€½É…¹¥é…Ñ¥½¹A½ÍÑÕÉ”üè¥Ñ!Õ‰=É…¹¥é…Ñ¥½¹A½ÍÑÕÉ”ì(€€€€€É•Á½¥¹‘¥¹Ìüè¥¹‘¥¹mtì(€€€€€É•µ•‘¥…Ñ¥½¹AÉ•Ù¥•ÜüèI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¹AÉ•Ù¥•Üì(€€€€€É•µ•‘¥…Ñ¥½¹AÕ‰±¥Í üèI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¹AÕ‰±¥Í¡I•ÍÁ½¹Í”ì(€€€€€±¥ÍÑI•Á½M…¹Ìüè€ ¤€ôøAÉ½µ¥Í”ñì¥Ñ•µÌèI•Á½M…¹I•½É‘mtì¹•áÑ}ÕÉÍ½ÈüèÍÑÉ¥¹œôøì(€€€€€¥Ñ¡Õ‰•…ÑÕÉ•±…œüè‰½½±•…¸ì(€€€€€¥Ñ¡Õ‰	…­•¹üè	…­•¹‘•…ÑÕÉ•MÑ…Ñ”ì(€€€€€ÉÕ¹I•Á½M…¹ÉÉ½Èüèìµ•ÍÍ…”èÍÑÉ¥¹œìÍÑ…ÑÕÌè¹Õµ‰•Èôì(€€€€€…¹•±I•Á½M…¹ÉÉ½Èüèìµ•ÍÍ…”èÍÑÉ¥¹œìÍÑ…ÑÕÌè¹Õµ‰•Èôì(€€€€€¥¹¥Ñ¥…±¹ÑÉäüèÍÑÉ¥¹œì(€€€€€ÁÉ½©•ÑÌüèÉÉ…äñÑåÁ•½˜ÁÉ½‘ÕÑ¥½¹AÉ½©•Ðøì(€€€ô€ôíô(€€¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡Õˆè½ÁÑ¥½¹Ì¹¥Ñ¡Õ‰•…ÑÕÉ•±…œ€üüÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡Õˆè½ÁÑ¥½¹Ì¹¥Ñ¡Õ‰	…­•¹€üüÑÉÕ”ô¤ì((€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÁÉ½©•ÑÌ€ô½ÁÑ¥½¹Ì¹ÁÉ½©•ÑÌ€üümÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèÁÉ½©•ÑÌô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ìÁÉ½©•ÐèÁÉ½©•ÑÌ¹™¥¹ ¡ÁÉ½©•Ð¤€ôøÁÉ½©•Ð¹ÁÉ½©•Ñ}¥€ôôôÁÉ½©•Ñ%¤€üüÁÉ½©•ÑÍlÁt€üüÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤(€€€€¤ì(€€€½¹ÍÐ•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½ÁÑ¥½¹Ì¹¥Ñ¡Õ‰½¹¹•Ñ¥½¸€üü½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½M…¹Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤ì(€€€¥˜€¡½ÁÑ¥½¹Ì¹±¥ÍÑI•Á½M…¹Ì¤ì(€€€€€±¥ÍÑI•Á½M…¹Ì¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø½ÁÑ¥½¹Ì¹±¥ÍÑI•Á½M…¹Ìü¸ ¤€üüAÉ½µ¥Í”¹É•Í½±Ù”¡ì¥Ñ•µÌèmtô¤¤ì(€€€ô•±Í”ì(€€€€€±¥ÍÑI•Á½M…¹Ì¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌè½ÁÑ¥½¹Ì¹Í…¹Ì€üümtô¤ì(€€€ô(€€€½¹ÍÐ±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ìœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌè½ÁÑ¥½¹Ì¹Í…¹A½±¥¥•Ì€üümtô¤ì(€€€½¹ÍÐÕÁÍ•ÉÑAÉ½©•ÑM…¹A½±¥ä€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÕÁÍ•ÉÑAÉ½©•ÑM…¹A½±¥äœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÁ½±¥äè½ÁÑ¥½¹Ì¹Í…¹A½±¥¥•Ìü¹lÁt€üü‘•™…Õ±ÑM…¹A½±¥äô¤ì(€€€½¹ÍÐ‘•±•Ñ•AÉ½©•ÑM…¹A½±¥ä€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€‘•±•Ñ•AÉ½©•ÑM…¹A½±¥äœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡Õ¹‘•™¥¹•¤ì(€€€½¹ÍÐ•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°(€€€€€€€ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€€€Á½ÍÑÕÉ”è½ÁÑ¥½¹Ì¹É•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”€üü‘•™…Õ±ÑI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”°(€€€€€€€½É…¹¥é…Ñ¥½¹}Á½ÍÑÕÉ”è½ÁÑ¥½¹Ì¹½É…¹¥é…Ñ¥½¹A½ÍÑÕÉ”€üü‘•™…Õ±Ñ=É…¹¥é…Ñ¥½¹A½ÍÑÕÉ”(€€€€€ô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½¥¹‘¥¹Ì€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌè½ÁÑ¥½¹Ì¹É•Á½¥¹‘¥¹Ì€üümt°ÍÕµµ…ÉäèÕ¹‘•™¥¹•ô¤ì(€€€½¹ÍÐÁÉ•Ù¥•ÝI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÁÉ•Ù¥•ÝI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸œ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ” (€€€€€€€½ÁÑ¥½¹Ì¹É•µ•‘¥…Ñ¥½¹AÉ•Ù¥•Ü€üüì(€€€€€€€€€™¥¹‘¥¹œè½ÁÑ¥½¹Ì¹É•Á½¥¹‘¥¹Ìü¹lÁt€üüì(€€€€€€€€€€€¥è€™¥¹‘¥¹œµ‘•™…Õ±Ðœ°(€€€€€€€€€€€Í…¹}¥è€É•Á¼µÍ…¸µ‘•™…Õ±Ðœ°(€€€€€€€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€€€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€€€€€€€Ñ¥Ñ±”è€•™…Õ±ÐÉ•µ•‘¥…Ñ¥½¸™¥¹‘¥¹œœ°(€€€€€€€€€€€¡Õµ…¹}ÍÕµµ…Éäè€•™…Õ±ÐÉ•µ•‘¥…Ñ¥½¸™¥¹‘¥¹œÍÕµµ…Éä¸œ°(€€€€€€€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”…¹É•µ½Ù”Ñ¡”•áÁ½Í•Í•É•Ð¸œ°(€€€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ(€€€€€€€€€ô°(€€€€€€€€€É•µ•‘¥…Ñ¥½¸èì(€€€€€€€€€€€‘•Ñ•Ñ½Èè€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€€€€€€€ÍÕµµ…Éäè€I½Ñ…Ñ”…¹É•µ½Ù”Ñ¡”•áÁ½Í•Í•É•Ðœ°(€€€€€€€€€€€É¥Í­}ÍÕµµ…Éäè€Q¡”•áÁ½Í•É•‘•¹Ñ¥…°…¸‰”É•Á±…å•½ÕÑÍ¥‘”¥Ñ!Õˆ¸œ°(€€€€€€€€€€€ÍÑ•ÁÌèlI½Ñ…Ñ”Ñ¡”•áÁ½Í•É•‘•¹Ñ¥…°œ°€I•µ½Ù”Ñ¡”½µµ¥ÑÑ•Ù…±Õ”t°(€€€€€€€€€€€Í…™•Ñå}¹½Ñ•Ìèl½¹™¥É´Ñ¡”É•Á±…•µ•¹ÐÍ•É•Ð¥Ì…Ù…¥±…‰±”‰•™½É”µ•É¥¹œt°(€€€€€€€€€€€Ù…±¥‘…Ñ¥½¸èlIÕ¸Ñ¡”É•Á½Í¥Ñ½ÉäÍ…¸……¥¸t°(€€€€€€€€€€€Í•É•Ñ}É½Ñ…Ñ¥½¸èÑÉÕ”°(€€€€€€€€€€€ÁÕ‰±¥Í¡…‰±”èÑÉÕ”°(€€€€€€€€€€€•Ù¥‘•¹”èì™¥¹‘¥¹}¥è€™¥¹‘¥¹œµ‘•™…Õ±Ðœ°Í…¹}¥è€É•Á¼µÍ…¸µ‘•™…Õ±Ðœô(€€€€€€€€€ô°(€€€€€€€€€™¥á}ÁÉ}Á±…¸èì(€€€€€€€€€€€‰…Í•}‰É…¹ è€µ…¥¸œ°(€€€€€€€€€€€‰É…¹¡}¹…µ”è€¥‘•¹ÑÉ…¥°½™¥à½™¥¹‘¥¹œµ‘•™…Õ±Ðœ°(€€€€€€€€€€€½µµ¥Ñ}µ•ÍÍ…”è€I•µ½Ù”•áÁ½Í•Í•É•Ðœ°(€€€€€€€€€€€ÁÉ}Ñ¥Ñ±”è€I•µ½Ù”•áÁ½Í•Í•É•Ðœ°(€€€€€€€€€€€ÁÉ}‰½‘äè€I•µ•‘¥…Ñ•ÌÑ¡”•áÁ½Í•É•Á½Í¥Ñ½ÉäÍ•É•Ð¸œ°(€€€€€€€€€€€™¥±•ÌèmìÁ…Ñ è€œ¹¥Ñ¡Õˆ½Ý½É­™±½ÝÌ½‘•Á±½ä¹åµ°œ°½¹Ñ•¹Ðè€•¹Øèíôœõt°(€€€€€€€€€€€™¥¹‘¥¹}¥è€™¥¹‘¥¹œµ‘•™…Õ±Ðœ°(€€€€€€€€€€€™¥¹‘¥¹}ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ(€€€€€€€€€ô(€€€€€€€ô(€€€€€€¤ì(€€€½¹ÍÐÁÕ‰±¥Í¡I•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÁÕ‰±¥Í¡I•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸œ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ” (€€€€€€€½ÁÑ¥½¹Ì¹É•µ•‘¥…Ñ¥½¹AÕ‰±¥Í €üüì(€€€€€€€€€™¥¹‘¥¹œè½ÁÑ¥½¹Ì¹É•Á½¥¹‘¥¹Ìü¹lÁt€üüì(€€€€€€€€€€€¥è€™¥¹‘¥¹œµ‘•™…Õ±Ðœ°(€€€€€€€€€€€Í…¹}¥è€É•Á¼µÍ…¸µ‘•™…Õ±Ðœ°(€€€€€€€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€€€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€€€€€€€Ñ¥Ñ±”è€•™…Õ±ÐÉ•µ•‘¥…Ñ¥½¸™¥¹‘¥¹œœ°(€€€€€€€€€€€¡Õµ…¹}ÍÕµµ…Éäè€•™…Õ±ÐÉ•µ•‘¥…Ñ¥½¸™¥¹‘¥¹œÍÕµµ…Éä¸œ°(€€€€€€€€€€€É•µ•‘¥…Ñ¥½¸è€I½Ñ…Ñ”…¹É•µ½Ù”Ñ¡”•áÁ½Í•Í•É•Ð¸œ°(€€€€€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ(€€€€€€€€€ô°(€€€€€€€€€É•µ•‘¥…Ñ¥½¸èì(€€€€€€€€€€€‘•Ñ•Ñ½Èè€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€€€€€€€ÍÕµµ…Éäè€I½Ñ…Ñ”…¹É•µ½Ù”Ñ¡”•áÁ½Í•Í•É•Ðœ°(€€€€€€€€€€€É¥Í­}ÍÕµµ…Éäè€Q¡”•áÁ½Í•É•‘•¹Ñ¥…°…¸‰”É•Á±…å•½ÕÑÍ¥‘”¥Ñ!Õˆ¸œ°(€€€€€€€€€€€ÍÑ•ÁÌèlI½Ñ…Ñ”Ñ¡”•áÁ½Í•É•‘•¹Ñ¥…°t°(€€€€€€€€€€€Í…™•Ñå}¹½Ñ•Ìèl½¹™¥É´Ñ¡”É•Á±…•µ•¹ÐÍ•É•Ð¥Ì…Ù…¥±…‰±”‰•™½É”µ•É¥¹œt°(€€€€€€€€€€€Ù…±¥‘…Ñ¥½¸èlIÕ¸Ñ¡”É•Á½Í¥Ñ½ÉäÍ…¸……¥¸t°(€€€€€€€€€€€Í•É•Ñ}É½Ñ…Ñ¥½¸èÑÉÕ”°(€€€€€€€€€€€ÁÕ‰±¥Í¡…‰±”èÑÉÕ”°(€€€€€€€€€€€•Ù¥‘•¹”èì™¥¹‘¥¹}¥è€™¥¹‘¥¹œµ‘•™…Õ±Ðœ°Í…¹}¥è€É•Á¼µÍ…¸µ‘•™…Õ±Ðœô(€€€€€€€€€ô°(€€€€€€€€€ÁÕ‰±¥Í èì(€€€€€€€€€€€ÁÉ}¹Õµ‰•Èè€ÐÈ°(€€€€€€€€€€€ÁÉ}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°½ÁÕ±°¼ÐÈœ°(€€€€€€€€€€€‰É…¹¡}¹…µ”è€¥‘•¹ÑÉ…¥°½™¥à½™¥¹‘¥¹œµ‘•™…Õ±Ðœ°(€€€€€€€€€€€½µµ¥Ñ}Í¡„è€…‰ŒÄÈÌÐœ(€€€€€€€€€ô(€€€€€€€ô(€€€€€€¤ì(€€€½¹ÍÐÉÕ¹I•Á½M…¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÉÕ¹I•Á½M…¸œ¤ì(€€€¥˜€¡½ÁÑ¥½¹Ì¹ÉÕ¹I•Á½M…¹ÉÉ½È¤ì(€€€€€ÉÕ¹I•Á½M…¸¹µ½­I•©•Ñ•‘Y…±Õ”¡¹•Ü…Á¤¹Á¥ÉÉ½È¡½ÁÑ¥½¹Ì¹ÉÕ¹I•Á½M…¹ÉÉ½È¹µ•ÍÍ…”°½ÁÑ¥½¹Ì¹ÉÕ¹I•Á½M…¹ÉÉ½È¹ÍÑ…ÑÕÌ¤¤ì(€€€ô•±Í”ì(€€€€€ÉÕ¹I•Á½M…¸¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÉ•Á½}Í…¸èÅÕ•Õ•‘I•Á½M…¸ô¤ì(€€€ô(€€€½¹ÍÐ…¹•±I•Á½M…¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€…¹•±I•Á½M…¸œ¤ì(€€€¥˜€¡½ÁÑ¥½¹Ì¹…¹•±I•Á½M…¹ÉÉ½È¤ì(€€€€€…¹•±I•Á½M…¸¹µ½­I•©•Ñ•‘Y…±Õ” (€€€€€€€¹•Ü…Á¤¹Á¥ÉÉ½È¡½ÁÑ¥½¹Ì¹…¹•±I•Á½M…¹ÉÉ½È¹µ•ÍÍ…”°½ÁÑ¥½¹Ì¹…¹•±I•Á½M…¹ÉÉ½È¹ÍÑ…ÑÕÌ¤(€€€€€€¤ì(€€€ô•±Í”ì(€€€€€…¹•±I•Á½M…¸¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÉ•Á½}Í…¸è…¹•±•‘I•Á½M…¸ô¤ì(€€€ô(€€€½¹ÍÐÍÑ…ÉÑ¥Ñ!Õ‰½¹¹•Ñ½È€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑ¥Ñ!Õ‰½¹¹•Ñ½Èœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€€€½¹¹•Ñ•è™…±Í”°(€€€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°(€€€€€€€‘¥ÍÁ±…å}¹…µ”è€%‘•¹ÑÉ…¥°œ°(€€€€€€€ÍÑ…ÑÕÌè€Á•¹‘¥¹œœ°(€€€€€€€¡•…±Ñ¡}ÍÑ…ÑÕÌè€Õ¹­¹½Ý¸œ°(€€€€€€€Ý•‰¡½½­}Í•É•Ñ}É½Ñ…Ñ¥½¹}É•ÅÕ¥É•è™…±Í”°(€€€€€€€Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèmt(€€€€€ô°(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°(€€€€€ÍÑ…Ñ”è€¥Ñ¡ÕˆµÍÑ…Ñ”œ°(€€€€€¥¹ÍÑ…±±}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½…ÁÁÌ½¥‘•¹ÑÉ…¥°½¥¹ÍÑ…±±…Ñ¥½¹Ì½Í•±•Ñ}Ñ…É•ÐýÍÑ…Ñ”õ¥Ñ¡ÕˆµÍÑ…Ñ”œ°(€€€€€¥¹ÍÑ…±±}…½Õ¹Ñ}ÑåÁ”è€…¹äœ°(€€€€€Ý•‰¡½½­}ÕÉ°è€œ½…ÕÑ ½Ý•‰¡½½­Ì½¥Ñ¡Õˆœ°(€€€€€•áÁ¥É•Í}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÄÀèÀÁhœ(€€€ô¤ì(€€€½¹ÍÐÕÁÍ•ÉÑ¥Ñ!Õ‰AQ½¹¹•Ñ½È€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÕÁÍ•ÉÑ¥Ñ!Õ‰AQ½¹¹•Ñ½Èœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õ‰APô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐÁ…”€ô(€€€€€Á…•9…µ”€ôôô€½¹ÑÉ½°µ•¹Ñ•Èœ€ü€ñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰½¹ÑÉ½±•¹Ñ•ÉA…”€¼ø€è(€€€€€Á…•9…µ”€ôôô€½¹¹•Ðœ€ü€ñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”€¼ø€è(€€€€€Á…•9…µ”€ôôô€É•Á½Í¥Ñ½É¥•Ìœ€ü€ñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½É¥•ÍA…”€¼ø€è(€€€€€Á…•9…µ”€ôôô€É•µ•‘¥…Ñ¥½¸œ€ü€ñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•µ•‘¥…Ñ¥½¹A…”€¼ø€è(€€€€€€ñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰Ñ¥½¹ÍA…”€¼øì((€€€½¹ÍÐÉ½ÕÑ•A…Ñ €ô(€€€€€Á…•9…µ”€ôôô€½¹ÑÉ½°µ•¹Ñ•Èœ€ü€¥Ñ¡Õˆœ€è(€€€€€Á…•9…µ”€ôôô€½¹¹•Ðœ€ü€¥Ñ¡Õˆ½½¹¹•Ðœ€è(€€€€€Á…•9…µ”€ôôô€É•Á½Í¥Ñ½É¥•Ìœ€ü€¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìœ€è(€€€€€Á…•9…µ”€ôôô€É•µ•‘¥…Ñ¥½¸œ€ü€¥Ñ¡Õˆ½É•µ•‘¥…Ñ¥½¸œ€è(€€€€€€¥Ñ¡Õˆ½…Ñ¥½¹Ìœì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím½ÁÑ¥½¹Ì¹¥¹¥Ñ¥…±¹ÑÉä€üü€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„¼‘íÉ½ÕÑ•A…Ñ¡õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ õí€½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%¼‘íÉ½ÕÑ•A…Ñ¡õô•±•µ•¹ÐõíÁ…•ô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€É•ÑÕÉ¸ì(€€€€€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ°(€€€€€±¥ÍÑI•Á½M…¹Ì°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹Ì°(€€€€€ÁÉ•Ù¥•ÝI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸°(€€€€€ÁÕ‰±¥Í¡I•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸°(€€€€€ÉÕ¹I•Á½M…¸°(€€€€€…¹•±I•Á½M…¸°(€€€€€ÍÑ…ÉÑ¥Ñ!Õ‰½¹¹•Ñ½È°(€€€€€±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì°(€€€€€ÕÁÍ•ÉÑAÉ½©•ÑM…¹A½±¥ä°(€€€€€‘•±•Ñ•AÉ½©•ÑM…¹A½±¥ä°(€€€€€ÕÁÍ•ÉÑ¥Ñ!Õ‰AQ½¹¹•Ñ½È°(€€€€€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”(€€€ôì(€ô((€¥Ð ¥Ñ!Õˆ…±±‰…¬Í¡½ÝÌ„Á½±¥Í¡•¡…¹‘½™˜…¹É•‘¥É•ÑÌÑ¼Ñ¡”±•…¸½¹¹•Ñ¥½¸Á…”œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐ½µÁ±•Ñ¥½¸€ô‘•™•ÉÉ•ñÝ…¥Ñ•ñI•ÑÕÉ¹QåÁ”ñÑåÁ•½˜…Á¤¹…Á¥±¥•¹Ð¹½µÁ±•Ñ•¥Ñ!Õ‰½¹¹•Ñ½Èøøø ¤ì(€€€½¹ÍÐ½µÁ±•Ñ•¥Ñ!Õ‰½¹¹•Ñ½È€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€½µÁ±•Ñ•¥Ñ!Õ‰½¹¹•Ñ½Èœ¤(€€€€€€¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø½µÁ±•Ñ¥½¸¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€™Õ¹Ñ¥½¸1½…Ñ¥½¹…ÁÑÕÉ” ¤ì(€€€€€½¹ÍÐ±½…Ñ¥½¸€ôÕÍ•1½…Ñ¥½¸ ¤ì(€€€€€É•ÑÕÉ¸€ñÀ‘…Ñ„µÑ•ÍÑ¥ô‰±½…Ñ¥½¸ˆùí±½…Ñ¥½¸¹Á…Ñ¡¹…µ”€¬±½…Ñ¥½¸¹Í•…É¡ôð½Àøì(€€€ô((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½¥Ñ¡Õˆ½…±±‰…¬ýÍÑ…Ñ”õ¥Ñ¡ÕˆµÍÑ…Ñ”™¥¹ÍÑ…±±…Ñ¥½¹}¥ôÄÈÌÐÔ™½‘”õ½…ÕÑ µ½‘”™Í•ÑÕÁ}…Ñ¥½¸õ¥¹ÍÑ…±°uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ½¥Ñ¡Õˆ½…±±‰…¬ˆ•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰…±±‰…­A…”€¼ùô€¼ø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ¨ˆ•±•µ•¹Ðõìñ1½…Ñ¥½¹…ÁÑÕÉ”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½¥¹¥Í¡¥¹œ¥Ñ!Õˆ½¹¹•Ñ¥½¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½Í…Ù•…ÁÁ•…É…¹”Í•ÑÑ¥¹Ì½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½Y…±¥‘…Ñ¥¹œÍ•ÍÍ¥½¸½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡½µÁ±•Ñ•¥Ñ!Õ‰½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ ¡ì(€€€€€€€ÍÑ…Ñ”è€¥Ñ¡ÕˆµÍÑ…Ñ”œ°(€€€€€€€¥¹ÍÑ…±±…Ñ¥½¹}¥è€ÄÈÌÐÔ°(€€€€€€€½‘”è€½…ÕÑ µ½‘”œ°(€€€€€€€Í•ÑÕÁ}…Ñ¥½¸è€¥¹ÍÑ…±°œ(€€€€€ô¤(€€€€¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€½µÁ±•Ñ¥½¸¹É•Í½±Ù”¡ì(€€€€€€€½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€É•‘¥É•Ñ}Á…Ñ è€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ(€€€€€ô¤ì(€€€€€…Ý…¥Ð½µÁ±•Ñ¥½¸¹ÁÉ½µ¥Í”ì(€€€ô¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ±½…Ñ¥½¸œ¤¤¹Ñ½!…Ù•Q•áÑ½¹Ñ•¹Ð (€€€€€€€€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ(€€€€€€¤(€€€€¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•È±½…‘ÌÑ¡”¥Ñ!Õˆ½¹¹•Ñ¥½¸…¹ÍÕÉ™…•Ì½¹¹•Ñ¥½¸ÍÑ…ÑÕÌœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ìÍ…¹ÌèmÍÕ••‘•‘I•Á½M…¹tô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡µ½­Ì¹•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€¤¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€½¹ÍÐÉ•Á½Ì€ôÍÉ••¸(€€€€€€€€¹•Ñ±±	åI½±” ±¥¹¬œ°ì¹…µ”è€½yI•Á½Í¥Ñ½É¥•Ì¼ô¤(€€€€€€€€¹™¥¹ ¡±¥¹¬¤€ôø±¥¹¬¹•ÑÑÑÉ¥‰ÕÑ” ¡É•˜œ¤ü¹ÍÑ…ÉÑÍ]¥Ñ  œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìœ¤¤ì(€€€€€•áÁ•Ð¡É•Á½Ì¤¹Ñ½	••™¥¹• ¤ì(€€€ô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€I••¹ÐÍ…¹Ìœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì±¥µ¥Ðè€ÔÀ°Í½ÉÑ}‰äè€ÍÑ…ÉÑ•‘}…Ðœ°Í½ÉÑ}½É‘•Èè€‘•ÍŒœô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•È‘¥ÍÑ¥¹Õ¥Í¡•ÌÁ…ÉÑ¥…°É•Á½Í¥Ñ½ÉäÍ½ÕÉ”½±±•Ñ¥½¸œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÁ…ÉÑ¥…±M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÁ…ÉÑ¥…°œ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À°(€€€€€Í½ÕÉ•}¡•…±Ñ è€Á…ÉÑ¥…°œ°(€€€€€Í½ÕÉ•}¡•…±Ñ¡}‘•Ñ…¥±Ìèl(€€€€€€€ì(€€€€€€€€€Í½ÕÉ”è€¥Ñ¡Õ‰}Í•É•Ñ}Í…¹¹¥¹œœ°(€€€€€€€€€ÍÑ…ÑÕÌè€Á•Éµ¥ÍÍ¥½¹}±¥µ¥Ñ•œ°(€€€€€€€€€½‘”è€…±•ÉÑ}±¥ÍÑ}•ÉÉ½Èœ°(€€€€€€€€€µ•ÍÍ…”è€É•Í½ÕÉ”¹½Ð…•ÍÍ¥‰±”‰ä¥¹Ñ•É…Ñ¥½¸œ(€€€€€€€ô(€€€€€t(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ìÍ…¹ÌèmÁ…ÉÑ¥…±M…¹tô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½A…ÉÑ¥…°Í½ÕÉ”½±±•Ñ¥½¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ¼À™¥¹‘¥¹Ì½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•È±•…ÉÌ…¡•‘…Í¡‰½…É‘…Ñ„Ý¡•¸Ñ¡”…ÕÑ Í•ÍÍ¥½¸É•Í•ÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™¥ÉÍÑI•¹‘•È€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ìÍ…¹ÌèmÍÕ••‘•‘I•Á½M…¹tô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡™¥ÉÍÑI•¹‘•È¹±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€±•…¹ÕÀ ¤ì(€€€Ù¤¹É•ÍÑ½É•±±5½­Ì ¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€ÁÉ½‘ÕÑM¡•±°¹±•…ÉAÉ½‘ÕÑÕÑ¡M•ÍÍ¥½¹…¡•½ÉQ•ÍÑÌ ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÁÉ½©•ÐèÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤ì(€€€½¹ÍÐ¹•áÑM•ÍÍ¥½¹MÑ…ÑÕÌ€ô‘•™•ÉÉ•ñì½¹¹•Ñ¥½¸è¥Ñ!Õ‰½¹¹•Ñ¥½¹MÑ…ÑÕÌôø ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•ÑÕÉ¹Y…±Õ”¡¹•áÑM•ÍÍ¥½¹MÑ…ÑÕÌ¹ÁÉ½µ¥Í”¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆˆ•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰½¹ÑÉ½±•¹Ñ•ÉA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1½…‘¥¹œ¥Ñ!ÕˆÍÑ…ÑÕÌ½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€¹•áÑM•ÍÍ¥½¹MÑ…ÑÕÌ¹É•Í½±Ù”¡ì(€€€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€€€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€€€€€¥¹ÍÑ…±±…Ñ¥½¹}¥è€ØÜàäÀ°(€€€€€€€€€Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèmt(€€€€€€€ô(€€€€€ô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ØÜàäÀ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•È™•Ñ¡•Ì…‘‘¥Ñ¥½¹…°Í…¸Á…•ÌÕ¹Ñ¥°Í•±•Ñ•µÉ•Á½Í¥Ñ½Éä…Ñ¥Ù¥Ñä¥Ì…Ù…¥±…‰±”œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÕ¹É•±…Ñ•‘I•Á½M…¹ÌèI•Á½M…¹I•½É‘mt€ôÉÉ…ä¹™É½´¡ì±•¹Ñ è€Ìô¤¹µ…À ¡|°¥¹‘•à¤€ôø€¡ì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥èÉ•Á¼µÍ…¸µ½¹ÑÉ½°µ•¹Ñ•ÈµÕ¹É•±…Ñ•´‘í¥¹‘•áõ€°(€€€€€É•Á½Í¥Ñ½ÉäèÑ•…´´‘í¥¹‘•à€¬€Åô½Õ¹É•±…Ñ•‘€(€€€ô¤¤ì(€€€½¹ÍÐÍ•±•Ñ•‘I•Á½M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ½¹ÑÉ½°µ•¹Ñ•ÈµÍ•±•Ñ•œ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄáPÄÀèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄáPÄÀèÀÔèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€È°(€€€€€™¥±•Í}Í…¹¹•è€ÄÜ(€€€ôì((€€€±•ÐÁ…•…±±Ì€ô€Àì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ì(€€€€€±¥ÍÑI•Á½M…¹Ìè€ ¤€ôøì(€€€€€€€Á…•…±±Ì€¬ô€Äì(€€€€€€€¥˜€¡Á…•…±±Ì€ôôô€Ä¤ì(€€€€€€€€€É•ÑÕÉ¸AÉ½µ¥Í”¹É•Í½±Ù”¡ì(€€€€€€€€€€€¥Ñ•µÌèÕ¹É•±…Ñ•‘I•Á½M…¹Ì°(€€€€€€€€€€€¹•áÑ}ÕÉÍ½Èè€É•Á¼µÁ…”´Èœ(€€€€€€€€€ô¤ì(€€€€€€€ô(€€€€€€€É•ÑÕÉ¸AÉ½µ¥Í”¹É•Í½±Ù”¡ì(€€€€€€€€€¥Ñ•µÌèmÍ•±•Ñ•‘I•Á½M…¹t(€€€€€€€ô¤ì(€€€€€ô(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡µ½­Ì¹±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€€€•áÁ•Ð¡µ½­Ì¹±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹9Ñ¡…±±•‘]¥Ñ  (€€€€€€È°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÕÉÍ½Èè€É•Á¼µÁ…”´Èœ°±¥µ¥Ðè€ÔÀô¤°(€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€I••¹ÐÍ…¹Ìœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½¥‘•¹ÑÉ…¥±p½¥‘•¹ÑÉ…¥°½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•ÈÁÉ½µÁÑÌÑ¼½¹¹•ÐÝ¡•¸¹½Ð½¹¹•Ñ•œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€€€½¹¹•Ñ•è™…±Í”°(€€€€€€€…½Õ¹Ñ}±½¥¸èÕ¹‘•™¥¹•°(€€€€€€€¥¹ÍÑ…±±…Ñ¥½¹}¥èÕ¹‘•™¥¹•°(€€€€€€€Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèmt(€€€€€ô°(€€€€€Í…¹Ìèmt(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½9½Ð½¹¹•Ñ•™½ÈÑ¡¥Ì•¹Ù¥É½¹µ•¹Ñp¸½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€½¹ÍÐ¡•É½½¹¹•Ð€ôÍÉ••¸(€€€€€€€€¹•Ñ±±	åI½±” ±¥¹¬œ°ì¹…µ”è€½½¹¹•Ð¥Ñ!Õˆ½¤ô¤(€€€€€€€€¹™¥¹ ¡±¥¹¬¤€ôø±¥¹¬¹•ÑÑÑÉ¥‰ÕÑ” ¡É•˜œ¤ü¹ÍÑ…ÉÑÍ]¥Ñ  œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðœ¤¤ì(€€€€€•áÁ•Ð¡¡•É½½¹¹•Ð¤¹Ñ½	••™¥¹• ¤ì(€€€ô¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•È‘½•Ì¹½Ð™±…Í „‘¥Í½¹¹•Ñ•ÍÑ…Ñ”Ý¡¥±”Ñ¡”½¹¹•Ñ¥½¸¥ÌÍÑ¥±°±½…‘¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÁÉ½©•ÐèÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤ì(€€€±•ÐÉ•Í½±Ù•MÑ…ÑÕÌè€ ¡Ù…±Õ”èì½¹¹•Ñ¥½¸è¥Ñ!Õ‰½¹¹•Ñ¥½¹MÑ…ÑÕÌô¤€ôøÙ½¥¤ðÕ¹‘•™¥¹•ì(€€€½¹ÍÐÁ•¹‘¥¹MÑ…ÑÕÌ€ô¹•ÜAÉ½µ¥Í”ñì½¹¹•Ñ¥½¸è¥Ñ!Õ‰½¹¹•Ñ¥½¹MÑ…ÑÕÌôø ¡É•Í½±Ù”¤€ôøì(€€€€€É•Í½±Ù•MÑ…ÑÕÌ€ôÉ•Í½±Ù”ì(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•ÑÕÉ¹Y…±Õ”¡Á•¹‘¥¹MÑ…ÑÕÌ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆˆ•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰½¹ÑÉ½±•¹Ñ•ÉA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€€¼¼]¡¥±”±½…‘¥¹œ°Ñ¡”Á…”µÕÍÐ¹½Ð±…¥´Ñ¡”ÕÍ•È¥Ì‘¥Í½¹¹•Ñ•¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½9½Ð½¹¹•Ñ•™½ÈÑ¡¥Ì•¹Ù¥É½¹µ•¹Ñp¸½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼Q¡”ÁÉ¥µ…ÉäQ¥¸Ñ¡”¡•…‘•È¥Ì½µ¥ÑÑ•‘ÕÉ¥¹œÑ¡”¥¹¥Ñ¥…°±½…ƒŠP(€€€€¼¼Ñ¡”M•Ñ¥½¹ÌÉ¥ÍÑ¥±°É•¹‘•ÉÌ¥ÑÌ½Ý¸€‰½¹¹•Ð¥Ñ!Õˆˆ¹…Ù¥…Ñ¥½¸(€€€€¼¼…É°Ý¡¥ ¥Ì™¥¹”¸(€€€•áÁ•Ð¡‘½Õµ•¹Ð¹ÅÕ•ÉåM•±•Ñ½È œ¹¥‘Ðµ‘½µ…¥¸µ¡•…‘•Èµ…Ñ¥½¹Ìœ¤¤¹Ñ½	•9Õ±° ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1½…‘¥¹œ¥Ñ!ÕˆÍÑ…ÑÕÌ½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€€¼¼I•Í½±Ù”…Ì‘¥Í½¹¹•Ñ•ìÑ¡”Á…”Í¡½Õ±¹½ÜÍ¡½ÜÑ¡”É•…°‘¥Í½¹¹•Ñ•U$¸(€€€É•Í½±Ù•MÑ…ÑÕÌü¸¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€€€½¹¹•Ñ•è™…±Í”°(€€€€€€€…½Õ¹Ñ}±½¥¸èÕ¹‘•™¥¹•°(€€€€€€€¥¹ÍÑ…±±…Ñ¥½¹}¥èÕ¹‘•™¥¹•°(€€€€€€€Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèmt(€€€€€ô(€€€ô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½9½Ð½¹¹•Ñ•™½ÈÑ¡¥Ì•¹Ù¥É½¹µ•¹Ñp¸½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€½¹ÍÐ‰…¹¹•È€ôÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤ì(€€€€€•áÁ•Ð¡‰…¹¹•È¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” ‘…Ñ„µ‰…¹¹•Èµ¥œ°€½¹¹•Ðœ¤ì(€€€ô¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•ÈÍ¡½ÝÌÑ¡”Õ¹…Ù…¥±…‰±”Í¡•±°Ý¡•¸Ñ¡”¥Ñ!Õˆ½¹¹•Ñ½È¥Ì…Ñ•½™˜œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ì¥Ñ¡Õ‰•…ÑÕÉ•±…œè™…±Í”°¥Ñ¡Õ‰	…­•¹è™…±Í”ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆ½¹ÑÉ½°•¹Ñ•Èœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½¥Ñ!Õˆ¥Ì¹½Ð…Ù…¥±…‰±”½¸Ñ¡¥ÌA$½¤ô¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”…±±ÌÍÑ…ÉÑ¥Ñ!Õ‰½¹¹•Ñ½È…¹½Á•¹ÌÑ¡”¥¹ÍÑ…±°UI0œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ½Á•¹MÁä€ôÙ¤¹ÍÁå=¸¡Ý¥¹‘½Ü°€½Á•¸œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø¹Õ±°¤ì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹¹•Ðœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€€€½¹¹•Ñ•è™…±Í”°(€€€€€€€…½Õ¹Ñ}±½¥¸èÕ¹‘•™¥¹•°(€€€€€€€¥¹ÍÑ…±±…Ñ¥½¹}¥èÕ¹‘•™¥¹•°(€€€€€€€Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèmt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐ¥¹ÍÑ…±±	ÕÑÑ½¸€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€%¹ÍÑ…±°¥Ñ!ÕˆÁÀœô¤¥lÁtì(€€€™¥É•Ù•¹Ð¹±¥¬¡¥¹ÍÑ…±±	ÕÑÑ½¸¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹ÍÑ…ÉÑ¥Ñ!Õ‰½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€€€¥¹ÍÑ…±±}…½Õ¹Ñ}ÑåÁ”è€…¹äœ°(€€€€€€€€€É•‘¥É•Ñ}ÕÉ¤è•áÁ•Ð¹ÍÑÉ¥¹5…Ñ¡¥¹œ ½p½…ÁÁp½¥Ñ¡Õ‰p½…±±‰…¬¼¤(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡½Á•¹MÁä¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½…ÁÁÌ½¥‘•¹ÑÉ…¥°½¥¹ÍÑ…±±…Ñ¥½¹Ì½Í•±•Ñ}Ñ…É•ÐýÍÑ…Ñ”õ¥Ñ¡ÕˆµÍÑ…Ñ”œ°(€€€€€€€€}‰±…¹¬œ°(€€€€€€€€¹½½Á•¹•È±¹½É•™•ÉÉ•Èœ(€€€€€€¤(€€€€¤ì((€€€€¼¼¹Ñ•ÉÁÉ¥Í”½APµ…¹…•µ•¹Ð¹½Ü±¥Ù•Ì¥¹±¥¹”½¸Ñ¡”½¹¹•ÐÁ…”€¡Ñ¡”(€€€€¼¼±•…äÁ•ÈµÁÉ½©•ÐÁ…”Ý…ÌÉ•Ñ¥É•¤ìÑ¡”½¹ÑÉ½°½Á•¹ÌÑ¡”™…±±‰…¬™½É´¸(€€€½¹ÍÐ•¹Ñ•ÉÁÉ¥Í•	ÕÑÑ½¹Ì€ôÍÉ••¸¹•Ñ±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½5…¹…”¹Ñ•ÉÁÉ¥Í”p¼AP½¤ô¤ì(€€€•áÁ•Ð¡•¹Ñ•ÉÁÉ¥Í•	ÕÑÑ½¹Ì¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ À¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½M…Ù”•¹Ñ•ÉÁÉ¥Í”™…±±‰…¬½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€½Á•¹MÁä¹µ½­I•ÍÑ½É” ¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”¥¹½É•ÌÍÑ…±”¥Ñ!ÕˆÁÀ¥¹ÍÑ…±°ÍÑ…ÉÑÌ…™Ñ•È•¹Ù¥É½¹µ•¹Ð¡…¹•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐ½Á•¹MÁä€ôÙ¤¹ÍÁå=¸¡Ý¥¹‘½Ü°€½Á•¸œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø¹Õ±°¤ì(€€€½¹ÍÐÍÑ…¥¹AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì(€€€½¹ÍÐ¥¹ÍÑ…±±MÑ…ÉÐ€ô‘•™•ÉÉ•ñì(€€€€€½¹¹•Ñ¥½¸è¥Ñ!Õ‰½¹¹•Ñ¥½¹MÑ…ÑÕÌì(€€€€€½¹¹•Ñ½É}¥èÍÑÉ¥¹œì(€€€€€ÍÑ…Ñ”èÍÑÉ¥¹œì(€€€€€¥¹ÍÑ…±±}ÕÉ°èÍÑÉ¥¹œì(€€€€€¥¹ÍÑ…±±}…½Õ¹Ñ}ÑåÁ”è€…¹äœì(€€€€€Ý•‰¡½½­}ÕÉ°èÍÑÉ¥¹œì(€€€€€•áÁ¥É•Í}…ÐèÍÑÉ¥¹œì(€€€ôø ¤ì((€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°ÍÑ…¥¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ìÁÉ½©•ÐèÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹AÉ½©•Ð€èÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€€€½¹¹•Ñ•è™…±Í”°(€€€€€€€…½Õ¹Ñ}±½¥¸èÕ¹‘•™¥¹•°(€€€€€€€¥¹ÍÑ…±±…Ñ¥½¹}¥èÕ¹‘•™¥¹•°(€€€€€€€Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèmt(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€½¹ÍÐÍÑ…ÉÑ¥Ñ!Õ‰½¹¹•Ñ½È€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÍÑ…ÉÑ¥Ñ!Õ‰½¹¹•Ñ½Èœ¤(€€€€€€¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø¥¹ÍÑ…±±MÑ…ÉÐ¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€™¥É•Ù•¹Ð¹±¥¬ ¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€%¹ÍÑ…±°¥Ñ!ÕˆÁÀœô¤¥lÁt¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡ÍÑ…ÉÑ¥Ñ!Õ‰½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” ÍÑ…¥¹œµÁ±…Ñ™½É´œ¤¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€¥¹ÍÑ…±±MÑ…ÉÐ¹É•Í½±Ù”¡ì(€€€€€€€½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°(€€€€€€€ÍÑ…Ñ”è€ÁÉ½‘ÕÑ¥½¸µÍÑ…Ñ”œ°(€€€€€€€¥¹ÍÑ…±±}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½…ÁÁÌ½¥‘•¹ÑÉ…¥°½¥¹ÍÑ…±±…Ñ¥½¹Ì½Í•±•Ñ}Ñ…É•ÐýÍÑ…Ñ”õÁÉ½‘ÕÑ¥½¸µÍÑ…Ñ”œ°(€€€€€€€¥¹ÍÑ…±±}…½Õ¹Ñ}ÑåÁ”è€…¹äœ°(€€€€€€€Ý•‰¡½½­}ÕÉ°è€œ½…ÕÑ ½Ý•‰¡½½­Ì½¥Ñ¡Õˆœ°(€€€€€€€•áÁ¥É•Í}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÄÀèÀÁhœ(€€€€€ô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡½Á•¹MÁä¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ±¥¹¬œ°ì¹…µ”è€=Á•¸¥Ñ!Õˆœô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½ÁÉ½‘ÕÑ¥½¸µÍÑ…Ñ”½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€½Á•¹MÁä¹µ½­I•ÍÑ½É” ¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”É•Í•ÑÌ¹Ñ•ÉÁÉ¥Í”AP‘É…™ÑÌÝ¡•¸•¹Ù¥É½¹µ•¹ÑÌ¡…¹”‰•™½É”ÍÕ‰µ¥Ðœ°…Íå¹Œ€ ¤€ôøì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÍÑ…¥¹AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì((€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°ÍÑ…¥¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ìÁÉ½©•ÐèÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹AÉ½©•Ð€èÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€½¹ÍÐÕÁÍ•ÉÑ¥Ñ!Õ‰AQ½¹¹•Ñ½È€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÕÁÍ•ÉÑ¥Ñ!Õ‰AQ½¹¹•Ñ½Èœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õ‰APô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€™¥É•Ù•¹Ð¹±¥¬ ¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½5…¹…”¹Ñ•ÉÁÉ¥Í”p¼AP½¤ô¤¥lÁt¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ ½¹Ñ•ÉÁÉ¥Í”‰…Í”UI0½¤¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹ÁÉ½‘ÕÑ¥½¸¹•á…µÁ±”œô(€€€ô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½¥ÍÁ±…ä¹…µ”½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€AÉ½‘ÕÑ¥½¸!Lœôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½A•ÉÍ½¹…°…•ÍÌÑ½­•¸½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€ÁÉ½‘ÕÑ¥½¸µÑ½­•¸œôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½I•Á½Í¥Ñ½Éä…±±½Ý±¥ÍÐ½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€ÁÉ½½É•Á¼œôô¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€ô¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½A•ÉÍ½¹…°…•ÍÌÑ½­•¸½¤¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½¹Ñ•ÉÁÉ¥Í”‰…Í”UI0½¤¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½¥ÍÁ±…ä¹…µ”½¤¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½I•Á½Í¥Ñ½Éä…±±½Ý±¥ÍÐ½¤¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½M…Ù”•¹Ñ•ÉÁÉ¥Í”™…±±‰…¬½¤ô¤¤ì((€€€•áÁ•Ð¡ÕÁÍ•ÉÑ¥Ñ!Õ‰AQ½¹¹•Ñ½È¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”¥¹½É•ÌÍÑ…±”¹Ñ•ÉÁÉ¥Í”APÍ…Ù•Ì…™Ñ•È•¹Ù¥É½¹µ•¹Ð¡…¹•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÍÑ…¥¹AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì(€€€½¹ÍÐÁ…ÑM…Ù”€ô‘•™•ÉÉ•ñì½¹¹•Ñ¥½¸è¥Ñ!Õ‰½¹¹•Ñ¥½¹MÑ…ÑÕÌôø ¤ì((€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°ÍÑ…¥¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ìÁÉ½©•ÐèÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹AÉ½©•Ð€èÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€½¹ÍÐÕÁÍ•ÉÑ¥Ñ!Õ‰AQ½¹¹•Ñ½È€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÕÁÍ•ÉÑ¥Ñ!Õ‰AQ½¹¹•Ñ½Èœ¤(€€€€€€¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôøÁ…ÑM…Ù”¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€™¥É•Ù•¹Ð¹±¥¬ ¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½5…¹…”¹Ñ•ÉÁÉ¥Í”p¼AP½¤ô¤¥lÁt¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ ½¹Ñ•ÉÁÉ¥Í”‰…Í”UI0½¤¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹ÁÉ½‘ÕÑ¥½¸¹•á…µÁ±”œô(€€€ô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½¥ÍÁ±…ä¹…µ”½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€AÉ½‘ÕÑ¥½¸!Lœôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½A•ÉÍ½¹…°…•ÍÌÑ½­•¸½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€ÁÉ½‘ÕÑ¥½¸µÑ½­•¸œôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½I•Á½Í¥Ñ½Éä…±±½Ý±¥ÍÐ½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€ÁÉ½½É•Á¼œôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½M…Ù”•¹Ñ•ÉÁÉ¥Í”™…±±‰…¬½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡ÕÁÍ•ÉÑ¥Ñ!Õ‰AQ½¹¹•Ñ½È¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€€€‰…Í•}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹ÁÉ½‘ÕÑ¥½¸¹•á…µÁ±”œ°(€€€€€€€€€Ñ½­•¸è€ÁÉ½‘ÕÑ¥½¸µÑ½­•¸œ°(€€€€€€€€€Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•ÌèlÁÉ½½É•Á¼t(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½A•ÉÍ½¹…°…•ÍÌÑ½­•¸½¤¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€Á…ÑM…Ù”¹É•Í½±Ù”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õ‰APô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½¥Ñ!Õˆ¹Ñ•ÉÁÉ¥Í”½¹¹•Ñ½ÈÙ…±¥‘…Ñ•…¹Í…Ù•½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½A•ÉÍ½¹…°…•ÍÌÑ½­•¸½¤¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”±…Õ¹¡•Ì„Í…¸Ù¥„Ñ¡”•á¥ÍÑ¥¹œA$œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ìÍ…¹Ìèmtô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€½¹ÍÐÅÕ•Õ•	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€EÕ•Õ”Í…¸™½È¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÅÕ•Õ•	ÕÑÑ½¸¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹ÉÕ¹I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸ÅÕ•Õ•™½È¥‘•¹ÑÉ…¥±p½¥‘•¹ÑÉ…¥°½¤¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”ÉÕ¹Ì½¹”µ½™˜Í…¹ÌÝ¥Ñ •áÁ±¥¥Ð±¥µ¥ÑÌÝ¡•¸¹¼É•Á½Í¥Ñ½É¥•Ì…É”Í•±•Ñ•œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘¥Ñ!Õ‰AP°Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèmtô°(€€€€€Í…¹Ìèmt(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€½¹ÍÐ½¹•=™™A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€=¹”µ½™˜É•Á½Í¥Ñ½ÉäÍ…¸œô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½yI•Á½Í¥Ñ½Éä½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€…µ”½ÁÉ¥Ù…Ñ”µÉ•Á¼œôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½M…¸µ½‘”½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€ÅÕ¥¬œôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½!¥ÍÑ½Éä±¥µ¥Ð½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€œÜÔœôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½5…à™¥¹‘¥¹Ì½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€œÈÔœôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½IÕ¸Í…¸½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹ÉÕ¹I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€É•Á½Í¥Ñ½Éäè€…µ”½ÁÉ¥Ù…Ñ”µÉ•Á¼œ°(€€€€€€€€€Í…¹}µ½‘”è€ÅÕ¥¬œ°(€€€€€€€€€¡¥ÍÑ½Éå}±¥µ¥Ðè€ÜÔ°(€€€€€€€€€µ…á}™¥¹‘¥¹Ìè€ÈÔ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€•áÁ•Ð¡µ½­Ì¹ÉÕ¹I•Á½M…¸¹µ½¬¹…±±ÍlÁulÁt¤¹¹½Ð¹Ñ½!…Ù•AÉ½Á•ÉÑä ÁÉ½©•Ñ}¥œ¤ì(€€€•áÁ•Ð¡µ½­Ì¹ÉÕ¹I•Á½M…¸¹µ½¬¹…±±ÍlÁulÁt¤¹¹½Ð¹Ñ½!…Ù•AÉ½Á•ÉÑä ½¹¹•Ñ½É}¥œ¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸ÅÕ•Õ•™½È…µ•p½ÁÉ¥Ù…Ñ”µÉ•Á¼½¤¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”Í½Á•Ì½¹”µ½™˜Í…¹ÌÑ¼Ñ¡”¥Ñ!ÕˆÁÀ½¹¹•Ñ½ÈÝ¡•¸…Ù…¥±…‰±”œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ìÍ…¹Ìèmtô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€½¹ÍÐ½¹•=™™A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€=¹”µ½™˜É•Á½Í¥Ñ½ÉäÍ…¸œô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½yI•Á½Í¥Ñ½Éä½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½!¥ÍÑ½Éä±¥µ¥Ð½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€œÄÈÔœôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½5…à™¥¹‘¥¹Ì½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€œÔÀœôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½IÕ¸Í…¸½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹ÉÕ¹I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€€€€€€€Í…¹}µ½‘”è€‘••Àœ°(€€€€€€€€€¡¥ÍÑ½Éå}±¥µ¥Ðè€ÄÈÔ°(€€€€€€€€€µ…á}™¥¹‘¥¹Ìè€ÔÀ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸ÅÕ•Õ•™½È¥‘•¹ÑÉ…¥±p½¥‘•¹ÑÉ…¥°½¤¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”É•Í•ÑÌ½¹”µ½™˜Í…¸‘É…™ÑÌÝ¡•¸•¹Ù¥É½¹µ•¹ÑÌ¡…¹”œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍÑ…¥¹AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ì(€€€€€ÁÉ½©•ÑÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°ÍÑ…¥¹AÉ½©•Ñt°(€€€€€Í…¹Ìèmt°(€€€€€¥¹¥Ñ¥…±¹ÑÉäè€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€½¹ÍÐ½¹•=™™A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€=¹”µ½™˜É•Á½Í¥Ñ½ÉäÍ…¸œô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½yI•Á½Í¥Ñ½Éä½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€…µ”½ÁÉ½‘ÕÑ¥½¸µÉ•Á¼œôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½M…¸µ½‘”½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€ÅÕ¥¬œôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½!¥ÍÑ½Éä±¥µ¥Ð½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€œÜÔœôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½5…à™¥¹‘¥¹Ì½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€œÈÔœôô¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€ô¤ì((€€€½¹ÍÐÉ•Í•ÑA…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€=¹”µ½™˜É•Á½Í¥Ñ½ÉäÍ…¸œô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡Ý¥Ñ¡¥¸¡É•Í•ÑA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½yI•Á½Í¥Ñ½Éä½¤¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡É•Í•ÑA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½M…¸µ½‘”½¤¤¤¹Ñ½!…Ù•Y…±Õ” ‘••Àœ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡É•Í•ÑA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½!¥ÍÑ½Éä±¥µ¥Ð½¤¤¤¹Ñ½!…Ù•Y…±Õ” œÔÀÀœ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡É•Í•ÑA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½5…à™¥¹‘¥¹Ì½¤¤¤¹Ñ½!…Ù•Y…±Õ” œÈÀÀœ¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”¥¹½É•ÌÍÑ…±”½¹”µ½™˜Í…¸½µÁ±•Ñ¥½¹Ì…™Ñ•È•¹Ù¥É½¹µ•¹Ð¡…¹•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍÑ…¥¹AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ì(€€€€€ÁÉ½©•ÑÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°ÍÑ…¥¹AÉ½©•Ñt°(€€€€€Í…¹Ìèmt°(€€€€€¥¹¥Ñ¥…±¹ÑÉäè€œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ(€€€ô¤ì(€€€½¹ÍÐ½¹•=™™M…¸€ô‘•™•ÉÉ•ñìÉ•Á½}Í…¸èI•Á½M…¹I•½Éôø ¤ì(€€€µ½­Ì¹ÉÕ¹I•Á½M…¸¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø½¹•=™™M…¸¹ÁÉ½µ¥Í”¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€½¹ÍÐ½¹•=™™A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€=¹”µ½™˜É•Á½Í¥Ñ½ÉäÍ…¸œô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½yI•Á½Í¥Ñ½Éä½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€…µ”½ÁÉ½‘ÕÑ¥½¸µÉ•Á¼œôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½IÕ¸Í…¸½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹ÉÕ¹I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€É•Á½Í¥Ñ½Éäè€…µ”½ÁÉ½‘ÕÑ¥½¸µÉ•Á¼œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€ô¤ì(€€€½¹ÍÐÉ•Í•ÑA…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€=¹”µ½™˜É•Á½Í¥Ñ½ÉäÍ…¸œô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡Ý¥Ñ¡¥¸¡É•Í•ÑA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½yI•Á½Í¥Ñ½Éä½¤¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€½¹•=™™M…¸¹É•Í½±Ù”¡ìÉ•Á½}Í…¸èÅÕ•Õ•‘I•Á½M…¸ô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸ÅÕ•Õ•™½È…µ•p½ÁÉ½‘ÕÑ¥½¸µÉ•Á¼½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡É•Í•ÑA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½yI•Á½Í¥Ñ½Éä½¤¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”É•Í•ÑÌ½¹”µ½™˜Í…¸ÍÑ…Ñ”Ý¡•¸Ñ¡”Ý½É­ÍÁ…”Í½Á”¡…¹•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÁÉ½©•ÐèÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°(€€€€€ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”è‘•™…Õ±ÑI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”°(€€€€€½É…¹¥é…Ñ¥½¹}Á½ÍÑÕÉ”è‘•™…Õ±Ñ=É…¹¥é…Ñ¥½¹A½ÍÑÕÉ”(€€€ô¤ì(€€€½¹ÍÐ½¹•=™™M…¸€ô‘•™•ÉÉ•ñìÉ•Á½}Í…¸èI•Á½M…¹I•½Éôø ¤ì(€€€½¹ÍÐÉÕ¹I•Á½M…¸€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÉÕ¹I•Á½M…¸œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø½¹•=™™M…¸¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½É¥•ÍA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€™Õ¹Ñ¥½¸]½É­ÍÁ…•MÝ¥Ñ¡!…É¹•ÍÌ ¤ì(€€€€€½¹ÍÐ¹…Ù¥…Ñ”€ôÕÍ•9…Ù¥…Ñ” ¤ì(€€€€€É•ÑÕÉ¸€ (€€€€€€€€ðø(€€€€€€€€€€ñ‰ÕÑÑ½¸(€€€€€€€€€€€ÑåÁ”ô‰‰ÕÑÑ½¸ˆ(€€€€€€€€€€€½¹±¥¬õì ¤€ôø¹…Ù¥…Ñ” œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µˆ½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ¥ô(€€€€€€€€€€ø(€€€€€€€€€€€MÝ¥Ñ Ý½É­ÍÁ…”(€€€€€€€€€€ð½‰ÕÑÑ½¸ø(€€€€€€€€€€ñAÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½É¥•ÍA…”€¼ø(€€€€€€€€ð¼ø(€€€€€€¤ì(€€€ô((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìˆ•±•µ•¹Ðõìñ]½É­ÍÁ…•MÝ¥Ñ¡!…É¹•ÍÌ€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€½¹ÍÐ½¹•=™™A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€=¹”µ½™˜É•Á½Í¥Ñ½ÉäÍ…¸œô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½yI•Á½Í¥Ñ½Éä½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€…µ”½Ý½É­ÍÁ…”µ„µÉ•Á¼œôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½!¥ÍÑ½Éä±¥µ¥Ð½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€œÜÔœôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡½¹•=™™A…¹•°¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½IÕ¸Í…¸½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡ÉÕ¹I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€É•Á½Í¥Ñ½Éäè€…µ”½Ý½É­ÍÁ…”µ„µÉ•Á¼œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€MÝ¥Ñ Ý½É­ÍÁ…”œô¤¤ì(€€€½¹ÍÐÉ•Í•ÑA…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€=¹”µ½™˜É•Á½Í¥Ñ½ÉäÍ…¸œô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡Ý¥Ñ¡¥¸¡É•Í•ÑA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½yI•Á½Í¥Ñ½Éä½¤¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡É•Í•ÑA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½!¥ÍÑ½Éä±¥µ¥Ð½¤¤¤¹Ñ½!…Ù•Y…±Õ” œÔÀÀœ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€½¹•=™™M…¸¹É•Í½±Ù”¡ìÉ•Á½}Í…¸èÅÕ•Õ•‘I•Á½M…¸ô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸ÅÕ•Õ•™½È…µ•p½Ý½É­ÍÁ…”µ„µÉ•Á¼½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡É•Í•ÑA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½yI•Á½Í¥Ñ½Éä½¤¤¤¹Ñ½!…Ù•Y…±Õ” œœ¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”­••ÁÌÉ•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”¡•­ÌÉ•…¡…‰±”œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ìÍ…¹ÌèmÍÕ••‘•‘I•Á½M…¹tô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€½¹ÍÐÁ½ÍÑÕÉ•A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€I•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”œô¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹•Ñ	åQ•áÐ 9¼É•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”½±±•Ñ•å•Ðœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡µ½­Ì¹•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì((€€€½¹ÍÐÉ•Ù¥•Ý	ÕÑÑ½¸€ôÝ¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½I•Ù¥•ÜÁ½ÍÑÕÉ”½¤ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡É•Ù¥•Ý	ÕÑÑ½¸¤¹¹½Ð¹Ñ½	•¥Í…‰±• ¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡É•Ù¥•Ý	ÕÑÑ½¸¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÝ¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹™¥¹‘	åQ•áÐ •™…Õ±Ð‰É…¹ ¥Ìµ¥ÍÍ¥¹œÉ•ÅÕ¥É•ÁÕ±°É•ÅÕ•ÍÐÉ•Ù¥•ÝÌ¸œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!ÕˆÁ½ÍÑÕÉ”ÍÕµµ…Éäœ¤¤¹Ñ½!…Ù•Q•áÑ½¹Ñ•¹Ð M•ÕÉ”Äœ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹•Ñ	åQ•áÐ =É…¹¥é…Ñ¥½¸Á½ÍÑÕÉ”œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹•Ñ	åQ•áÐ I•Ù¥•Ü€Ä¡•¬œ¤¹±½Í•ÍÐ ‘•Ñ…¥±Ìœ¤¤¹¹½Ð¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” ½Á•¸œ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€¥Ñ¡Õˆµ…ÁÀœ°(€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”­••ÁÌÁ½ÍÑÕÉ”É•Ù¥•Ü½ÁÐµ¥¸…™Ñ•ÈÍÝ¥Ñ¡¥¹œÉ•Á½Í¥Ñ½É¥•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€€€Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèl¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°€¥‘•¹ÑÉ…¥°½‘½Ìt(€€€€€ô°(€€€€€Í…¹ÌèmÍÕ••‘•‘I•Á½M…¹t(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€½¹ÍÐÁ½ÍÑÕÉ•A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€I•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”œô¤ì(€€€½¹ÍÐÉ•Á½Í¥Ñ½ÉåM•±•Ð€ôÝ¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹•Ñ	å1…‰•±Q•áÐ I•Á½Í¥Ñ½Éäœ¤ì(€€€½¹ÍÐÉ•Ù¥•Ý	ÕÑÑ½¸€ôÝ¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½I•Ù¥•ÜÁ½ÍÑÕÉ”½¤ô¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡É•Ù¥•Ý	ÕÑÑ½¸¤¹¹½Ð¹Ñ½	•¥Í…‰±• ¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡É•Ù¥•Ý	ÕÑÑ½¸¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÝ¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹™¥¹‘	åQ•áÐ •™…Õ±Ð‰É…¹ ¥Ìµ¥ÍÍ¥¹œÉ•ÅÕ¥É•ÁÕ±°É•ÅÕ•ÍÐÉ•Ù¥•ÝÌ¸œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡µ½­Ì¹•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡É•Á½Í¥Ñ½ÉåM•±•Ð°ìÑ…É•ÐèìÙ…±Õ”è€¥‘•¹ÑÉ…¥°½‘½Ìœôô¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡É•Á½Í¥Ñ½ÉåM•±•Ð¤¹Ñ½!…Ù•Y…±Õ” ¥‘•¹ÑÉ…¥°½‘½Ìœ¤¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹•Ñ	åQ•áÐ 9¼É•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”½±±•Ñ•å•Ðœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡µ½­Ì¹•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡É•Á½Í¥Ñ½ÉåM•±•Ð°ìÑ…É•ÐèìÙ…±Õ”è€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œôô¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡É•Á½Í¥Ñ½ÉåM•±•Ð¤¹Ñ½!…Ù•Y…±Õ” ¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ¤¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹•Ñ	åQ•áÐ 9¼É•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”½±±•Ñ•å•Ðœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡µ½­Ì¹•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”‘¥Í…‰±•ÌÉ•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”É•Ù¥•Ü™½ÈAP½¹¹•Ñ¥½¹Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õ‰AP°(€€€€€Í…¹ÌèmÍÕ••‘•‘I•Á½M…¹t(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€½¹ÍÐÁ½ÍÑÕÉ•A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€I•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”œô¤ì(€€€½¹ÍÐÉ•Ù¥•Ý	ÕÑÑ½¸€ôÝ¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½¥Ñ!ÕˆÁÀÉ•ÅÕ¥É•½¤ô¤ì((€€€•áÁ•Ð¡É•Ù¥•Ý	ÕÑÑ½¸¤¹Ñ½	•¥Í…‰±• ¤ì(€€€•áÁ•Ð (€€€€€Ý¥Ñ¡¥¸¡Á½ÍÑÕÉ•A…¹•°¤¹•Ñ	åQ•áÐ I•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”¡•­Ì…É”…Ù…¥±…‰±”…™Ñ•È½¹¹•Ñ¥¹œÑ¡¥Ì•¹Ù¥É½¹µ•¹ÐÝ¥Ñ Ñ¡”¥Ñ!ÕˆÁÀ¸œ¤(€€€€¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡É•Ù¥•Ý	ÕÑÑ½¸¤ì(€€€•áÁ•Ð¡µ½­Ì¹•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”‰åÁ…ÍÍ•Ì¥¸µ™±¥¡ÐÉ•™É•Í¡•Ì…™Ñ•ÈÅÕ•Õ•¥¹œ„Í…¸œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ¥¹¥Ñ¥…±5½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ìÍ…¹Ìèmtô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡¥¹¥Ñ¥…±5½­Ì¹±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€±•…¹ÕÀ ¤ì(€€€Ù¤¹É•ÍÑ½É•±±5½­Ì ¤ì((€€€½¹ÍÐÁ•¹‘¥¹I•™É•Í €ô‘•™•ÉÉ•ñì¥Ñ•µÌèI•Á½M…¹I•½É‘mtì¹•áÑ}ÕÉÍ½ÈüèÍÑÉ¥¹œôø ¤ì(€€€½¹ÍÐÅÕ•Õ•‘™Ñ•É5ÕÑ…Ñ¥½¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ…™Ñ•ÈµµÕÑ…Ñ¥½¸œ(€€€ôì(€€€±•Ð±¥ÍÑ…±±Ì€ô€Àì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ì(€€€€€±¥ÍÑI•Á½M…¹Ìè€ ¤€ôøì(€€€€€€€±¥ÍÑ…±±Ì€¬ô€Äì(€€€€€€€¥˜€¡±¥ÍÑ…±±Ì€ôôô€Ä¤ì(€€€€€€€€€É•ÑÕÉ¸Á•¹‘¥¹I•™É•Í ¹ÁÉ½µ¥Í”ì(€€€€€€€ô(€€€€€€€É•ÑÕÉ¸AÉ½µ¥Í”¹É•Í½±Ù”¡ì¥Ñ•µÌèmÅÕ•Õ•‘™Ñ•É5ÕÑ…Ñ¥½¹tô¤ì(€€€€€ô(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡µ½­Ì¹±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€½¹ÍÐÅÕ•Õ•	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€EÕ•Õ”Í…¸™½È¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÅÕ•Õ•	ÕÑÑ½¸¤¹¹½Ð¹Ñ½	•¥Í…‰±• ¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÅÕ•Õ•	ÕÑÑ½¸¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹ÉÕ¹I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€€€€€€€ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡µ½­Ì¹±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸ÅÕ•Õ•™½È¥‘•¹ÑÉ…¥±p½¥‘•¹ÑÉ…¥°½¤¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½Í…¸¥¸™±¥¡Ð½¤¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€Á•¹‘¥¹I•™É•Í ¹É•Í½±Ù”¡ì¥Ñ•µÌèmtô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ M•±•Ñ•É•Á½Í¥Ñ½É¥•Ìœ¤¤¹Ñ½!…Ù•Q•áÑ½¹Ñ•¹Ð Í…¸¥¸™±¥¡Ðœ¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”…¹•±Ì…¸…Ñ¥Ù”Í…¸Ù¥„Ñ¡”•á¥ÍÑ¥¹œA$œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ìÍ…¹ÌèmÅÕ•Õ•‘I•Á½M…¹tô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€½¹ÍÐ…¹•±	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€…¹•°Í…¸™½È¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡…¹•±	ÕÑÑ½¸¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹…¹•±I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€É•Á¼µÍ…¸µÅÕ•Õ•œ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸…¹•±•™½È¥‘•¹ÑÉ…¥±p½¥‘•¹ÑÉ…¥°½¤¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”Á½±±ÌÝ¡¥±”É•Á½Í¥Ñ½ÉäÍ…¹Ì…É”…Ñ¥Ù”œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÍ•Ñ%¹Ñ•ÉÙ…±MÁä€ôÙ¤¹ÍÁå=¸¡Ý¥¹‘½Ü°€Í•Ñ%¹Ñ•ÉÙ…°œ¤ì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ìÍ…¹ÌèmÅÕ•Õ•‘I•Á½M…¹tô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½Í…¸¥¸™±¥¡Ð½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡µ½­Ì¹±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡Í•Ñ%¹Ñ•ÉÙ…±MÁä¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ ¡•áÁ•Ð¹…¹ä¡Õ¹Ñ¥½¸¤°€àÀÀÀ¤(€€€€¤ì(€€€½¹ÍÐÁ½±±…±±‰…¬€ôÍ•Ñ%¹Ñ•ÉÙ…±MÁä¹µ½¬¹…±±Ì¹™¥¹ ¡…±°¤€ôø…±±lÅt€ôôô€àÀÀÀ¤ü¹lÁtì(€€€•áÁ•Ð¡Á½±±…±±‰…¬¤¹Ñ½ÅÕ…°¡•áÁ•Ð¹…¹ä¡Õ¹Ñ¥½¸¤¤ì((€€€…Ð  ¤€ôøì(€€€€€€¡Á½±±…±±‰…¬…Ì€ ¤€ôøÙ½¥¤ ¤ì(€€€ô¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡µ½­Ì¹±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”Í¡½ÝÌÑ¡”•µÁÑäÍÑ…Ñ”Ý¡•¸¹¼É•Á½Í¥Ñ½É¥•Ì…É”Í•±•Ñ•œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèmtô(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½M•±•ÐÉ•Á½Í¥Ñ½É¥•Ì™½È%‘•¹ÑÉ…¥°Ñ¼Ý…Ñ ½¤ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€½¹ÍÐÍ•±•Ñ1¥¹¬€ôÍÉ••¸(€€€€€€€€¹•Ñ±±	åI½±” ±¥¹¬œ¤(€€€€€€€€¹™¥¹ ¡±¥¹¬¤€ôø±¥¹¬¹Ñ•áÑ½¹Ñ•¹Ðü¹¥¹±Õ‘•Ì M•±•ÐÉ•Á½Í¥Ñ½É¥•Ìœ¤¤ì(€€€€€•áÁ•Ð¡Í•±•Ñ1¥¹¬¤¹Ñ½	••™¥¹• ¤ì(€€€€€•áÁ•Ð¡Í•±•Ñ1¥¹¬ü¹•ÑÑÑÉ¥‰ÕÑ” ¡É•˜œ¤¤¹Ñ½5…Ñ  ½yp½…ÁÁp½Ñ•¹…¹Ðµ…p½Ý½É­ÍÁ…”µ…p½¥Ñ¡Õ‰p½½¹¹•Ð¼¤ì(€€€ô¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”ÍÕÉ™…•Ì„Í…¸•ÉÉ½È¥¹±¥¹”Ý¥Ñ¡½ÕÐ‰É•…­¥¹œ¹…Ù¥…Ñ¥½¸œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ì(€€€€€ÉÕ¹I•Á½M…¹ÉÉ½Èèìµ•ÍÍ…”è€É…Ñ”±¥µ¥Ñ•œ°ÍÑ…ÑÕÌè€ÐÈäô(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€½¹ÍÐÅÕ•Õ•	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€EÕ•Õ”Í…¸™½È¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÅÕ•Õ•	ÕÑÑ½¸¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½I•Á½Í¥Ñ½ÉäÍ…¸•ÉÉ½È½¤ô¤ì(€€€€¼¼9…Ù¥…Ñ¥½¸µÕÍÐÍÑ¥±°Ý½É¬…™Ñ•È„Í…¸•ÉÉ½ÈƒŠPÑ¡”ÁÉ¥µ…ÉäQ¥¸(€€€€¼¼Ñ¡”Á…”¡•…‘•È€¡¥Ñ!Õˆ™¥¹‘¥¹Ì±¥¹¬¤ÍÑ…åÌÉ•…¡…‰±”¸(€€€½¹ÍÐ™¥¹‘¥¹Í1¥¹¬€ôÍÉ••¸(€€€€€€¹•Ñ±±	åI½±” ±¥¹¬œ°ì¹…µ”è€½¥Ñ!Õˆ™¥¹‘¥¹Ì½¤ô¤(€€€€€€¹™¥¹ ¡±¥¹¬¤€ôø±¥¹¬¹•ÑÑÑÉ¥‰ÕÑ” ¡É•˜œ¤ü¹ÍÑ…ÉÑÍ]¥Ñ  œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½™¥¹‘¥¹Ìœ¤¤ì(€€€•áÁ•Ð¡™¥¹‘¥¹Í1¥¹¬¤¹Ñ½	••™¥¹• ¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”É•¹‘•ÉÌ„½µÁ…ÐÍÕ‰Ñ¥Ñ±”…¹‘É½ÁÌÑ¡”M…¸½Á•É…Ñ¥½¹ÌÉ•™•É•¹”œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ìÍ…¹ÌèmÍÕ••‘•‘I•Á½M…¹tô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€€¼¼MÕ‰Ñ¥Ñ±”É•™±•ÑÌÑ¡”±¥Ù”É•Á¼½Õ¹Ð…¹Í…¸Ñ½Ñ…±ÌƒŠPÉ•Á±…•Ì(€€€€¼¼Ñ¡”±½¹œ€‰1…Õ¹ °µ½¹¥Ñ½È°…¹…¹•°É•Á½Í¥Ñ½ÉäÍ…¹Ì¸¸¸ˆÑ…±¥¹”¸(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ¼ÄÉ•Á½Í¥Ñ½Éäƒ
+Ü€ÄÉ••¹ÐÍ…¸½¤¤ì(€€€€¼¼Q¡”€‰M•±•Ñ•É•Á½Í¥Ñ½É¥•Ì€¼€ÄÉ•Á½Í¥Ñ½Éä¥¸Í½Á”ˆÍÕˆµ¡•…‘•È¥Ì(€€€€¼¼‘É½ÁÁ•ƒŠPÑ¡”Í•Ñ¥½¸¡•…‘¥¹œ¥Ì©ÕÍÐ€‰I•Á½Í¥Ñ½É¥•Ìˆ¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ¼ÄÉ•Á½Í¥Ñ½Éä¥¸Í½Á”½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼Q¡”€‰I•™•É•¹”€¼M…¸½Á•É…Ñ¥½¹Ìˆ…Í¥‘”€¡Ý¥Ñ Ñ¡É•”µ•Ñ„µ‘½Ì(€€€€¼¼‰Õ±±•ÑÌ¤¥ÌÉ•µ½Ù••¹Ñ¥É•±ä¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€M…¸½Á•É…Ñ¥½¹Ìœô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½M…¹ÌÕÍ”Ñ¡”•á¥ÍÑ¥¹œÉ•Á½Í¥Ñ½ÉäÍ…¸A%Íp¸½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½…¹•°¥Ì½¹±ä…Ù…¥±…‰±”Ý¡¥±”„Í…¸¥ÌÅÕ•Õ•½ÈÉÕ¹¹¥¹p¸½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼Q¡”Ñ¥Ù¥ÑäÍ•Ñ¥½¸¡•…‘•È¥ÌÑ¡”Ñ¥¡Ñ•È€‰I••¹Ð…Ñ¥Ù¥Ñäˆ(€€€€¼¼¥¹ÍÑ•…½˜€‰Ñ¥Ù¥Ñä€¼I••¹ÐÉ•Á½Í¥Ñ½ÉäÍ…¸…Ñ¥Ù¥Ñäˆ¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½I••¹ÐÉ•Á½Í¥Ñ½ÉäÍ…¸…Ñ¥Ù¥Ñä½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€I••¹Ð…Ñ¥Ù¥Ñäœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð Ñ¥½¹ÌÁ…”É•¹‘•ÉÌÑ¡”ÁÉ•µ¥Õ´Ý…¥Ñ¥¹œµ™½Èµ½Ù•É…”Í¡•±°œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” …Ñ¥½¹Ìœ¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!ÕˆÑ¥½¹Ì€¼=%œô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½]½É­™±½Ü…¹=%Á½ÍÑÕÉ”¥ÌÉ½±±¥¹œ½ÕÐ½¤ô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ±±	åQ•áÐ ½]½É­™±½Ü¥¹Ù•¹Ñ½Éä½¤¤¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ À¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€½¹ÍÐ½Á•¹I•Á½Í1¥¹¬€ôÍÉ••¸(€€€€€€€€¹•Ñ±±	åI½±” ±¥¹¬œ°ì¹…µ”è€½=Á•¸I•Á½Í¥Ñ½É¥•Ì½¤ô¤(€€€€€€€€¹™¥¹ ¡±¥¹¬¤€ôø±¥¹¬¹•ÑÑÑÉ¥‰ÕÑ” ¡É•˜œ¤ü¹ÍÑ…ÉÑÍ]¥Ñ  œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìœ¤¤ì(€€€€€•áÁ•Ð¡½Á•¹I•Á½Í1¥¹¬¤¹Ñ½	••™¥¹• ¤ì(€€€ô¤ì(€€€½¹ÍÐ¡½µ•1¥¹¬€ôÍÉ••¸(€€€€€€¹•Ñ±±	åI½±” ±¥¹¬œ°ì¹…µ”è€½¥Ñ!Õˆ¡½µ”½¤ô¤(€€€€€€¹™¥¹ ¡±¥¹¬¤€ôø±¥¹¬¹•ÑÑÑÉ¥‰ÕÑ” ¡É•˜œ¤ü¹ÍÑ…ÉÑÍ]¥Ñ  œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆœ¤¤ì(€€€•áÁ•Ð¡¡½µ•1¥¹¬¤¹Ñ½	••™¥¹• ¤ì(€ô¤ì((€¥Ð Ñ¥½¹ÌÁ…”É•¹‘•ÉÌÑ¡”Õ¹…Ù…¥±…‰±”Í¡•±°Ý¡•¸Ñ¡”¥Ñ!Õˆ½¹¹•Ñ½È¥Ì…Ñ•½™˜œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” …Ñ¥½¹Ìœ°ì¥Ñ¡Õ‰•…ÑÕÉ•±…œè™…±Í”°¥Ñ¡Õ‰	…­•¹è™…±Í”ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!ÕˆÑ¥½¹Ì€¼=%œô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½¥Ñ!Õˆ¥Ì¹½Ð…Ù…¥±…‰±”½¸Ñ¡¥ÌA$½¤ô¤ì(€ô¤ì((€¥Ð I•µ•‘¥…Ñ¥½¸Á…”Í¡½ÝÌÑ¡”¹•Ù•ÈµÍ…¹¹•ÍÑ…Ñ”œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•µ•‘¥…Ñ¥½¸œ°ìÍ…¹Ìèmt°É•Á½¥¹‘¥¹Ìèmtô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!ÕˆÉ•µ•‘¥…Ñ¥½¸œô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½IÕ¸å½ÕÈ™¥ÉÍÐÉ•Á½Í¥Ñ½ÉäÍ…¸½¤ô¤ì(€€€½¹ÍÐÉ•Á½Í¥Ñ½É¥•Í1¥¹¬€ôÍÉ••¸(€€€€€€¹•Ñ±±	åI½±” ±¥¹¬œ°ì¹…µ”è€½=Á•¸I•Á½Í¥Ñ½É¥•Ì½¤ô¤(€€€€€€¹™¥¹ ¡±¥¹¬¤€ôø±¥¹¬¹•ÑÑÑÉ¥‰ÕÑ” ¡É•˜œ¤ü¹ÍÑ…ÉÑÍ]¥Ñ  œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìœ¤¤ì(€€€•áÁ•Ð¡É•Á½Í¥Ñ½É¥•Í1¥¹¬¤¹Ñ½	••™¥¹• ¤ì(€ô¤ì((€¥Ð I•µ•‘¥…Ñ¥½¸Á…”ÍÕÉ™…•Ì„™…¥±•Í…¸ÍÑ…Ñ”‰•™½É”Í¡½Ý¥¹œÉ•µ•‘¥…Ñ¥½¸¡É½µ”œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÉ•µ•‘¥…Ñ¥½¸µ™…¥±•œ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€¥Ñ!ÕˆÁÀ¥¹ÍÑ…±±…Ñ¥½¸…•ÍÌÉ•Ù½­•œ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•µ•‘¥…Ñ¥½¸œ°ìÍ…¹Ìèm™…¥±•‘M…¹t°É•Á½¥¹‘¥¹Ìèmtô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½e½ÕÈ±…ÍÐÉ•Á½Í¥Ñ½ÉäÍ…¸™…¥±•½¤ô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½¥Ñ!ÕˆÁÀ¥¹ÍÑ…±±…Ñ¥½¸…•ÍÌÉ•Ù½­•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ Ñ¥½¹…‰±”™¥¹‘¥¹Ìœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð I•µ•‘¥…Ñ¥½¸Á…”ÁÉ•Ù¥•ÝÌ…¹ÁÕ‰±¥Í¡•Ì„™¥àAH½¹±ä…™Ñ•È…ÁÁÉ½Ù…°…Ñ•ÌÁ…ÍÌœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€¥è€™¥¹‘¥¹œµ‘•Á±½åµ•¹ÐµÑ½­•¸œ°(€€€€€Í…¹}¥èÍÕ••‘•‘I•Á½M…¸¹¥°(€€€€€ÑåÁ”è€Í•É•Ñ}•áÁ½ÍÕÉ”œ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€½¹™¥‘•¹•}Í½É”è€À¸äØ°(€€€€€Ñ¥Ñ±”è€]½É­™±½Ü•áÁ½Í•Ì‘•Á±½åµ•¹ÐÑ½­•¸œ°(€€€€€¡Õµ…¹}ÍÕµµ…Éäè€‘•Á±½åµ•¹ÐÑ½­•¸¥Ì½µµ¥ÑÑ•¥¹Ñ¼„¥Ñ!ÕˆÑ¥½¹ÌÝ½É­™±½Ü¸œ°(€€€€€É•µ•‘¥…Ñ¥½¸è€5½Ù”Ñ¡”‘•Á±½åµ•¹ÐÑ½­•¸¥¹Ñ¼¥Ñ!ÕˆÑ¥½¹ÌÍ•É•ÑÌ…¹É½Ñ…Ñ”¥Ð¸œ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€€€™¥±•}Á…Ñ è€œ¹¥Ñ¡Õˆ½Ý½É­™±½ÝÌ½‘•Á±½ä¹åµ°œ°(€€€€€±¥¹•}¹Õµ‰•Èè€Äà°(€€€€€‘•Ñ•Ñ½Èè€¥Ñ¡Õ‰}…Ñ¥½¹Í}Í•É•Ðœ°(€€€€€Í½ÕÉ•}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°½‰±½ˆ½µ…¥¸¼¹¥Ñ¡Õˆ½Ý½É­™±½ÝÌ½‘•Á±½ä¹åµ°0Äàœ°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€½Á•¸œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÄÀèÀÁhœ(€€€ôì(€€€½¹ÍÐÁÉ•Ù¥•ÜèI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¹AÉ•Ù¥•Ü€ôì(€€€€€™¥¹‘¥¹œ°(€€€€€É•µ•‘¥…Ñ¥½¸èì(€€€€€€€‘•Ñ•Ñ½Èè€¥Ñ¡Õ‰}…Ñ¥½¹Í}Í•É•Ðœ°(€€€€€€€ÍÕµµ…Éäè€I½Ñ…Ñ”±•…­•‘•Á±½åµ•¹ÐÑ½­•¸œ°(€€€€€€€É¥Í­}ÍÕµµ…Éäè€Q¡”Ñ½­•¸…¸‰”É•ÕÍ•‰ä…¹å½¹”Ý¥Ñ É•Á½Í¥Ñ½Éä¡¥ÍÑ½Éä…•ÍÌ¸œ°(€€€€€€€ÍÑ•ÁÌèlÉ•…Ñ”„¥Ñ!ÕˆÑ¥½¹ÌÍ•É•Ð™½ÈÑ¡”É•Á±…•µ•¹ÐÑ½­•¸œ°€I•µ½Ù”Ñ¡”¥¹±¥¹”Ñ½­•¸™É½´‘•Á±½ä¹åµ°t°(€€€€€€€Í…™•Ñå}¹½Ñ•Ìèl½¹™¥É´Ñ¡”É•Á±…•µ•¹ÐÍ•É•Ð•á¥ÍÑÌ‰•™½É”µ•É¥¹œt°(€€€€€€€Ù…±¥‘…Ñ¥½¸èlIÕ¸Ñ¡”É•Á½Í¥Ñ½ÉäÍ…¸……¥¸œ°€½¹™¥É´Ñ¡”Ý½É­™±½ÜÍÑ¥±°‘•Á±½åÌ™É½´Ñ¡”Í•É•Ðt°(€€€€€€€Í•É•Ñ}É½Ñ…Ñ¥½¸èÑÉÕ”°(€€€€€€€ÁÕ‰±¥Í¡…‰±”èÑÉÕ”°(€€€€€€€•Ù¥‘•¹”èì(€€€€€€€€€™¥¹‘¥¹}¥è™¥¹‘¥¹œ¹¥°(€€€€€€€€€Í…¹}¥è™¥¹‘¥¹œ¹Í…¹}¥°(€€€€€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€€€€€€€™¥±•}Á…Ñ è™¥¹‘¥¹œ¹™¥±•}Á…Ñ °(€€€€€€€€€±¥¹•}¹Õµ‰•Èè™¥¹‘¥¹œ¹±¥¹•}¹Õµ‰•È(€€€€€€€ô(€€€€€ô°(€€€€€™¥á}ÁÉ}Á±…¸èì(€€€€€€€‰…Í•}‰É…¹ è€µ…¥¸œ°(€€€€€€€‰É…¹¡}¹…µ”è€¥‘•¹ÑÉ…¥°½™¥à½‘•Á±½åµ•¹ÐµÑ½­•¸œ°(€€€€€€€½µµ¥Ñ}µ•ÍÍ…”è€5½Ù”‘•Á±½åµ•¹ÐÑ½­•¸¥¹Ñ¼Ñ¥½¹ÌÍ•É•ÑÌœ°(€€€€€€€ÁÉ}Ñ¥Ñ±”è€5½Ù”‘•Á±½åµ•¹ÐÑ½­•¸¥¹Ñ¼Ñ¥½¹ÌÍ•É•ÑÌœ°(€€€€€€€ÁÉ}‰½‘äè€I•µ•‘¥…Ñ•ÌÑ¡”•áÁ½Í•‘•Á±½åµ•¹ÐÑ½­•¸™¥¹‘¥¹œ¸œ°(€€€€€€€™¥±•ÌèmìÁ…Ñ è€œ¹¥Ñ¡Õˆ½Ý½É­™±½ÝÌ½‘•Á±½ä¹åµ°œ°½¹Ñ•¹Ðè€•¹Øéqq¸€A1=e}Q=-8è€‘íìÍ•É•ÑÌ¹A1=e}Q=-8õôœõt°(€€€€€€€™¥¹‘¥¹}¥è™¥¹‘¥¹œ¹¥°(€€€€€€€™¥¹‘¥¹}ÑåÁ”è™¥¹‘¥¹œ¹ÑåÁ”(€€€€€ô(€€€ôì(€€€½¹ÍÐÁÕ‰±¥Í èI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¹AÕ‰±¥Í¡I•ÍÁ½¹Í”€ôì(€€€€€™¥¹‘¥¹œ°(€€€€€É•µ•‘¥…Ñ¥½¸èÁÉ•Ù¥•Ü¹É•µ•‘¥…Ñ¥½¸°(€€€€€ÁÕ‰±¥Í èì(€€€€€€€ÁÉ}¹Õµ‰•Èè€ÐÈ°(€€€€€€€ÁÉ}ÕÉ°è€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°½ÁÕ±°¼ÐÈœ°(€€€€€€€‰É…¹¡}¹…µ”è€¥‘•¹ÑÉ…¥°½™¥à½‘•Á±½åµ•¹ÐµÑ½­•¸œ°(€€€€€€€½µµ¥Ñ}Í¡„è€…‰ŒÄÈÌÐœ(€€€€€ô(€€€ôì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•µ•‘¥…Ñ¥½¸œ°ì(€€€€€Í…¹Ìèmì€¸¸¹ÍÕ••‘•‘I•Á½M…¸°™¥¹‘¥¹}½Õ¹Ðè€Äõt°(€€€€€É•Á½¥¹‘¥¹Ìèm™¥¹‘¥¹t°(€€€€€É•µ•‘¥…Ñ¥½¹AÉ•Ù¥•ÜèÁÉ•Ù¥•Ü°(€€€€€É•µ•‘¥…Ñ¥½¹AÕ‰±¥Í èÁÕ‰±¥Í (€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!ÕˆÉ•µ•‘¥…Ñ¥½¸œô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ Ñ¥½¹…‰±”™¥¹‘¥¹Ìœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ±±	åQ•áÐ ]½É­™±½Ü•áÁ½Í•Ì‘•Á±½åµ•¹ÐÑ½­•¸œ¤¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ À¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ±±	åQ•áÐ ¼¹¥Ñ¡Õ‰p½Ý½É­™±½ÝÍp½‘•Á±½ä¹åµ°èÄà½¤¤¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ À¤ì((€€€½¹ÍÐÁÉ•Ù¥•Ý	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½AÉ•Ù¥•Ü™¥àÁ±…¸½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÁÉ•Ù¥•Ý	ÕÑÑ½¸¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹ÁÉ•Ù¥•ÝI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€™¥¹‘¥¹œ¹¥°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€É•Á½}Í…¹}¥èÍÕ••‘•‘I•Á½M…¸¹¥°(€€€€€€€€€™¥¹‘¥¹}ÕÉ°è™¥¹‘¥¹œ¹Í½ÕÉ•}ÕÉ°(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ÕÉÉ•¹ÐÍ½ÕÉ”½¹Ñ•¹Ðœ¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€•¹Øéq¸€A1=e}Q=-8è€‘íìÍ•É•ÑÌ¹A1=e}Q=-8õôœô(€€€ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÁÉ•Ù¥•Ý	ÕÑÑ½¸¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹ÁÉ•Ù¥•ÝI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€™¥¹‘¥¹œ¹¥°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€É•Á½}Í…¹}¥èÍÕ••‘•‘I•Á½M…¸¹¥°(€€€€€€€€€™¥¹‘¥¹}ÕÉ°è™¥¹‘¥¹œ¹Í½ÕÉ•}ÕÉ°°(€€€€€€€€€Í½ÕÉ•}½¹Ñ•¹Ðè€•¹Øéq¸€A1=e}Q=-8è€‘íìÍ•É•ÑÌ¹A1=e}Q=-8õôœ°(€€€€€€€€€É•ÅÕ¥É•}™¥á}Á±…¸èÑÉÕ”(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ I½Ñ…Ñ”±•…­•‘•Á±½åµ•¹ÐÑ½­•¸œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ 	É…¹ ¥‘•¹ÑÉ…¥°½™¥à½‘•Á±½åµ•¹ÐµÑ½­•¸œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€½¹ÍÐÁÕ‰±¥Í¡	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½AÕ‰±¥Í ™¥àAH½¤ô¤ì(€€€•áÁ•Ð¡ÁÕ‰±¥Í¡	ÕÑÑ½¸¤¹Ñ½	•¥Í…‰±• ¤ì(€€€•áÁ•Ð¡µ½­Ì¹ÁÕ‰±¥Í¡I•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ÕÉÉ•¹ÐÍ½ÕÉ”½¹Ñ•¹Ðœ¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€•¹Øéqq¸€A1=e}Q=-8è€‘íìÍ•É•ÑÌ¹A1=e}Q=-8õôœô(€€€ô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!ÕˆÑ½­•¸œ¤°ìÑ…É•ÐèìÙ…±Õ”è€¡Á}ÝÉ¥Ñ•}Ñ½­•¸œôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ÁÁÉ½Ù•™½ÈÁÕ‰±¥Í œ¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!ÕˆÑ½­•¸¥Ì¥¹Ñ•¹Ñ¥½¹…±±äÝÉ¥Ñ”µ…Á…‰±”œ¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÁÕ‰±¥Í¡	ÕÑÑ½¸¤¹¹½Ð¹Ñ½	•¥Í…‰±• ¤¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÁÕ‰±¥Í¡	ÕÑÑ½¸¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹ÁÕ‰±¥Í¡I•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€™¥¹‘¥¹œ¹¥°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€É•Á½}Í…¹}¥èÍÕ••‘•‘I•Á½M…¸¹¥°(€€€€€€€€€Í½ÕÉ•}½¹Ñ•¹Ðè€•¹Øéqq¸€A1=e}Q=-8è€‘íìÍ•É•ÑÌ¹A1=e}Q=-8õôœ°(€€€€€€€€€‰…Í•}‰É…¹ è€µ…¥¸œ°(€€€€€€€€€™¥¹‘¥¹}ÕÉ°è™¥¹‘¥¹œ¹Í½ÕÉ•}ÕÉ°°(€€€€€€€€€½Á•É…Ñ½É}…ÁÁÉ½Ù•èÑÉÕ”°(€€€€€€€€€ÝÉ¥Ñ•}Á•Éµ¥ÍÍ¥½¹Í}½¹™¥ÕÉ•èÑÉÕ”°(€€€€€€€€€¥Ñ¡Õ‰}Ñ½­•¸è€¡Á}ÝÉ¥Ñ•}Ñ½­•¸œ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½AH€ŒÐÈ½Á•¹•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•ÈÍÕÉ™…•Ì…¸•ÉÉ½ÈÝ¡•¸±¥ÍÑ¥¹œÉ•Á½Í¥Ñ½ÉäÍ…¹Ì™…¥±Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÁÉ½©•ÐèÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•©•Ñ•‘Y…±Õ” (€€€€€¹•Ü…Á¤¹Á¥ÉÉ½È É…Ñ”±¥µ¥Ñ•œ°€ÐÈä¤(€€€€¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆˆ•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰½¹ÑÉ½±•¹Ñ•ÉA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½U¹…‰±”Ñ¼±½…¥Ñ!ÕˆÍÑ…ÑÕÌ½¤ô¤ì(€€€€¼¼Q¡”•ÉÉ½ÈÁ…¹•°¥ÌÑ¡”Í¥¹±”Í½ÕÉ”½˜ÑÉÕÑ ƒŠPÑ¡”Á…”µÕÍÐ¹½Ð(€€€€¼¼…±Í¼ÍÁ•Õ±…Ñ”„€‰ÉÕ¸å½ÕÈ™¥ÉÍÐÍ…¸ˆÉ•½µµ•¹‘…Ñ¥½¸½È±…¥´(€€€€¼¼€‰¹¼É•Á½Í¥Ñ½ÉäÍ…¹Ìå•Ðˆ½™˜„™…¥±•™•Ñ ¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½9¼É•Á½Í¥Ñ½ÉäÍ…¹Ìå•Ð½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•ÈÉ•ÕÍ•ÌÑ¡”±…ÍÐ±½…‘•‘…Í¡‰½…ÉÝ¡¥±”É•™É•Í¡¥¹œÑ¡”Í…µ”•¹Ù¥É½¹µ•¹Ðœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÁÉ½©•ÐèÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤ì(€€€½¹ÍÐ•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½M…¹Ì€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ì¥Ñ•µÌèmÍÕ••‘•‘I•Á½M…¹tô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐÉ•¹‘•É½¹ÑÉ½±•¹Ñ•È€ô€ ¤€ôø(€€€€€É•¹‘•È (€€€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆˆ•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰½¹ÑÉ½±•¹Ñ•ÉA…”€¼ùô€¼ø(€€€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€€€¤ì((€€€½¹ÍÐ™¥ÉÍÑI•¹‘•È€ôÉ•¹‘•É½¹ÑÉ½±•¹Ñ•È ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€I••¹ÐÍ…¹Ìœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€™¥ÉÍÑI•¹‘•È¹Õ¹µ½Õ¹Ð ¤ì((€€€½¹ÍÐÁ•¹‘¥¹MÑ…ÑÕÌ€ô‘•™•ÉÉ•ñì½¹¹•Ñ¥½¸è¥Ñ!Õ‰½¹¹•Ñ¥½¹MÑ…ÑÕÌôø ¤ì(€€€½¹ÍÐÁ•¹‘¥¹M…¹Ì€ô‘•™•ÉÉ•ñì¥Ñ•µÌèI•Á½M…¹I•½É‘mtôø ¤ì(€€€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ¹µ½­I•ÑÕÉ¹Y…±Õ•=¹”¡Á•¹‘¥¹MÑ…ÑÕÌ¹ÁÉ½µ¥Í”¤ì(€€€±¥ÍÑI•Á½M…¹Ì¹µ½­I•ÑÕÉ¹Y…±Õ•=¹”¡Á•¹‘¥¹M…¹Ì¹ÁÉ½µ¥Í”¤ì((€€€É•¹‘•É½¹ÑÉ½±•¹Ñ•È ¤ì((€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€I••¹ÐÍ…¹Ìœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1½…‘¥¹œ¥Ñ!ÕˆÍÑ…ÑÕÌ½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€Á•¹‘¥¹MÑ…ÑÕÌ¹É•Í½±Ù”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€€€Á•¹‘¥¹M…¹Ì¹É•Í½±Ù”¡ì¥Ñ•µÌèmÍÕ••‘•‘I•Á½M…¹tô¤ì(€€€ô¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•È­••ÁÌ…¡•Í…¹ÌÙ¥Í¥‰±”Ý¡¥±”ÍÕÉ™…¥¹œÍ…µ”µ•¹Ù¥É½¹µ•¹ÐÉ•™É•Í ™…¥±ÕÉ•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÁÉ½©•ÐèÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤ì(€€€½¹ÍÐ•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½M…¹Ì€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ì¥Ñ•µÌèmÍÕ••‘•‘I•Á½M…¹tô¤(€€€€€€¹µ½­I•©•Ñ•‘Y…±Õ•=¹”¡¹•Ü…Á¤¹Á¥ÉÉ½È É…Ñ”±¥µ¥Ñ•œ°€ÐÈä¤¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐÉ•¹‘•É½¹ÑÉ½±•¹Ñ•È€ô€ ¤€ôø(€€€€€É•¹‘•È (€€€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆˆ•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰½¹ÑÉ½±•¹Ñ•ÉA…”€¼ùô€¼ø(€€€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€€€¤ì((€€€½¹ÍÐ™¥ÉÍÑI•¹‘•È€ôÉ•¹‘•É½¹ÑÉ½±•¹Ñ•È ¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€I••¹ÐÍ…¹Ìœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€™¥ÉÍÑI•¹‘•È¹Õ¹µ½Õ¹Ð ¤ì((€€€É•¹‘•É½¹ÑÉ½±•¹Ñ•È ¤ì((€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€I••¹ÐÍ…¹Ìœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½U¹…‰±”Ñ¼±½…¥Ñ!ÕˆÍÑ…ÑÕÌ½¤ô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½É…Ñ”±¥µ¥Ñ•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•ÈÉ•ÕÍ•Ì½Ù•ÉÙ¥•Ü…¡•ÌÝ¥Ñ¡½ÕÐÍ¡½Ý¥¹œ„±½…‘¥¹œÍÑ…ÑÕÌœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ=¹‰½…É‘¥¹MÑ…Ñ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÍÑ…Ñ”èì(€€€€€€€ÕÍ•É}¥è€ÕÍ•È´Äœ°(€€€€€€€½É}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥èÁÉ½‘ÕÑ¥½¹AÉ½©•Ð¹ÁÉ½©•Ñ}¥°(€€€€€€€ÕÉÉ•¹Ñ}ÍÑ•Àè€½µÁ±•Ñ”œ°(€€€€€€€½¹¹•Ñ½É}Í­¥ÁÁ•è™…±Í”°(€€€€€€€Í…¹}Í­¥ÁÁ•è™…±Í”°(€€€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€½¹ÍÐ±¥ÍÑAÉ½©•ÑÌ€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtô¤ì(€€€½¹ÍÐ•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘]Lô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ìô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½M…¹Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÍÕ••‘•‘I•Á½M…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmt°ÍÕµµ…ÉäèÕ¹‘•™¥¹•ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ=Ù•ÉÙ¥•ÝA…”°AÉ½‘ÕÑ¥Ñ!Õ‰½¹ÑÉ½±•¹Ñ•ÉA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐ½Ù•ÉÙ¥•ÝI•¹‘•È€ôÉ•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%ˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ=Ù•ÉÙ¥•ÝA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€½µ…¥¸Á½ÍÑÕÉ”œô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡±¥ÍÑAÉ½©•ÑÌ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€€€½Ù•ÉÙ¥•ÝI•¹‘•È¹Õ¹µ½Õ¹Ð ¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰½¹ÑÉ½±•¹Ñ•ÉA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1½…‘¥¹œ¥Ñ!ÕˆÍÑ…ÑÕÌ½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡±¥ÍÑAÉ½©•ÑÌ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€ô¤ì((€¥Ð =Ù•ÉÙ¥•ÜÝ…ÉµÌ¥Ñ!Õˆ…¡•ÌÝ¡•¸‰…­•¹…Ù…¥±…‰¥±¥ÑäÉ•Í½±Ù•Ì…™Ñ•Èµ½Õ¹Ðœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€±•Ð¥Ñ¡Õ‰	…­•¹è	…­•¹‘•…ÑÕÉ•MÑ…Ñ”€ô™…±Í”ì(€€€Ù¤¹‘½5½¬ œ¸½¡½½­Ì½ÕÍ•	…­•¹‘•…ÑÕÉ•Ìœ°…Íå¹Œ€¡¥µÁ½ÉÑ=É¥¥¹…°¤€ôøì(€€€€€½¹ÍÐ…ÑÕ…°€ô…Ý…¥Ð¥µÁ½ÉÑ=É¥¥¹…°ñÑåÁ•½˜¥µÁ½ÉÐ œ¸½¡½½­Ì½ÕÍ•	…­•¹‘•…ÑÕÉ•Ìœ¤ø ¤ì(€€€€€É•ÑÕÉ¸ì(€€€€€€€€¸¸¹…ÑÕ…°°(€€€€€€€ÕÍ•	…­•¹‘•…ÑÕÉ•Ìè€ ¤€ôø€¡ì(€€€€€€€€€™•…ÑÕÉ•Ìèì(€€€€€€€€€€€½¹‰½…É‘¥¹]¥é…ÉèÕ¹‘•™¥¹•°(€€€€€€€€€€€½¹¹•Ñ½ÉÌèì¥Ñ¡Õˆè¥Ñ¡Õ‰	…­•¹°…ÝÌèÕ¹‘•™¥¹•°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô°(€€€€€€€€€€€½¹™¥I•…¡…‰±”èÑÉÕ”(€€€€€€€€€ô°(€€€€€€€€€±½…‘¥¹œè™…±Í”(€€€€€€€ô¤(€€€€€ôì(€€€ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ=¹‰½…É‘¥¹MÑ…Ñ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÍÑ…Ñ”èì(€€€€€€€ÕÍ•É}¥è€ÕÍ•È´Äœ°(€€€€€€€½É}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥èÁÉ½‘ÕÑ¥½¹AÉ½©•Ð¹ÁÉ½©•Ñ}¥°(€€€€€€€ÕÉÉ•¹Ñ}ÍÑ•Àè€½µÁ±•Ñ”œ°(€€€€€€€½¹¹•Ñ½É}Í­¥ÁÁ•è™…±Í”°(€€€€€€€Í…¹}Í­¥ÁÁ•è™…±Í”°(€€€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€½¹ÍÐ±¥ÍÑAÉ½©•ÑÌ€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtô¤ì(€€€½¹ÍÐ•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½M…¹Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÍÕ••‘•‘I•Á½M…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmt°ÍÕµµ…ÉäèÕ¹‘•™¥¹•ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘]Lô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ìô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ=Ù•ÉÙ¥•ÝA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐÉ•¹‘•É=Ù•ÉÙ¥•ÝI½ÕÑ”€ô€ ¤€ôø€ (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%ˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ=Ù•ÉÙ¥•ÝA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì(€€€½¹ÍÐ½Ù•ÉÙ¥•ÝI•¹‘•È€ôÉ•¹‘•È¡É•¹‘•É=Ù•ÉÙ¥•ÝI½ÕÑ” ¤¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€½µ…¥¸Á½ÍÑÕÉ”œô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡±¥ÍÑAÉ½©•ÑÌ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€•áÁ•Ð¡•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì((€€€¥Ñ¡Õ‰	…­•¹€ôÑÉÕ”ì(€€€½Ù•ÉÙ¥•ÝI•¹‘•È¹É•É•¹‘•È¡É•¹‘•É=Ù•ÉÙ¥•ÝI½ÕÑ” ¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡±¥ÍÑAÉ½©•ÑÌ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€•áÁ•Ð¡±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì((€¥Ð =Ù•ÉÙ¥•ÜÍ­¥ÁÌ‘…Í¡‰½…É…¡”Ý…ÉµÕÁÌ…™Ñ•ÈÑ¡”…ÕÑ Í•ÍÍ¥½¸É•Í•ÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌèÑÉÕ”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•ÌèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ=¹‰½…É‘¥¹MÑ…Ñ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÍÑ…Ñ”èì(€€€€€€€ÕÍ•É}¥è€ÕÍ•È´Äœ°(€€€€€€€½É}¥è€Ñ•¹…¹Ðµ„œ°(€€€€€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€€€€€ÁÉ½©•Ñ}¥èÁÉ½‘ÕÑ¥½¹AÉ½©•Ð¹ÁÉ½©•Ñ}¥°(€€€€€€€ÕÉÉ•¹Ñ}ÍÑ•Àè€½µÁ±•Ñ”œ°(€€€€€€€½¹¹•Ñ½É}Í­¥ÁÁ•è™…±Í”°(€€€€€€€Í…¹}Í­¥ÁÁ•è™…±Í”°(€€€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°(€€€€€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€½¹ÍÐÁ•¹‘¥¹AÉ½©•ÑÌ€ô‘•™•ÉÉ•ñì¥Ñ•µÌèÑåÁ•½˜ÁÉ½‘ÕÑ¥½¹AÉ½©•Ñmtôø ¤ì(€€€½¹ÍÐ±¥ÍÑAÉ½©•ÑÌ€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•ÑÕÉ¹Y…±Õ”¡Á•¹‘¥¹AÉ½©•ÑÌ¹ÁÉ½µ¥Í”¤ì(€€€½¹ÍÐ•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½M…¹Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÍÕ••‘•‘I•Á½M…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmt°ÍÕµµ…ÉäèÕ¹‘•™¥¹•ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ]MAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘]Lô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ-Õ‰•É¹•Ñ•ÍAÉ½©•Ñ½¹¹•Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘-Õ‰•É¹•Ñ•Ìô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ=Ù•ÉÙ¥•ÝA…”°AÉ½‘ÕÑ¥Ñ!Õ‰½¹ÑÉ½±•¹Ñ•ÉA…”°±•…ÉAÉ½‘ÕÑÕÑ¡M•ÍÍ¥½¹…¡•½ÉQ•ÍÑÌô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐ½Ù•ÉÙ¥•ÝI•¹‘•È€ôÉ•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%ˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ=Ù•ÉÙ¥•ÝA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡±¥ÍÑAÉ½©•ÑÌ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€½Ù•ÉÙ¥•ÝI•¹‘•È¹Õ¹µ½Õ¹Ð ¤ì(€€€±•…ÉAÉ½‘ÕÑÕÑ¡M•ÍÍ¥½¹…¡•½ÉQ•ÍÑÌ ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€Á•¹‘¥¹AÉ½©•ÑÌ¹É•Í½±Ù”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtô¤ì(€€€€€…Ý…¥ÐÁ•¹‘¥¹AÉ½©•ÑÌ¹ÁÉ½µ¥Í”ì(€€€€€…Ý…¥ÐAÉ½µ¥Í”¹É•Í½±Ù” ¤ì(€€€ô¤ì((€€€•áÁ•Ð¡•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€•áÁ•Ð¡±¥ÍÑI•Á½M…¹Ì¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€±•…¹ÕÀ ¤ì(€€€Ù¤¹É•ÍÑ½É•±±5½­Ì ¤ì((€€€½¹ÍÐ¹•áÑM•ÍÍ¥½¹MÑ…ÑÕÌ€ô‘•™•ÉÉ•ñì½¹¹•Ñ¥½¸è¥Ñ!Õ‰½¹¹•Ñ¥½¹MÑ…ÑÕÌôø ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•ÑÕÉ¹Y…±Õ”¡¹•áÑM•ÍÍ¥½¹MÑ…ÑÕÌ¹ÁÉ½µ¥Í”¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì((€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰½¹ÑÉ½±•¹Ñ•ÉA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1½…‘¥¹œ¥Ñ!ÕˆÍÑ…ÑÕÌ½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€¹•áÑM•ÍÍ¥½¹MÑ…ÑÕÌ¹É•Í½±Ù”¡ì(€€€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€€€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€€€€€¥¹ÍÑ…±±…Ñ¥½¹}¥è€ØÜàäÀ°(€€€€€€€€€Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèmt(€€€€€€€ô(€€€€€ô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ØÜàäÀ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•È¡¥‘•ÌÉ••¹ÐÍ…¹ÌÝ¡•¸¹¼É•Á½Í¥Ñ½É¥•Ì…É”Í•±•Ñ•œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÕ¹É•±…Ñ•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÕ¹É•±…Ñ•œ°(€€€€€É•Á½Í¥Ñ½Éäè€Í½µ•½¹”µ•±Í”½½Ñ¡•ÈµÉ•Á¼œ(€€€ôì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèmtô°(€€€€€Í…¹ÌèmÕ¹É•±…Ñ•‘M…¹t(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1…ÍÐq¬É•Á½Í¥Ñ½ÉäÍ…¹Ì½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½Í½µ•½¹”µ•±Í•p½½Ñ¡•ÈµÉ•Á¼½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½A¥¬É•Á½Í¥Ñ½É¥•Ì™½È%‘•¹ÑÉ…¥°Ñ¼Ý…Ñ¡p¸½¤¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•ÈÍÕÉ™…•ÌÑ¡”µ½ÍÐÉ••¹Ð™…¥±•Í…¸¥¸Ñ¡”‰…¹¹•Èœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ½±‘•ÉMÕ••‘•èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ½±‘•ÈµÍÕ•ÍÌœ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½É••¹Ðµ™…¥°œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÙPÄÀèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÙPÄÀèÀÔèÀÁhœ(€€€ôì(€€€½¹ÍÐ¹•Ý•É…¥±•èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ¹•Ý•Èµ™…¥±•œ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½É••¹Ðµ™…¥°œ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÈèÀÔèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€Í…¸•áÁ±½‘•œ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À(€€€ôì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèl¥‘•¹ÑÉ…¥°½É••¹Ðµ™…¥°tô°(€€€€€Í…¹Ìèm¹•Ý•É…¥±•°½±‘•ÉMÕ••‘•‘t(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€€€‘…Ñ„µ‰…¹¹•Èµ¥œ°(€€€€€€€€É•Ù¥•Üµ™…¥±•µÍ…¸œ(€€€€€€¤ì(€€€ô¤ì(€€€½¹ÍÐ‰…¹¹•È€ôÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡‰…¹¹•È¤¹•Ñ	åQ•áÐ ½™…¥±•¥ÑÌ±…ÍÐÍ…¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡‰…¹¹•È¤¹•Ñ	åQ•áÐ ½Í…¸•áÁ±½‘•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•È¥¹½É•Ì„ÍÑ…±”™…¥±ÕÉ”½¹”„¹•Ý•ÈÍÕ•ÍÍ™Õ°Í…¸•á¥ÍÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ½±‘•É…¥±•èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ½±‘•Èµ™…¥°œ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½É•½Ù•É•œ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÕPÄÀèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÕPÄÀèÀÔèÀÁhœ°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€Í…¸•áÁ±½‘•œ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À(€€€ôì(€€€½¹ÍÐ¹•Ý•ÉMÕ••‘•èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ¹•Ý•ÈµÍÕ•ÍÌœ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½É•½Ù•É•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÀÔèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À(€€€ôì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèl¥‘•¹ÑÉ…¥°½É•½Ù•É•tô°(€€€€€Í…¹Ìèm¹•Ý•ÉMÕ••‘•°½±‘•É…¥±•‘t(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•ÈÍÕÉ™…•Ì„ÑÉ¥…”‰…¹¹•ÈÝ¡•¸±…Ñ•ÍÐÍ…¹Ì¡…Ù”½Á•¸™¥¹‘¥¹Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÉ•Á½]¥Ñ¡¥¹‘¥¹ÌèI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ±…Ñ•ÍÐµ¡…Ìµ™¥¹‘¥¹Ìœ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½É•Á¼µ„œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÈÁPÄÀèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÈÁPÄÀèÀÔèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€È(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèl¥‘•¹ÑÉ…¥°½É•Á¼µ„tô°(€€€€€Í…¹ÌèmÉ•Á½]¥Ñ¡¥¹‘¥¹Ít(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€€€‘…Ñ„µ‰…¹¹•Èµ¥œ°(€€€€€€€€ÑÉ¥…”µ™¥¹‘¥¹Ìœ(€€€€€€¤ì(€€€ô¤ì(€€€½¹ÍÐ‰…¹¹•È€ôÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡‰…¹¹•È¤¹•Ñ	åQ•áÐ ½I•Á½Í¥Ñ½Éä™¥¹‘¥¹Ì¹••ÑÉ¥…•p¸¼¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡‰…¹¹•È¤¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½I•Ù¥•Ü½¤ô¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€¡É•˜œ°(€€€€€•áÁ•Ð¹ÍÑÉ¥¹5…Ñ¡¥¹œ ½p½¥Ñ¡Õ‰p½™¥¹‘¥¹Ì¼¤(€€€€¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•ÈÑÉ¥…”‰…¹¹•È¥¹½É•Ì™¥¹‘¥¹Ì™É½´½±‘•ÈÍ…¹Ì½¹”Ñ¡”±…Ñ•ÍÐÍ…¸¥Ì±•…¸œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÉ•Á¼€ô€¥‘•¹ÑÉ…¥°½É•Á¼µ±•…É•œì(€€€½¹ÍÐ½±‘•É!…‘¥¹‘¥¹ÌèI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€½±‘•Èµ¡…µ™¥¹‘¥¹Ìœ°(€€€€€É•Á½Í¥Ñ½ÉäèÉ•Á¼°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄåPÄÀèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄåPÄÀèÀÔèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ì(€€€ôì(€€€½¹ÍÐ±…Ñ•ÍÑ±•…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€±…Ñ•ÍÐµ±•…¸œ°(€€€€€É•Á½Í¥Ñ½ÉäèÉ•Á¼°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÈÁPÄÀèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÈÁPÄÀèÀÔèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•ÌèmÉ•Á½tô°(€€€€€Í…¹Ìèm±…Ñ•ÍÑ±•…¸°½±‘•É!…‘¥¹‘¥¹Ít(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€ô¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•ÈÑÉ¥…”‰…¹¹•ÈÍÕÉÙ¥Ù•Ì„±…Ñ•È…¹•±•Í…¸½Ù•È„ÍÕ•ÍÍ™Õ°Í…¸Ý¥Ñ ™¥¹‘¥¹Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÉ•Á¼€ô€¥‘•¹ÑÉ…¥°½É•Á¼µ…¹•±•µ…™Ñ•Èµ™¥¹‘¥¹Ìœì(€€€½¹ÍÐÍÕ••‘•‘]¥Ñ¡¥¹‘¥¹ÌèI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€ÍÕ••‘•µÝ¥Ñ µ™¥¹‘¥¹Ìœ°(€€€€€É•Á½Í¥Ñ½ÉäèÉ•Á¼°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄåPÄÀèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄåPÄÀèÀÔèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ì(€€€ôì(€€€½¹ÍÐ…¹•±•‘™Ñ•ÈèI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€…¹•±•µ…™Ñ•Èœ°(€€€€€É•Á½Í¥Ñ½ÉäèÉ•Á¼°(€€€€€ÍÑ…ÑÕÌè€…¹•±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÈÁPÄÀèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÈÁPÄÀèÀÀèÌÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€É•Á½Í¥Ñ½ÉäÍ…¸…¹•±•‰äÕÍ•Èœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•ÌèmÉ•Á½tô°(€€€€€Í…¹Ìèm…¹•±•‘™Ñ•È°ÍÕ••‘•‘]¥Ñ¡¥¹‘¥¹Ít(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€€€‘…Ñ„µ‰…¹¹•Èµ¥œ°(€€€€€€€€ÑÉ¥…”µ™¥¹‘¥¹Ìœ(€€€€€€¤ì(€€€ô¤ì(€€€½¹ÍÐ‰…¹¹•È€ôÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡‰…¹¹•È¤¹•Ñ	åQ•áÐ ½I•Á½Í¥Ñ½Éä™¥¹‘¥¹Ì¹••ÑÉ¥…•p¸¼¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•ÈÍ¡½ÝÌ„Í…¸µ¥¸µÁÉ½É•ÍÌ‰…¹¹•È¥¹ÍÑ•…½˜ÁÉ½µÁÑ¥¹œÑ¼ÅÕ•Õ”…¹½Ñ¡•Èœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÅÕ•Õ•‘¥ÉÍÑM…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€ÅÕ•Õ•µ™¥ÉÍÐœ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥¸µÁÉ½É•ÍÌœ°(€€€€€ÍÑ…ÑÕÌè€ÉÕ¹¹¥¹œœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèl¥‘•¹ÑÉ…¥°½¥¸µÁÉ½É•ÍÌtô°(€€€€€Í…¹ÌèmÅÕ•Õ•‘¥ÉÍÑM…¹t(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€€€‘…Ñ„µ‰…¹¹•Èµ¥œ°(€€€€€€€€Í…¸µ¥¸µÁÉ½É•ÍÌœ(€€€€€€¤ì(€€€ô¤ì(€€€½¹ÍÐ‰…¹¹•È€ôÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡‰…¹¹•È¤¹•Ñ	åQ•áÐ ½M…¸¥¸ÁÉ½É•ÍÌ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡‰…¹¹•È¤¹•Ñ	åQ•áÐ ¥‘•¹ÑÉ…¥°½¥¸µÁÉ½É•ÍÌœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡‰…¹¹•È¤¹ÅÕ•Éå	åQ•áÐ ½EÕ•Õ”Ñ¡”™¥ÉÍÐÉ•Á½Í¥Ñ½ÉäÍ…¸½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹ÑÉ½°•¹Ñ•ÈÍ¡½ÝÌ…¸…Ñ¥Ù”Í…¸‰…¹¹•ÈÝ¡•¸„™…¥±•Í…¸¥Ì‰•¥¹œÉ•ÑÉ¥•œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ™…¥±•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€™…¥±•µÉ•ÑÉäœ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½É•ÑÉå¥¹œµÉ•Á¼œ°(€€€€€ÍÑ…ÑÕÌè€™…¥±•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÙPÄÀèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÙPÄÀèÀÔèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À°(€€€€€•ÉÉ½É}µ•ÍÍ…”è€Í…¸•áÁ±½‘•œ(€€€ôì(€€€½¹ÍÐÉ•ÑÉåM…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•ÑÉäµ¥¸µÁÉ½É•ÍÌœ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½É•ÑÉå¥¹œµÉ•Á¼œ°(€€€€€ÍÑ…ÑÕÌè€ÉÕ¹¹¥¹œœ(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹ÑÉ½°µ•¹Ñ•Èœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèl¥‘•¹ÑÉ…¥°½É•ÑÉå¥¹œµÉ•Á¼tô°(€€€€€Í…¹ÌèmÉ•ÑÉåM…¸°™…¥±•‘M…¹t(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤¤¹Ñ½!…Ù•ÑÑÉ¥‰ÕÑ” (€€€€€€€€‘…Ñ„µ‰…¹¹•Èµ¥œ°(€€€€€€€€Í…¸µ¥¸µÁÉ½É•ÍÌœ(€€€€€€¤ì(€€€ô¤ì(€€€½¹ÍÐ‰…¹¹•È€ôÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ¥Ñ!Õˆ…Ñ¥½¸É•½µµ•¹‘…Ñ¥½¸œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡‰…¹¹•È¤¹ÅÕ•Éå	åQ•áÐ ½™…¥±•¥ÑÌ±…ÍÐÍ…¸½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡‰…¹¹•È¤¹•Ñ	åQ•áÐ ½M…¸¥¸ÁÉ½É•ÍÌ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡‰…¹¹•È¤¹•Ñ	åQ•áÐ ¥‘•¹ÑÉ…¥°½É•ÑÉå¥¹œµÉ•Á¼œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”É•¹‘•ÉÌ…¸=Á•¸¥Ñ!Õˆ™…±±‰…¬±¥¹¬Ý¡•¸Ñ¡”¥¹ÍÑ…±°Á½ÁÕÀ¥Ì‰±½­•œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ½Á•¹MÁä€ôÙ¤¹ÍÁå=¸¡Ý¥¹‘½Ü°€½Á•¸œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø¹Õ±°¤ì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹¹•Ðœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€€€½¹¹•Ñ•è™…±Í”°(€€€€€€€…½Õ¹Ñ}±½¥¸èÕ¹‘•™¥¹•°(€€€€€€€¥¹ÍÑ…±±…Ñ¥½¹}¥èÕ¹‘•™¥¹•°(€€€€€€€Í•±•Ñ•‘}É•Á½Í¥Ñ½É¥•Ìèmt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐ¥¹ÍÑ…±±	ÕÑÑ½¸€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€%¹ÍÑ…±°¥Ñ!ÕˆÁÀœô¤¥lÁtì(€€€™¥É•Ù•¹Ð¹±¥¬¡¥¹ÍÑ…±±	ÕÑÑ½¸¤ì((€€€½¹ÍÐ™…±±‰…¬€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ±¥¹¬œ°ì¹…µ”è€=Á•¸¥Ñ!Õˆœô¤ì(€€€•áÁ•Ð¡™…±±‰…¬¹•ÑÑÑÉ¥‰ÕÑ” ¡É•˜œ¤¤¹Ñ½	” (€€€€€€¡ÑÑÁÌè¼½¥Ñ¡Õˆ¹½´½…ÁÁÌ½¥‘•¹ÑÉ…¥°½¥¹ÍÑ…±±…Ñ¥½¹Ì½Í•±•Ñ}Ñ…É•ÐýÍÑ…Ñ”õ¥Ñ¡ÕˆµÍÑ…Ñ”œ(€€€€¤ì(€€€•áÁ•Ð¡½Á•¹MÁä¤¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€½Á•¹MÁä¹µ½­I•ÍÑ½É” ¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”Í¡½ÝÌÑ¡”µ…¹…”Ù¥•ÜÝ¥Ñ ¥¹ÍÑ…±±…Ñ¥½¸™…ÑÌÝ¡•¸…±É•…‘ä½¹¹•Ñ•œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹¹•Ðœ°ì¥Ñ¡Õ‰½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€½¹¹•Ð¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½%¹ÍÑ…±±…Ñ¥½¸€ÄÈÌÐÔ½¤¤ì(€€€½¹ÍÐ¥¹ÍÑ…±±…Ñ¥½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€¥Ñ!Õˆ¥¹ÍÑ…±±…Ñ¥½¸œô¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡¥¹ÍÑ…±±…Ñ¥½¸¤¹•Ñ	åQ•áÐ ½Õ¹Ðœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡¥¹ÍÑ…±±…Ñ¥½¸¤¹•Ñ	åQ•áÐ ¥‘•¹ÑÉ…¥°œ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡¥¹ÍÑ…±±…Ñ¥½¸¤¹•Ñ	åQ•áÐ M•±•Ñ•É•Á½Í¥Ñ½É¥•Ìœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼Q¡”É•¥¹ÍÑ…±°…™™½É‘…¹”…¹Ñ¡”¹Ñ•ÉÁÉ¥Í”½APµ…¹…•µ•¹Ð½¹ÑÉ½°…É”(€€€€¼¼‰½Ñ É•…¡…‰±”™É½´Ñ¡”µ…¹…”Ù¥•Ü¸(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡¥¹ÍÑ…±±…Ñ¥½¸¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€%¹ÍÑ…±°¥Ñ!ÕˆÁÀœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡¥¹ÍÑ…±±…Ñ¥½¸¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½5…¹…”¹Ñ•ÉÁÉ¥Í”p¼AP½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼Q¡”Á…”µÕÍÐ¹½Ð…±Í¼É•¹‘•ÈÑ¡”‘¥Í½¹¹•Ñ•€‰%¹ÍÑ…±°Ñ¡”%‘•¹ÑÉ…¥°(€€€€¼¼¥Ñ!ÕˆÁÀˆ¥¹ÍÑ…±°…É½¸Ñ½À½˜Ñ¡”µ…¹…”Ù¥•Ü¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” É•¥½¸œ°ì¹…µ”è€%¹ÍÑ…±°¥Ñ!ÕˆÁÀœô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”­••ÁÌÍ…¸Á½±¥äµ…¹…•µ•¹ÐÉ•…¡…‰±”œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” ½¹¹•Ðœ°ì(€€€€€¥Ñ¡Õ‰½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€Í…¹A½±¥¥•Ìèm‘•™…Õ±ÑM…¹A½±¥åt(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€½¹¹•Ð¥Ñ!Õˆœô¤ì(€€€½¹ÍÐÁ½±¥åA…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€M…¸Á½±¥äµ…¹…•µ•¹Ðœô¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹•Ñ	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€M…¸Á½±¥äœô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹•Ñ	åQ•áÐ •™…Õ±ÐÁ½±¥äœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì±¥µ¥Ðè€ÔÀ°Í½ÉÑ}‰äè€ÕÁ‘…Ñ•‘}…Ðœ°Í½ÉÑ}½É‘•Èè€‘•ÍŒœô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½QÉ¥•Èµ½‘”½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€¡å‰É¥œôô¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½É½¸Í¡•‘Õ±”½¤¤°ìÑ…É•ÐèìÙ…±Õ”è€œÀ€¨€¨€¨€¨œôô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½M…Ù”Í…¸Á½±¥ä½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹ÕÁÍ•ÉÑAÉ½©•ÑM…¹A½±¥ä¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ì(€€€€€€€€€Á½±¥å}¥è€‘•™…Õ±Ðœ°(€€€€€€€€€ÑÉ¥•É}µ½‘”è€¡å‰É¥œ°(€€€€€€€€€É½¸è€œÀ€¨€¨€¨€¨œ(€€€€€€€ô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì((€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½y•±•Ñ”½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡µ½­Ì¹‘•±•Ñ•AÉ½©•ÑM…¹A½±¥ä¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€€‘•™…Õ±Ðœ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”¥¹½É•ÌÍÑ…±”Í…¸Á½±¥äÉ•ÍÁ½¹Í•Ì…™Ñ•È•¹Ù¥É½¹µ•¹Ð¡…¹•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÍÑ…¥¹AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì(€€€½¹ÍÐÁÉ½‘ÕÑ¥½¹A½±¥å1½…€ô‘•™•ÉÉ•ñì¥Ñ•µÌèM…¹A½±¥åI•½É‘mtôø ¤ì(€€€½¹ÍÐÍÑ…¥¹A½±¥å1½…€ô‘•™•ÉÉ•ñì¥Ñ•µÌèM…¹A½±¥åI•½É‘mtôø ¤ì(€€€½¹ÍÐÁÉ½‘ÕÑ¥½¹A½±¥äèM…¹A½±¥åI•½É€ôì(€€€€€€¸¸¹‘•™…Õ±ÑM…¹A½±¥ä°(€€€€€Á½±¥å}¥è€ÁÉ½‘ÕÑ¥½¸µ½¹±äœ°(€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸ÍÑ…±”Á½±¥äœ(€€€ôì(€€€½¹ÍÐÍÑ…¥¹A½±¥äèM…¹A½±¥åI•½É€ôì(€€€€€€¸¸¹‘•™…Õ±ÑM…¹A½±¥ä°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€Á½±¥å}¥è€ÍÑ…¥¹œµ½¹±äœ°(€€€€€¹…µ”è€MÑ…¥¹œÁ½±¥äœ(€€€ôì((€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°ÍÑ…¥¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ìÁÉ½©•ÐèÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹AÉ½©•Ð€èÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€½¹ÍÐ±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ìœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ (€€€€€€¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€€€ÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹A½±¥å1½…¹ÁÉ½µ¥Í”€èÁÉ½‘ÕÑ¥½¹A½±¥å1½…¹ÁÉ½µ¥Í”(€€€€¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€•áÁ•Ð¹…¹åÑ¡¥¹œ ¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€€€•áÁ•Ð¹…¹åÑ¡¥¹œ ¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€ÍÑ…¥¹A½±¥å1½…¹É•Í½±Ù”¡ì¥Ñ•µÌèmÍÑ…¥¹A½±¥åtô¤ì(€€€ô¤ì(€€€½¹ÍÐÁ½±¥åA…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€M…¸Á½±¥äµ…¹…•µ•¹Ðœô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÝ¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹™¥¹‘	åQ•áÐ MÑ…¥¹œÁ½±¥äœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€ÁÉ½‘ÕÑ¥½¹A½±¥å1½…¹É•Í½±Ù”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹A½±¥åtô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹•Ñ	åQ•áÐ MÑ…¥¹œÁ½±¥äœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹ÅÕ•Éå	åQ•áÐ AÉ½‘ÕÑ¥½¸ÍÑ…±”Á½±¥äœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”É•Í•ÑÌÍ…¸Á½±¥ä‘É…™ÑÌ™½È•µÁÑä•¹Ù¥É½¹µ•¹ÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÍÑ…¥¹AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì(€€€½¹ÍÐÁÉ½‘ÕÑ¥½¹A½±¥äèM…¹A½±¥åI•½É€ôì(€€€€€€¸¸¹‘•™…Õ±ÑM…¹A½±¥ä°(€€€€€Á½±¥å}¥è€ÁÉ½‘ÕÑ¥½¸µ•Ù•¹ÐµÁ½±¥äœ°(€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ°(€€€€€ÑÉ¥•É}µ½‘”è€•Ù•¹Ðœ(€€€ôì((€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°ÍÑ…¥¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ìÁÉ½©•ÐèÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹AÉ½©•Ð€èÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ìœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ì¥Ñ•µÌèÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€ümt€èmÁÉ½‘ÕÑ¥½¹A½±¥åtô¤(€€€€¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å¥ÍÁ±…åY…±Õ” AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€ô¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÍÉ••¸¹•Ñ	åI½±” É•¥½¸œ°ì¹…µ”è€M…¸Á½±¥äµ…¹…•µ•¹Ðœô¤¤¹•Ñ	å1…‰•±Q•áÐ ½A½±¥ä¹…µ”½¤¤¤(€€€€€€€€¹Ñ½!…Ù•Y…±Õ” •™…Õ±ÐÁ½±¥äœ¤(€€€€¤ì(€€€½¹ÍÐÕÉÉ•¹ÑA½±¥åA…¹•°€ôÍÉ••¸¹•Ñ	åI½±” É•¥½¸œ°ì¹…µ”è€M…¸Á½±¥äµ…¹…•µ•¹Ðœô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å¥ÍÁ±…åY…±Õ” AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÕÉÉ•¹ÑA½±¥åA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½QÉ¥•Èµ½‘”½¤¤¤¹Ñ½!…Ù•Y…±Õ” µ…¹Õ…°œ¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”É•Í•ÑÌÍ…¸Á½±¥ä‘É…™ÑÌÝ¡•¸•¹Ù¥É½¹µ•¹ÐÁ½±¥ä±½…‘¥¹œ™…¥±Ìœ°…Íå¹Œ€ ¤€ôøì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÍÑ…¥¹AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì(€€€½¹ÍÐÁÉ½‘ÕÑ¥½¹A½±¥äèM…¹A½±¥åI•½É€ôì(€€€€€€¸¸¹‘•™…Õ±ÑM…¹A½±¥ä°(€€€€€Á½±¥å}¥è€ÁÉ½‘ÕÑ¥½¸µ•Ù•¹ÐµÁ½±¥äœ°(€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ°(€€€€€ÑÉ¥•É}µ½‘”è€•Ù•¹Ðœ(€€€ôì((€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°ÍÑ…¥¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ìÁÉ½©•ÐèÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹AÉ½©•Ð€èÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ìœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€ÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€€€€€€üAÉ½µ¥Í”¹É•©•Ð¡¹•Ü…Á¤¹Á¥ÉÉ½È Í…¸Á½±¥äÕ¹…Ù…¥±…‰±”œ°€ÔÀÌ¤¤(€€€€€€€€èAÉ½µ¥Í”¹É•Í½±Ù”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹A½±¥åtô¤(€€€€¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å¥ÍÁ±…åY…±Õ” AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” …±•ÉÐœ¤ì(€€€½¹ÍÐÕÉÉ•¹ÑA½±¥åA…¹•°€ôÍÉ••¸¹•Ñ	åI½±” É•¥½¸œ°ì¹…µ”è€M…¸Á½±¥äµ…¹…•µ•¹Ðœô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å¥ÍÁ±…åY…±Õ” AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÕÉÉ•¹ÑA½±¥åA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½A½±¥ä¹…µ”½¤¤¤¹Ñ½!…Ù•Y…±Õ” •™…Õ±ÐÁ½±¥äœ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÕÉÉ•¹ÑA½±¥åA…¹•°¤¹•Ñ	å1…‰•±Q•áÐ ½QÉ¥•Èµ½‘”½¤¤¤¹Ñ½!…Ù•Y…±Õ” µ…¹Õ…°œ¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”¥¹½É•ÌÍÑ…±”Í…¸Á½±¥äÍ…Ù•Ì…™Ñ•È•¹Ù¥É½¹µ•¹Ð¡…¹•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÍÑ…¥¹AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì(€€€½¹ÍÐÁÉ½‘ÕÑ¥½¹A½±¥äèM…¹A½±¥åI•½É€ôì(€€€€€€¸¸¹‘•™…Õ±ÑM…¹A½±¥ä°(€€€€€Á½±¥å}¥è€ÁÉ½‘ÕÑ¥½¸µ•Ù•¹ÐµÁ½±¥äœ°(€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ°(€€€€€ÑÉ¥•É}µ½‘”è€•Ù•¹Ðœ(€€€ôì(€€€½¹ÍÐÍÑ…¥¹A½±¥å1½…€ô‘•™•ÉÉ•ñì¥Ñ•µÌèM…¹A½±¥åI•½É‘mtôø ¤ì(€€€½¹ÍÐÍ…Ù•A½±¥ä€ô‘•™•ÉÉ•ñìÁ½±¥äèM…¹A½±¥åI•½Éôø ¤ì((€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°ÍÑ…¥¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ìÁÉ½©•ÐèÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹AÉ½©•Ð€èÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€½¹ÍÐ±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ìœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ (€€€€€€¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€€€ÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹A½±¥å1½…¹ÁÉ½µ¥Í”€èAÉ½µ¥Í”¹É•Í½±Ù”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹A½±¥åtô¤(€€€€¤ì(€€€½¹ÍÐÕÁÍ•ÉÑAÉ½©•ÑM…¹A½±¥ä€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÕÁÍ•ÉÑAÉ½©•ÑM…¹A½±¥äœ¤(€€€€€€¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôøÍ…Ù•A½±¥ä¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€½¹ÍÐÁ½±¥åA…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€M…¸Á½±¥äµ…¹…•µ•¹Ðœô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÝ¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹™¥¹‘	å¥ÍÁ±…åY…±Õ” AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½M…Ù”Í…¸Á½±¥ä½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡ÕÁÍ•ÉÑAÉ½©•ÑM…¹A½±¥ä¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÁ½±¥å}¥è€ÁÉ½‘ÕÑ¥½¸µ•Ù•¹ÐµÁ½±¥äœô¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€€€•áÁ•Ð¹…¹åÑ¡¥¹œ ¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€ÍÑ…¥¹A½±¥å1½…¹É•Í½±Ù”¡ì¥Ñ•µÌèmtô¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½A½±¥ä¹…µ”½¤¤¤¹Ñ½!…Ù•Y…±Õ” •™…Õ±ÐÁ½±¥äœ¤¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€Í…Ù•A½±¥ä¹É•Í½±Ù”¡ìÁ½±¥äèì€¸¸¹ÁÉ½‘ÕÑ¥½¹A½±¥ä°¹…µ”è€M…Ù•ÁÉ½‘ÕÑ¥½¸Á½±¥äœôô¤ì(€€€ô¤ì((€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ M…¸Á½±¥äÍ…Ù•¸œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å¥ÍÁ±…åY…±Õ” M…Ù•ÁÉ½‘ÕÑ¥½¸Á½±¥äœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì¹µ½¬¹…±±Ì¹™¥±Ñ•È ¡…±°¤€ôø…±±lÅt€ôôô€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ¤¤¹Ñ½!…Ù•1•¹Ñ  Ä¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”¥¹½É•ÌÍÑ…±”Í…¸Á½±¥ä‘•±•Ñ•Ì…™Ñ•È•¹Ù¥É½¹µ•¹Ð¡…¹•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÍÑ…¥¹AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì(€€€½¹ÍÐÁÉ½‘ÕÑ¥½¹A½±¥äèM…¹A½±¥åI•½É€ôì(€€€€€€¸¸¹‘•™…Õ±ÑM…¹A½±¥ä°(€€€€€Á½±¥å}¥è€ÁÉ½‘ÕÑ¥½¸µ•Ù•¹ÐµÁ½±¥äœ°(€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ°(€€€€€ÑÉ¥•É}µ½‘”è€•Ù•¹Ðœ(€€€ôì(€€€½¹ÍÐÍÑ…¥¹A½±¥å1½…€ô‘•™•ÉÉ•ñì¥Ñ•µÌèM…¹A½±¥åI•½É‘mtôø ¤ì(€€€½¹ÍÐ‘•±•Ñ•A½±¥ä€ô‘•™•ÉÉ•ñÙ½¥ø ¤ì((€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°ÍÑ…¥¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ìÁÉ½©•ÐèÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹AÉ½©•Ð€èÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€½¹ÍÐ±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ìœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ (€€€€€€¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€€€ÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹A½±¥å1½…¹ÁÉ½µ¥Í”€èAÉ½µ¥Í”¹É•Í½±Ù”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹A½±¥åtô¤(€€€€¤ì(€€€½¹ÍÐ‘•±•Ñ•AÉ½©•ÑM…¹A½±¥ä€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€‘•±•Ñ•AÉ½©•ÑM…¹A½±¥äœ¤(€€€€€€¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôø‘•±•Ñ•A½±¥ä¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€½¹ÍÐÁ½±¥åA…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” É•¥½¸œ°ì¹…µ”è€M…¸Á½±¥äµ…¹…•µ•¹Ðœô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÝ¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹™¥¹‘	åQ•áÐ AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡Á½±¥åA…¹•°¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½y•±•Ñ”½¤ô¤¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡‘•±•Ñ•AÉ½©•ÑM…¹A½±¥ä¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€€ÁÉ½‘ÕÑ¥½¸µ•Ù•¹ÐµÁ½±¥äœ°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  (€€€€€€€€Ý½É­ÍÁ…”µ„œ°(€€€€€€€€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€€€•áÁ•Ð¹…¹åÑ¡¥¹œ ¤°(€€€€€€€•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÑ•¹…¹Ñ%è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•%è€Ý½É­ÍÁ…”µ„œô¤(€€€€€€¤(€€€€¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€ÍÑ…¥¹A½±¥å1½…¹É•Í½±Ù”¡ì¥Ñ•µÌèmtô¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ ½A½±¥ä¹…µ”½¤¤¤¹Ñ½!…Ù•Y…±Õ” •™…Õ±ÐÁ½±¥äœ¤¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€‘•±•Ñ•A½±¥ä¹É•Í½±Ù” ¤ì(€€€ô¤ì((€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ M…¸Á½±¥äÁÉ½‘ÕÑ¥½¸µ•Ù•¹ÐµÁ½±¥ä‘•±•Ñ•¸œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ì¹µ½¬¹…±±Ì¹™¥±Ñ•È ¡…±°¤€ôø…±±lÅt€ôôô€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ¤¤¹Ñ½!…Ù•1•¹Ñ  Ä¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”±•…ÉÌ½±Í…¸Á½±¥äÉ½ÝÌÝ¡¥±”±½…‘¥¹œ„¹•Ü•¹Ù¥É½¹µ•¹Ðœ°…Íå¹Œ€ ¤€ôøì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€½¹ÍÐÍÑ…¥¹AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì(€€€½¹ÍÐÁÉ½‘ÕÑ¥½¹A½±¥äèM…¹A½±¥åI•½É€ôì(€€€€€€¸¸¹‘•™…Õ±ÑM…¹A½±¥ä°(€€€€€Á½±¥å}¥è€ÁÉ½‘ÕÑ¥½¸µ•Ù•¹ÐµÁ½±¥äœ°(€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ°(€€€€€ÑÉ¥•É}µ½‘”è€•Ù•¹Ðœ(€€€ôì(€€€½¹ÍÐÍÑ…¥¹A½±¥å1½…€ô‘•™•ÉÉ•ñì¥Ñ•µÌèM…¹A½±¥åI•½É‘mtôø ¤ì((€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°ÍÑ…¥¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€AÉ½µ¥Í”¹É•Í½±Ù”¡ìÁÉ½©•ÐèÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹AÉ½©•Ð€èÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑM…¹A½±¥¥•Ìœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ ¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø(€€€€€ÁÉ½©•Ñ%€ôôô€ÍÑ…¥¹œµÁ±…Ñ™½É´œ€üÍÑ…¥¹A½±¥å1½…¹ÁÉ½µ¥Í”€èAÉ½µ¥Í”¹É•Í½±Ù”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹A½±¥åtô¤(€€€€¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½½¹¹•Ðˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€™¥É•Ù•¹Ð¹¡…¹”¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€ô¤ì((€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ AÉ½‘ÕÑ¥½¸•Ù•¹ÐÁ½±¥äœ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½y•±•Ñ”½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½¹¹•ÐÁ…”¡¥‘•ÌÑ¡”¥¹ÍÑ…±°½µ…¹…”‰½‘äÝ¡•¸Ñ¡”½¹¹•Ñ¥½¸ÍÑ…ÑÕÌÉ•ÅÕ•ÍÐ™…¥±Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁÉ½‘ÕÑ¥½¹AÉ½©•Ñtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÁÉ½©•ÐèÁÉ½‘ÕÑ¥½¹AÉ½©•Ðô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•©•Ñ•‘Y…±Õ” (€€€€€¹•Ü…Á¤¹Á¥ÉÉ½È É…Ñ”±¥µ¥Ñ•œ°€ÐÈä¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½½¹¹•Ðuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½½¹¹•Ðˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰½¹¹•ÑA…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€½¹¹•Ð¥Ñ!Õˆœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½U¹…‰±”Ñ¼±½…½¹¹•Ñ¥½¸ÍÑ…ÑÕÌ½¤ô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” É•¥½¸œ°ì¹…µ”è€%¹ÍÑ…±°¥Ñ!ÕˆÁÀœô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” É•¥½¸œ°ì¹…µ”è€¥Ñ!Õˆ¥¹ÍÑ…±±…Ñ¥½¸œô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼]¡•¸Ñ¡”ÍÑ…ÑÕÌÉ•ÅÕ•ÍÐ™…¥±ÌÑ¡”½¹¹•Ñ¥½¸ÍÑ…Ñ”¥ÌÕ¹­¹½Ý¸°Í¼(€€€€¼¼Ñ¡”¡•…‘•ÈµÕÍÐ¹½Ð±…¥´€‰9½Ð½¹¹•Ñ•ˆ…¹µÕÍÐ¹½ÐÍÕÉ™…”„(€€€€¼¼ÍÁ•Õ±…Ñ¥Ù”¥¹ÍÑ…±°½½Á•¸QƒŠPÑ¡”•ÉÉ½ÈÁ…¹•°¥ÌÑ¡”Í¥¹±”(€€€€¼¼Í½ÕÉ”½˜ÑÉÕÑ ¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½9½Ð½¹¹•Ñ•™½ÈÑ¡¥Ì•¹Ù¥É½¹µ•¹Ñp¸½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½U¹…‰±”Ñ¼±½…¥Ñ!ÕˆÍÑ…ÑÕÍp¸½¤¤ì(€€€•áÁ•Ð¡‘½Õµ•¹Ð¹ÅÕ•ÉåM•±•Ñ½È œ¹¥‘Ðµ‘½µ…¥¸µ¡•…‘•Èµ…Ñ¥½¹Ìœ¤¤¹Ñ½	•9Õ±° ¤ì(€€€•áÁ•Ð (€€€€€ÍÉ••¸¹ÅÕ•Éå±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½%¹ÍÑ…±°¥Ñ!ÕˆÁÀ½¤ô¤(€€€€¤¹Ñ½!…Ù•1•¹Ñ  À¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”…Ñ¥Ù¥ÑäÑ¥µ•±¥¹”¥¹½É•ÌÍ…¹Ì™½ÈÕ¹Í•±•Ñ•É•Á½Í¥Ñ½É¥•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÕ¹É•±…Ñ•‘M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÕ¹É•±…Ñ•œ°(€€€€€É•Á½Í¥Ñ½Éäè€Í½µ•½¹”µ•±Í”½½Ñ¡•ÈµÉ•Á¼œ(€€€ôì(€€€…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ìÍ…¹ÌèmÕ¹É•±…Ñ•‘M…¹tô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€I••¹Ð…Ñ¥Ù¥Ñäœô¤ì(€€€½¹ÍÐ…Ñ¥Ù¥Ñä€ôÍÉ••¸¹•Ñ	åI½±” É•¥½¸œ°ì¹…µ”è€I••¹ÐÉ•Á½Í¥Ñ½ÉäÍ…¸…Ñ¥Ù¥Ñäœô¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡…Ñ¥Ù¥Ñä¤¹•Ñ	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½9¼É•Á½Í¥Ñ½ÉäÍ…¹ÌÉ•½É‘•å•Ð½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½Í½µ•½¹”µ•±Í•p½½Ñ¡•ÈµÉ•Á¼½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”™•Ñ¡•Ì…‘‘¥Ñ¥½¹…°Í…¸Á…•ÌÕ¹Ñ¥°Í•±•Ñ•µÉ•Á½Í¥Ñ½Éä…Ñ¥Ù¥Ñä¥Ì…Ù…¥±…‰±”œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐÕ¹É•±…Ñ•‘I•Á½M…¹ÌèI•Á½M…¹I•½É‘mt€ôÉÉ…ä¹™É½´¡ì±•¹Ñ è€Ìô¤¹µ…À ¡|°¥¹‘•à¤€ôø€¡ì(€€€€€€¸¸¹ÍÕ••‘•‘I•Á½M…¸°(€€€€€¥èÉ•Á¼µÍ…¸µÕ¹É•±…Ñ•´‘í¥¹‘•áõ€°(€€€€€É•Á½Í¥Ñ½ÉäèÑ•…´´‘í¥¹‘•à€¬€Åô½Õ¹É•±…Ñ•‘€(€€€ô¤¤ì(€€€½¹ÍÐÍ•±•Ñ•‘I•Á½M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹ÅÕ•Õ•‘I•Á½M…¸°(€€€€€¥è€É•Á¼µÍ…¸µÍ•±•Ñ•œ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°(€€€€€ÍÑ…ÑÕÌè€½µÁ±•Ñ•œ°(€€€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄáPÄÀèÀÀèÀÁhœ°(€€€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄáPÄÀèÀÌèÀÁhœ°(€€€€€™¥¹‘¥¹}½Õ¹Ðè€È°(€€€€€™¥±•Í}Í…¹¹•è€ÄÜ(€€€ôì((€€€±•ÐÁ…•…±±Ì€ô€Àì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ì(€€€€€±¥ÍÑI•Á½M…¹Ìè€ ¤€ôøì(€€€€€€€Á…•…±±Ì€¬ô€Äì(€€€€€€€¥˜€¡Á…•…±±Ì€ôôô€Ä¤ì(€€€€€€€€€É•ÑÕÉ¸AÉ½µ¥Í”¹É•Í½±Ù”¡ì(€€€€€€€€€€€¥Ñ•µÌèÕ¹É•±…Ñ•‘I•Á½M…¹Ì°(€€€€€€€€€€€¹•áÑ}ÕÉÍ½Èè€É•Á¼µÁ…”´Èœ(€€€€€€€€€ô¤ì(€€€€€€€ô(€€€€€€€É•ÑÕÉ¸AÉ½µ¥Í”¹É•Í½±Ù”¡ì(€€€€€€€€€¥Ñ•µÌèmÍ•±•Ñ•‘I•Á½M…¹t(€€€€€€€ô¤ì(€€€€€ô(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡µ½­Ì¹±¥ÍÑI•Á½M…¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôøì(€€€€€½¹ÍÐ…Ñ¥Ù¥Ñä€ôÍÉ••¸¹•Ñ	åI½±” É•¥½¸œ°ì¹…µ”è€I••¹ÐÉ•Á½Í¥Ñ½ÉäÍ…¸…Ñ¥Ù¥Ñäœô¤ì(€€€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡…Ñ¥Ù¥Ñä¤¹•Ñ±±	åQ•áÐ ½¥‘•¹ÑÉ…¥±p½¥‘•¹ÑÉ…¥°½¤¤¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ À¤ì(€€€ô¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ±±	åQ•áÐ ½¥‘•¹ÑÉ…¥±p½¥‘•¹ÑÉ…¥°½¤¤¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ Ä¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”±•…ÉÌÍÑ…±”¥Ñ!Õˆ½¹¹•Ñ¥½¸‘…Ñ„Ý¡•¸„É•±½…‘¥¹œ•¹Ù¥É½¹µ•¹ÐÍÑ…ÑÕÌ™…¥±Ìœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì((€€€½¹ÍÐ…Ñ¥Ù•AÉ½©•Ð€ôÁÉ½‘ÕÑ¥½¹AÉ½©•Ðì(€€€½¹ÍÐÍÑ…±•AÉ½©•Ð€ôì(€€€€€€¸¸¹ÁÉ½‘ÕÑ¥½¹AÉ½©•Ð°(€€€€€ÁÉ½©•Ñ}¥è€ÍÑ…¥¹œµÁ±…Ñ™½É´œ°(€€€€€¹…µ”è€MÑ…¥¹œA±…Ñ™½É´œ°(€€€€€Í±Õœè€ÍÑ…¥¹œµÁ±…Ñ™½É´œ(€€€ôì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèm…Ñ¥Ù•AÉ½©•Ð°ÍÑ…±•AÉ½©•Ñt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡}Ý½É­ÍÁ…•%°ÁÉ½©•Ñ%¤€ôø€¡ì(€€€€€ÁÉ½©•Ðè(€€€€€€€ÁÉ½©•Ñ%€ôôôÍÑ…±•AÉ½©•Ð¹ÁÉ½©•Ñ}¥(€€€€€€€€€€üÍÑ…±•AÉ½©•Ð(€€€€€€€€€€è…Ñ¥Ù•AÉ½©•Ð(€€€ô¤¤ì((€€€½¹ÍÐ•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ€ôÙ¤(€€€€€€¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤(€€€€€€¹µ½­I•Í½±Ù•‘Y…±Õ•=¹”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤(€€€€€€¹µ½­I•©•Ñ•‘Y…±Õ”¡¹•Ü…Á¤¹Á¥ÉÉ½È ÍÑ…ÑÕÌ•¹‘Á½¥¹ÐÕ¹…Ù…¥±…‰±”œ°€ÔÀÌ¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÅÕ•Õ•‘I•Á½M…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÉÕ¹I•Á½M…¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÉ•Á½}Í…¸èÅÕ•Õ•‘I•Á½M…¸ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€…¹•±I•Á½M…¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ìÉ•Á½}Í…¸è…¹•±•‘I•Á½M…¸ô¤ì((€€€½¹ÍÐìAÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½É¥•ÍA…”ô€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõílœ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´uôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ìˆ•±•µ•¹ÐõìñAÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½É¥•ÍA…”€¼ùô€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è€I•Á½Í¥Ñ½É¥•Ìœô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤¤¹Ñ½!…Ù•Y…±Õ” ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ¤¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€EÕ•Õ”Í…¸™½È¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹¡…¹”¡ÍÉ••¸¹•Ñ	åI½±” ½µ‰½‰½àœ°ì¹…µ”è€¹Ù¥É½¹µ•¹Ðœô¤°ì(€€€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÍÑ…¥¹œµÁ±…Ñ™½É´œô(€€€€€ô¤ì(€€€ô¤ì((€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½U¹…‰±”Ñ¼±½…É•Á½Í¥Ñ½ÉäÍÑ…ÑÕÌ½¤ô¤ì(€€€€¼¼™Ñ•ÈÑ¡”É•±½…‘¥¹œÍÑ…ÑÕÌÉ•ÅÕ•ÍÐ™…¥±ÌÑ¡”ÍÑ…±”EÕ•Õ”Í…¸(€€€€¼¼…™™½É‘…¹”¥Ì‘É½ÁÁ•…¹Ñ¡”‰½‘ä¥ÌÍÕÁÁÉ•ÍÍ•Í¼Ñ¡”•ÉÉ½È(€€€€¼¼Á…¹•°ÍÑ…åÌÑ¡”Í¥¹±”Í½ÕÉ”½˜ÑÉÕÑ ƒŠPÑ¡”Á…”µÕÍÐ¹½Ð…±Í¼(€€€€¼¼É•¹‘•È„ÍÁ•Õ±…Ñ¥Ù”€‰½¹¹•Ð¥Ñ!ÕˆÑ¼µ…¹…”É•Á½Í¥Ñ½É¥•Ìˆ(€€€€¼¼•µÁÑäÍÑ…Ñ”½™˜…¸•ÉÉ½É•ÍÑ…ÑÕÌ¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€EÕ•Õ”Í…¸™½È¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½½¹¹•Ð¥Ñ!ÕˆÑ¼µ…¹…”É•Á½Í¥Ñ½É¥•Ì½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” É•¥½¸œ°ì¹…µ”è€M•±•Ñ•É•Á½Í¥Ñ½É¥•Ìœô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½U¹…‰±”Ñ¼±½…É•Á½Í¥Ñ½É¥•Íp¸½¤¤ì((€€€•áÁ•Ð¡•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì È¤ì(€ô¤ì((€¥Ð I•Á½Í¥Ñ½É¥•ÌÁ…”‘¥Í…‰±•ÌEÕ•Õ”Í…¸Ý¡¥±”•¹Ù¥É½¹µ•¹Ð‘…Ñ„¥ÌÉ•±½…‘¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐµ½­Ì€ô…Ý…¥ÐÉ•¹‘•É¥Ñ!Õ‰A…” É•Á½Í¥Ñ½É¥•Ìœ°ìÍ…¹Ìèmtô¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€EÕ•Õ”Í…¸™½È¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œô¤¤¹¹½Ð¹Ñ½	•¥Í…‰±• ¤ì((€€€±•ÐÉ•Í½±Ù•EÕ•Õ•è€ ¡Ù…±Õ”èìÉ•Á½}Í…¸èI•Á½M…¹I•½Éô¤€ôøÙ½¥¤ð¹Õ±°€ô¹Õ±°ì(€€€±•ÐÉ•Í½±Ù•A•¹‘¥¹œè€ ¡Ù…±Õ”èì¥Ñ•µÌèI•Á½M…¹I•½É‘mtô¤€ôøÙ½¥¤ð¹Õ±°€ô¹Õ±°ì(€€€µ½­Ì¹ÉÕ¹I•Á½M…¸¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ (€€€€€€ ¤€ôø(€€€€€€€¹•ÜAÉ½µ¥Í” ¡É•Í½±Ù”¤€ôøì(€€€€€€€€€É•Í½±Ù•EÕ•Õ•€ôÉ•Í½±Ù”ì(€€€€€€€ô¤(€€€€¤ì(€€€µ½­Ì¹±¥ÍÑI•Á½M…¹Ì¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸ (€€€€€€ ¤€ôø(€€€€€€€¹•ÜAÉ½µ¥Í” ¡É•Í½±Ù”¤€ôøì(€€€€€€€€€É•Í½±Ù•A•¹‘¥¹œ€ôÉ•Í½±Ù”ì(€€€€€€€ô¤(€€€€¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€EÕ•Õ”Í…¸™½È¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œô¤¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡µ½­Ì¹ÉÕ¹I•Á½M…¸¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€EÕ•Õ”Í…¸™½È¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œô¤¤¹Ñ½	•¥Í…‰±• ¤¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€EÕ•Õ”Í…¸™½È¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œô¤¤¹Ñ½!…Ù•Q•áÑ½¹Ñ•¹Ð ½I•™É•Í¡¥¹ñEÕ•Õ¥¹œ½¤¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€É•Í½±Ù•EÕ•Õ•ü¸¡ìÉ•Á½}Í…¸èÅÕ•Õ•‘I•Á½M…¸ô¤ì(€€€€€…Ý…¥ÐAÉ½µ¥Í”¹É•Í½±Ù” ¤ì(€€€ô¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€É•Í½±Ù•A•¹‘¥¹œü¸¡ì¥Ñ•µÌèmtô¤ì(€€€€€…Ý…¥ÐAÉ½µ¥Í”¹É•Í½±Ù” ¤ì(€€€ô¤ì(€ô¤ì)ô¤ì((¼¼]½É­ÍÁ…”…¹•Èi½¹”ƒŠPAH€Ì½˜€ŒÄÐÈÀ¸(¼¼(¼¼Q¡•Í”½Ù•ÈÑ¡”½Ý¹•Èµ½¹±äÝ½É­ÍÁ…”±¥™•å±”½¹ÑÉ½±Ì…ÁÁ•¹‘•Ñ¼Ñ¡”(¼¼•á¥ÍÑ¥¹œM•ÑÑ¥¹Ì…¹•Èi½¹”…ÉèÝ¡¥ É½ÝÌÍ¡½ÜÁ•ÈÉ½±”€¬±¥™•å±”(¼¼ÍÑ…Ñ”°Ñ¡”ÑåÁ”µÑ¼µ½¹™¥É´…Ñ”½¸MÕÍÁ•¹½•±•Ñ”°Ñ¡”¡•­‰½à½¹™¥É´(¼¼½¸Ñ¡”É•ÍÑ½É…Ñ¥Ù”I•…Ñ¥Ù…Ñ”½I•ÍÑ½É”°…¹Ñ¡”¥¹±¥¹”Í½±”µ½Ý¹•È‰±½¬(¼¼€¡Ý¥Ñ ‘••À±¥¹¬Ñ¼Ñ¡”µ•µ‰•Èµµ…¹…•µ•¹ÐÍÉ••¸¤Ý¡•¸Ñ¡”‰…­•¹(¼¼É•ÑÕÉ¹Ì€ÐÀäÍ½±•}½Ý¹•É}É•ÅÕ¥É•Í}ÑÉ…¹Í™•É€¸)‘•ÍÉ¥‰” ]½É­ÍÁ…”…¹•Èi½¹”€ ŒÄÐÈÀ¤œ°€ ¤€ôøì(€½¹ÍÐ½Ý¹•É]½É­ÍÁ…•¥áÑÕÉ”€ôì(€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°(€€€Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°(€€€‘¥ÍÁ±…å}¹…µ”è€]½É­ÍÁ…”œ°(€€€Í±Õœè€Ý½É­ÍÁ…”µ„œ°(€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÙPÄÀèÀÀèÀÁhœ°(€€€ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÙPÄÀèÀÀèÀÁhœ(€ôì(€½¹ÍÐ½Ý¹•É5”èÕÉÉ•¹ÑUÍ•É½¹Ñ•áÐ€ôì(€€€€¸¸¹±½•‘%¹]¥Ñ¡]½É­ÍÁ…”°(€€€É½±”è€½Ý¹•Èœ°(€€€Ý½É­ÍÁ…”è½Ý¹•É]½É­ÍÁ…•¥áÑÕÉ”(€ôì((€¥Ð ¡¥‘•ÌÑ¡”Ý½É­ÍÁ…”É½ÝÌ•¹Ñ¥É•±ä™½È¹½¸µ½Ý¹•Èµ•µ‰•ÉÌœ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•ÉAÉ½‘ÕÑM•ÑÑ¥¹ÍA…” ¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µ…½Õ¹ÐµÉ½Üœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•9Õ±° ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•ÍÑ% ¥‘Ðµ‘•±•Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•9Õ±° ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•ÍÑ% ¥‘ÐµÉ•…Ñ¥Ù…Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•9Õ±° ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•ÍÑ% ¥‘ÐµÉ•ÍÑ½É”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•9Õ±° ¤ì(€ô¤ì((€¥Ð Í¡½ÝÌMÕÍÁ•¹€¬•±•Ñ”Ý½É­ÍÁ…”É½ÝÌ™½È½Ý¹•ÉÌ½¸…¸…Ñ¥Ù”Ý½É­ÍÁ…”œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•ÉAÉ½‘ÕÑM•ÑÑ¥¹ÍA…”¡ìµ”è½Ý¹•É5”ô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘•±•Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•QÉÕÑ¡ä ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•ÍÑ% ¥‘ÐµÉ•…Ñ¥Ù…Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•9Õ±° ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•ÍÑ% ¥‘ÐµÉ•ÍÑ½É”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•9Õ±° ¤ì(€ô¤ì((€¥Ð ÍÝ…ÁÌMÕÍÁ•¹ƒŠHI•…Ñ¥Ù…Ñ”Ý¡•¸Ñ¡”Ý½É­ÍÁ…”¥Ì…±É•…‘äÍÕÍÁ•¹‘•œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•ÉAÉ½‘ÕÑM•ÑÑ¥¹ÍA…”¡ìµ”è½Ý¹•É5”°Ý½É­ÍÁ…•MÑ…ÑÕÌè€ÍÕÍÁ•¹‘•œô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÉ•…Ñ¥Ù…Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘•±•Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•QÉÕÑ¡ä ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•9Õ±° ¤ì(€ô¤ì((€¥Ð ½±±…ÁÍ•ÌÑ¼„Í¥¹±”I•ÍÑ½É”É½ÜÝ¡•¸Ñ¡”Ý½É­ÍÁ…”¥ÌÍ½™Ðµ‘•±•Ñ•œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•ÉAÉ½‘ÕÑM•ÑÑ¥¹ÍA…”¡ìµ”è½Ý¹•É5”°Ý½É­ÍÁ…•MÑ…ÑÕÌè€‘•±•Ñ•œô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÉ•ÍÑ½É”µÝ½É­ÍÁ…”µÉ½Üœ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•9Õ±° ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•ÍÑ% ¥‘ÐµÉ•…Ñ¥Ù…Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•9Õ±° ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•ÍÑ% ¥‘Ðµ‘•±•Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹Ñ½	•9Õ±° ¤ì(€ô¤ì((€¥Ð ÍÕÍÁ•¹‘ÌÑ¡”Ý½É­ÍÁ…”…™Ñ•ÈÑåÁ¥¹œMUMA9¥¸Ñ¡”µ½‘…°œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐìÍÕÍÁ•¹‘]½É­ÍÁ…”ô€ô…Ý…¥ÐÉ•¹‘•ÉAÉ½‘ÕÑM•ÑÑ¥¹ÍA…”¡ìµ”è½Ý¹•É5”ô¤ì(€€€ÍÕÍÁ•¹‘]½É­ÍÁ…”¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€Ý½É­ÍÁ…”èì€¸¸¹½Ý¹•É]½É­ÍÁ…•¥áÑÕÉ”°ÍÑ…ÑÕÌè€ÍÕÍÁ•¹‘•œô°(€€€€€ÍÑ…ÑÕÌè€ÍÕÍÁ•¹‘•œ(€€€ô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬ (€€€€€€€Ý¥Ñ¡¥¸¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ¤(€€€€€€¤ì(€€€ô¤ì(€€€½¹ÍÐµ½‘…°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°œ¤ì(€€€½¹ÍÐ½¹Ñ¥¹Õ•	Ñ¸€ôÝ¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µ½¹Ñ¥¹Õ”œ¤ì(€€€€¼¼…Ñ”ÍÑ…åÌ…Éµ•Õ¹Ñ¥°Ñ¡”ÕÍ•ÈÑåÁ•ÌÑ¡”•á…ÐÑ½­•¸¸(€€€•áÁ•Ð¡½¹Ñ¥¹Õ•	Ñ¸¤¹Ñ½	•¥Í…‰±• ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µÑåÁ•œ¤°ì(€€€€€€€Ñ…É•ÐèìÙ…±Õ”è€MUMA9œô(€€€€€ô¤ì(€€€ô¤ì(€€€•áÁ•Ð¡½¹Ñ¥¹Õ•	Ñ¸¤¹¹½Ð¹Ñ½	•¥Í…‰±• ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬¡½¹Ñ¥¹Õ•	Ñ¸¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡ÍÕÍÁ•¹‘]½É­ÍÁ…”¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  Ý½É­ÍÁ…”µ„œ°•áÁ•Ð¹…¹åÑ¡¥¹œ ¤¤(€€€€¤ì(€€€€¼¼I½ÜÍÝ…ÁÌÑ¼I•…Ñ¥Ù…Ñ”½¹”Ñ¡”É•ÍÁ½¹Í”±…¹‘Ì¸(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÉ•…Ñ¥Ù…Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤ì(€ô¤ì((€¥Ð ÍÑ¥±°É•¹‘•ÉÌ„™…±±‰…¬Í½±”µ½Ý¹•È‰±½­•ÈÝ¡•¸…™™•Ñ•‘}µ•µ‰•ÉÌ¥Ì•µÁÑäœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼I•É•ÍÍ¥½¸™½ÈÕ‰¥ŒAH€ŒÄÐÔØ@ÈèÁÉ•Ù¥½ÕÍ±ä„€ÐÀäÝ¥Ñ „µ¥ÍÍ¥¹œ½È(€€€€¼¼µ…±™½Éµ•…™™•Ñ•‘}µ•µ‰•ÉÌ…ÉÉ…äÝ½Õ±Í•ÐÑ¡”ÍÑÉ…¹‘•±¥ÍÐÑ¼mt(€€€€¼¼…¹Ñ¡”‰±½­•È€¡Ý¡¥ ­•å•½™˜±•¹Ñ €ø€À¤Ý½Õ±¹½ÐÉ•¹‘•È…Ð…±°°(€€€€¼¼±•…Ù¥¹œÑ¡”…Ñ½ÈÝ¥Ñ „±½Í•Á•¹‘¥¹œÍÑ…Ñ”…¹¹¼™••‘‰…¬¸(€€€½¹ÍÐìÍÕÍÁ•¹‘]½É­ÍÁ…”°…Á¤ô€ô…Ý…¥ÐÉ•¹‘•ÉAÉ½‘ÕÑM•ÑÑ¥¹ÍA…”¡ìµ”è½Ý¹•É5”ô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤ì(€€€ÍÕÍÁ•¹‘]½É­ÍÁ…”¹µ½­I•©•Ñ•‘Y…±Õ” (€€€€€¹•Ü…Á¤¹Á¥ÉÉ½È Í½±”½Ý¹•ÈÉ•ÅÕ¥É•ÌÑÉ…¹Í™•Èœ°€ÐÀä°ì(€€€€€€€½‘”è€Í½±•}½Ý¹•É}É•ÅÕ¥É•Í}ÑÉ…¹Í™•Èœ°(€€€€€€€Á…å±½…èì½‘”è€Í½±•}½Ý¹•É}É•ÅÕ¥É•Í}ÑÉ…¹Í™•Èœô(€€€€€ô¤(€€€€¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬ (€€€€€€€Ý¥Ñ¡¥¸¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ¤(€€€€€€¤ì(€€€ô¤ì(€€€½¹ÍÐµ½‘…°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°œ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µÑåÁ•œ¤°ì(€€€€€€€Ñ…É•ÐèìÙ…±Õ”è€MUMA9œô(€€€€€ô¤ì(€€€ô¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µ½¹Ñ¥¹Õ”œ¤¤ì(€€€ô¤ì(€€€½¹ÍÐ‰±½¬€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÍ½±”µ½Ý¹•Èµ‰±½¬œ¤ì(€€€€¼¼…±±‰…¬½ÁäµÕÍÐÍÕÉ™…”•Ù•¸Ý¥Ñ ¹¼…™™•Ñ•µµ•µ‰•È±¥ÍÐ¸(€€€•áÁ•Ð¡‰±½¬¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½5…Ñ  ½½¹±ä½¹”½Ý¹•È½¤¤ì(€€€•áÁ•Ð (€€€€€Ý¥Ñ¡¥¸¡‰±½¬¤¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½µ…¹…”µ•µ‰•ÉÌ½¤ô¤¹•ÑÑÑÉ¥‰ÕÑ” ¡É•˜œ¤(€€€€¤¹Ñ½	” œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½Ý½É­ÍÁ…•Ìœ¤ì(€ô¤ì((€¥Ð É•¹‘•ÉÌÑ¡”Í½±”µ½Ý¹•È¥¹±¥¹”‰±½¬Ý¥Ñ „±¥¹¬Ñ¼µ…¹…”µ•µ‰•ÉÌœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐìÍÕÍÁ•¹‘]½É­ÍÁ…”°…Á¤ô€ô…Ý…¥ÐÉ•¹‘•ÉAÉ½‘ÕÑM•ÑÑ¥¹ÍA…”¡ìµ”è½Ý¹•É5”ô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤ì(€€€ÍÕÍÁ•¹‘]½É­ÍÁ…”¹µ½­I•©•Ñ•‘Y…±Õ” (€€€€€¹•Ü…Á¤¹Á¥ÉÉ½È (€€€€€€€€Ý½É­ÍÁ…”¡…Ì…‘‘¥Ñ¥½¹…°…Ñ¥Ù”µ•µ‰•ÉÌ‰ÕÐ½¹±ä½¹”½Ý¹•ÈìÑÉ…¹Í™•È½Ý¹•ÉÍ¡¥À‰•™½É”ÍÕÍÁ•¹‘¥¹œ½È‘•±•Ñ¥¹œœ°(€€€€€€€€ÐÀä°(€€€€€€€ì(€€€€€€€€€½‘”è€Í½±•}½Ý¹•É}É•ÅÕ¥É•Í}ÑÉ…¹Í™•Èœ°(€€€€€€€€€Á…å±½…èì(€€€€€€€€€€€½‘”è€Í½±•}½Ý¹•É}É•ÅÕ¥É•Í}ÑÉ…¹Í™•Èœ°(€€€€€€€€€€€…™™•Ñ•‘}µ•µ‰•ÉÌèl(€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€µ•µ‰•É}¥è€µ•µ‰•Èµˆœ°(€€€€€€€€€€€€€€€ÕÍ•É}¥è€ÕÍ•Èµˆœ°(€€€€€€€€€€€€€€€•µ…¥°è€ÕÍ•Èµ‰•á…µÁ±”¹½´œ°(€€€€€€€€€€€€€€€É½±”è€…‘µ¥¸œ(€€€€€€€€€€€€€ô(€€€€€€€€€€€t(€€€€€€€€€ô(€€€€€€€ô(€€€€€€¤(€€€€¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬ (€€€€€€€Ý¥Ñ¡¥¸¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ¤(€€€€€€¤ì(€€€ô¤ì(€€€½¹ÍÐµ½‘…°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°œ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µÑåÁ•œ¤°ì(€€€€€€€Ñ…É•ÐèìÙ…±Õ”è€MUMA9œô(€€€€€ô¤ì(€€€ô¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µ½¹Ñ¥¹Õ”œ¤¤ì(€€€ô¤ì(€€€½¹ÍÐ‰±½¬€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÍ½±”µ½Ý¹•Èµ‰±½¬œ¤ì(€€€•áÁ•Ð¡‰±½¬¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ ÕÍ•Èµ‰•á…µÁ±”¹½´œ¤ì(€€€½¹ÍÐµ…¹…•1¥¹¬€ôÝ¥Ñ¡¥¸¡‰±½¬¤¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½µ…¹…”µ•µ‰•ÉÌ½¤ô¤ì(€€€•áÁ•Ð¡µ…¹…•1¥¹¬¹•ÑÑÑÉ¥‰ÕÑ” ¡É•˜œ¤¤¹Ñ½	” œ½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½Ý½É­ÍÁ…•Ìœ¤ì(€ô¤ì((€¥Ð ­••ÁÌ•±•Ñ”Ý½É­ÍÁ…”…Ñ•Õ¹Ñ¥°Ñ¡”Í±Õœ¥ÌÑåÁ••á…Ñ±äœ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐì‘•±•Ñ•]½É­ÍÁ…”ô€ô…Ý…¥ÐÉ•¹‘•ÉAÉ½‘ÕÑM•ÑÑ¥¹ÍA…”¡ìµ”è½Ý¹•É5”ô¤ì(€€€‘•±•Ñ•]½É­ÍÁ…”¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€Ý½É­ÍÁ…”èì€¸¸¹½Ý¹•É]½É­ÍÁ…•¥áÑÕÉ”°ÍÑ…ÑÕÌè€‘•±•Ñ•œ°‘•±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÈÁPÄÀèÀÀèÀÁhœô°(€€€€€ÍÑ…ÑÕÌè€‘•±•Ñ•œ°(€€€€€¡…É‘}‘•±•Ñ•}…™Ñ•Èè€œÈÀÈØ´ÀØ´ÄåPÄÀèÀÀèÀÁhœ°(€€€€€É…•}Á•É¥½‘}¡½ÕÉÌè€ÜÈÀ(€€€ô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘Ðµ‘•±•Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬ (€€€€€€€Ý¥Ñ¡¥¸¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘•±•Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ¤(€€€€€€¤ì(€€€ô¤ì(€€€½¹ÍÐµ½‘…°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°œ¤ì(€€€½¹ÍÐ½¹Ñ¥¹Õ•	Ñ¸€ôÝ¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µ½¹Ñ¥¹Õ”œ¤ì(€€€•áÁ•Ð¡½¹Ñ¥¹Õ•	Ñ¸¤¹Ñ½	•¥Í…‰±• ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µÑåÁ•œ¤°ì(€€€€€€€Ñ…É•ÐèìÙ…±Õ”è€ÝÉ½¹œµÍ±Õœœô(€€€€€ô¤ì(€€€ô¤ì(€€€•áÁ•Ð¡½¹Ñ¥¹Õ•	Ñ¸¤¹Ñ½	•¥Í…‰±• ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹¡…¹”¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µÑåÁ•œ¤°ì(€€€€€€€Ñ…É•ÐèìÙ…±Õ”è€Ý½É­ÍÁ…”µ„œô(€€€€€ô¤ì(€€€ô¤ì(€€€•áÁ•Ð¡½¹Ñ¥¹Õ•	Ñ¸¤¹¹½Ð¹Ñ½	•¥Í…‰±• ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬¡½¹Ñ¥¹Õ•	Ñ¸¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡‘•±•Ñ•]½É­ÍÁ…”¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  Ý½É­ÍÁ…”µ„œ°•áÁ•Ð¹…¹åÑ¡¥¹œ ¤¤(€€€€¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÉ•ÍÑ½É”µÝ½É­ÍÁ…”µÉ½Üœ¤ì(€ô¤ì((€¥Ð É•…Ñ¥Ù…Ñ•Ì„ÍÕÍÁ•¹‘•Ý½É­ÍÁ…”Ñ¡É½Õ Ñ¡”¡•­‰½àµ½‘…°œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐìÉ•…Ñ¥Ù…Ñ•]½É­ÍÁ…”ô€ô…Ý…¥ÐÉ•¹‘•ÉAÉ½‘ÕÑM•ÑÑ¥¹ÍA…”¡ì(€€€€€µ”è½Ý¹•É5”°(€€€€€Ý½É­ÍÁ…•MÑ…ÑÕÌè€ÍÕÍÁ•¹‘•œ(€€€ô¤ì(€€€É•…Ñ¥Ù…Ñ•]½É­ÍÁ…”¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€Ý½É­ÍÁ…”èì€¸¸¹½Ý¹•É]½É­ÍÁ…•¥áÑÕÉ”°ÍÑ…ÑÕÌè€…Ñ¥Ù”œô°(€€€€€ÍÑ…ÑÕÌè€…Ñ¥Ù”œ(€€€ô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÉ•…Ñ¥Ù…Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬ (€€€€€€€Ý¥Ñ¡¥¸¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ¥‘ÐµÉ•…Ñ¥Ù…Ñ”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ¤(€€€€€€¤ì(€€€ô¤ì(€€€½¹ÍÐµ½‘…°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°œ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µ¡•­‰½àœ¤¤ì(€€€ô¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µ½¹Ñ¥¹Õ”œ¤¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡É•…Ñ¥Ù…Ñ•]½É­ÍÁ…”¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  Ý½É­ÍÁ…”µ„œ°•áÁ•Ð¹…¹åÑ¡¥¹œ ¤¤(€€€€¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤ì(€ô¤ì((€¥Ð É•ÍÑ½É•Ì„Í½™Ðµ‘•±•Ñ•Ý½É­ÍÁ…”Ñ¡É½Õ Ñ¡”¡•­‰½àµ½‘…°œ°…Íå¹Œ€ ¤€ôøì(€€€½¹ÍÐì…¹•±]½É­ÍÁ…••±•Ñ¥½¸ô€ô…Ý…¥ÐÉ•¹‘•ÉAÉ½‘ÕÑM•ÑÑ¥¹ÍA…”¡ì(€€€€€µ”è½Ý¹•É5”°(€€€€€Ý½É­ÍÁ…•MÑ…ÑÕÌè€‘•±•Ñ•œ(€€€ô¤ì(€€€…¹•±]½É­ÍÁ…••±•Ñ¥½¸¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€Ý½É­ÍÁ…”èì€¸¸¹½Ý¹•É]½É­ÍÁ…•¥áÑÕÉ”°ÍÑ…ÑÕÌè€…Ñ¥Ù”œô°(€€€€€ÍÑ…ÑÕÌè€…Ñ¥Ù”œ(€€€ô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÉ•ÍÑ½É”µÝ½É­ÍÁ…”µÉ½Üœ¤ì((€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬ (€€€€€€€Ý¥Ñ¡¥¸¡ÍÉ••¸¹•Ñ	åQ•ÍÑ% ¥‘ÐµÉ•ÍÑ½É”µÝ½É­ÍÁ…”µÉ½Üœ¤¤¹•Ñ	åI½±” ‰ÕÑÑ½¸œ¤(€€€€€€¤ì(€€€ô¤ì(€€€½¹ÍÐµ½‘…°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°œ¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µ¡•­‰½àœ¤¤ì(€€€ô¤ì(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€™¥É•Ù•¹Ð¹±¥¬¡Ý¥Ñ¡¥¸¡µ½‘…°¤¹•Ñ	åQ•ÍÑ% ¥‘Ðµ‘…¹•Èµµ½‘…°µ½¹Ñ¥¹Õ”œ¤¤ì(€€€ô¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡…¹•±]½É­ÍÁ…••±•Ñ¥½¸¤¹Ñ½!…Ù•	••¹…±±•‘]¥Ñ  Ý½É­ÍÁ…”µ„œ°•áÁ•Ð¹…¹åÑ¡¥¹œ ¤¤(€€€€¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•ÍÑ% ¥‘ÐµÍÕÍÁ•¹µÝ½É­ÍÁ…”µÉ½Üœ¤ì(€ô¤ì)ô¤ì((¼¼€´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´(¼¼]LÍ•Ñ¥½¸½ÁäµÉ•‘Õ¹‘…¹äÉ•É•ÍÍ¥½¸(¼¼€´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´(¼¼(¼¼AH€ŒÄÔàÈÍÑÉ¥ÁÁ•Ñ¡”]LÍ•Ñ¥½¸½˜•¹¥¹••É¥¹œµÙ¥‰”½ÁäèÑ¡”µ…É­•Ñ¥¹œ(¼¼Ñ…±¥¹”½¸Ñ¡”½Ù•ÉÙ¥•Ü°Ñ¡”•¥¡Ðµ…É-A$ÍÑÉ¥À°•Ù•ÉäÁ•ÈµÁ…”(¼¼ÕÉÉ•¹ÐÙÌÁ±…¹¹•€¼]¥É•¹½Ü€¼A±…¹¹•½Ù•É…•€‰±½¬°Ñ¡”(¼¼%¹Ù•¹Ñ½Éä½¹ÑÉ…Ñ€…¹]MI¥Í­=Á•É…Ñ¥½¹M½Á•€…Í¥‘•Ì°Ñ¡”Ñ¡É•”(¼¼%ÍÍÕ”Í•ÅÕ•¹¥¹œ€¼ÁÀÙ…±¥‘…Ñ¥½¸€¼½±±•Ñ½È½¹ÑÉ…Ñ€¥ÍÍÕ”µÑÉ…­•È(¼¼Á…¹•±Ì°…¹Ñ¡”½µ¥¹œÝ…Ù”€¼½µ¥¹œ±…Ñ•È€¼I•Í•ÉÙ•ÍÕÉ™…”€¼(¼¼%¹Ù•¹Ñ½ÉäÍ¡•±±€ÍÑ…ÑÕÌ±…‰•±Ì¸(¼¼(¼¼Q¡¥ÌÑ•ÍÐÉ•…‘ÌÁÉ½‘ÕÑM¡•±°¹ÑÍà…ÌÍ½ÕÉ”Í¼Ñ¡…Ð„™ÕÑÕÉ”AH…¹¹½Ð(¼¼ÅÕ¥•Ñ±äÉ”µ¥¹ÑÉ½‘Õ”…¹ä½˜Ñ¡½Í”ÍÑÉ¥¹Ì¸Q¡”¡•¬¥Ì„ÍÕ‰ÍÑÉ¥¹œ(¼¼µ…Ñ ƒŠP¥˜…¹ä‰…¹¹•Á¡É…Í”É•…ÁÁ•…ÉÌ…¹åÝ¡•É”¥¸Ñ¡”™¥±”°Ñ¡¥ÌÑ•ÍÐ(¼¼™…¥±ÌÝ¥Ñ „±•…ÈÁ½¥¹Ñ•ÈÑ¼Ý¡¥ ½¹”¸Q¡”±¥ÍÐ¥Ì¥¹Ñ•¹Ñ¥½¹…±±ä(¼¼Í½Á•Ñ¼€©½Áä¨ì¹•Ü½‘”Á…Ñ¡ÌÑ¡…Ð¡…ÁÁ•¸Ñ¼µ•¹Ñ¥½¸€‰Ý…Ù”ˆ½È(¼¼€‰Í¡•±°ˆ¥¸„™Õ¹Ñ¥½¸½ÈÑåÁ”¹…µ”…É”™¥¹”¸()‘•ÍÉ¥‰” ]L½ÁäÉ•‘Õ¹‘…¹äÕ…É€ ŒÄÔàÈ¤œ°€ ¤€ôøì((€€¼¼MÑÉ¥¹ÌÑ¡…ÐµÕÍÐ¹•Ù•È…ÁÁ•…È…ÌÕÍÑ½µ•ÈµÙ¥Í¥‰±”½Áä¥¸Ñ¡”]L(€€¼¼Í•Ñ¥½¸¸¹åÑ¡¥¹œÝÉ…ÁÁ•¥¸)M`±¥Ñ•É…°ÅÕ½Ñ•Ì¥Ì™…¥È…µ”™½ÈÑ¡”(€€¼¼¡•¬ìÑåÁ”¹…µ•Ì…¹¡•±Á•Èµ™Õ¹Ñ¥½¸¥‘•¹Ñ¥™¥•ÉÌ‘¼¹½Ðµ…Ñ (€€¼¼‰•…ÕÍ”Ñ¡•äÕÍ”…µ•±…Í”½ÈA…Í…±…Í”¸(€€¼¼Q¡”±¥ÍÐ¥ÌÍ½Á•Ñ¼Á¡É…Í•ÌÑ¡…Ð…É”Õ¹…µ‰¥Õ½ÕÍ±ä(€€¼¼•¹¥¹••É¥¹œµÉ½…‘µ…Àµ¥¸µU$ìÁ¡É…Í•ÌÑ¡…Ð‘½Õ‰±”…Ì±•¥Ñ¥µ…Ñ”(€€¼¼™¥±Ñ•Èµ½ÁÑ¥½¸±…‰•±Ì€¡”¹œ¸€½µ¥¹œÝ…Ù”œ¥Ì…±Í¼…¸¥¹Ù•¹Ñ½Éä(€€¼¼™¥±Ñ•ÈÙ…±Õ”¤°¥¹Ñ•É¹…°¡•±Á•ÈÉ•ÑÕÉ¸Ù…±Õ•Ì°½È½¹Ñ•¹Ðµ…É½Áä(€€¼¼…É”¥¹Ñ•¹Ñ¥½¹…±±ä9=P½¸Ñ¡¥Ì±¥ÍÐƒŠPÑ¡”Á•Èµ½¹ÍÑ…¹Ð…ÍÍ•ÉÑ¥½¹Ì(€€¼¼‰•±½Ü½Ù•ÈÑ¡”Á…”µÍ¡•±°½¹ÍÑ…¹ÑÌÝ¡•É”Ñ¡½Í”Á¡É…Í•ÌÝ•É”Ñ¡”(€€¼¼…ÑÕ…°É•‘Õ¹‘…¹ä¸(€½¹ÍÐ‰…¹¹•‘]M½ÁåMÑÉ¥¹ÌèI•…‘½¹±åÉÉ…äñÍÑÉ¥¹œø€ôl(€€€€¼¼!•…‘•È€¼½Ù•ÉÙ¥•Ü¡É½µ”É•µ½Ù•‰ä€ŒÄÔàÈ(€€€€]L5!%9%9Q%Qdœ°(€€€€]L½¹ÑÉ½°•¹Ñ•Èœ°(€€€€™É½´½¹”‘½µ…¥¸µ½Ý¹•ÍÕÉ™…”œ°(€€€€=Á•É…Ñ”]L½¹¹•Ñ¥½¸¡•…±Ñ œ°(€€€€¼¼%ÍÍÕ”µÑÉ…­•ÈÁ…¹•±ÌÉ•µ½Ù•™É½´ÕÍÑ½µ•ÈU$‰ä€ŒÄÔàÈ(€€€€]LÁ±…Ñ™½É´‘•Á•¹‘•¹ä¥¹‘•àœ°(€€€€]L±¥Ù”…ÁÀÙ…±¥‘…Ñ¥½¸¡…É¹•ÍÌœ°(€€€€]LÍ•ÉÙ¥”½±±•Ñ½È½¹ÑÉ…Ðœ°(€€€€¼¼A…”µÍ¡•±°Í¡•±±Ì€¼Í½Á•Ì€¼…Í¥‘•ÌÉ•µ½Ù•‰ä€ŒÄÔàÈ(€€€€½Ù•É…”Í¡•±°œ°(€€€€%¹Ù•¹Ñ½ÉäÍ¡•±°œ°(€€€€I•…¡…‰¥±¥ÑäÍ¡•±°œ°(€€€€I•Í•ÉÙ•ÍÕÉ™…”œ°(€€€€]L…Á…‰¥±¥Ñä•áÁ…¹Í¥½¸œ°(€€€€]L…Á…‰¥±¥Ñäµ…Àœ°(€€€€M•ÑÕÀÁ…å±½…œ°(€€€€M½Á•½¹ÑÉ…Ðœ°(€€€€]½É­ÍÁ…”½¹ÑÉ…Ðœ°(€€€€I•…µ½¹±ä…½Õ¹Ð½¹‰½…É‘¥¹œœ(€€€€¼¼9½Ñ”èÍ¡½ÉÐ•¹¥¹••É¥¹œµÙ¥‰”Á¡É…Í•Ì±¥­”€‰9½Ð¥¹•ÍÑ¥¹œˆ€¼€‰‘Ù¥Í½Éä(€€€€¼¼½¹±äˆ€¼€‰½µ¥¹œÝ…Ù”ˆ€¼€‰]¥É•¹½Üˆ€¼€‰9½Ðå•Ð…Ù…¥±…‰±”ˆ…É”(€€€€¼¼¥¹Ñ•¹Ñ¥½¹…±±ä¹½ÐÍÕ‰ÍÑÉ¥¹œµ‰…¹¹•‰•…ÕÍ”Ñ¡•ä‘½Õ‰±”…Ì±•¥Ñ¥µ…Ñ”(€€€€¼¼¥¹Ù•¹Ñ½Éä™¥±Ñ•È±…‰•±Ì½È…ÁÁ•…È¥¸±•…¹ÕÀ½µµ•¹ÑÌ¸Q¡•¥È(€€€€¼¼É•¥¹ÑÉ½‘ÕÑ¥½¸¥¹Ñ¼Ñ¡”]M}%9Y9Q=Ie}A}=Ad…¹(€€€€¼¼]M}I%M-}=AIQ%=9}A}=AdÍ¡•±±Ì¥Ì…Õ¡Ð‰äÑ¡”Á•Èµ½¹ÍÑ…¹Ð(€€€€¼¼…ÍÍ•ÉÑ¥½¹Ì‰•±½Ü¸(€tì((€¥Ð¹•… ¡‰…¹¹•‘]M½ÁåMÑÉ¥¹Ì¤ (€€€€ÁÉ½‘ÕÑM¡•±°¹ÑÍàµÕÍÐ¹½ÐÉ•¥¹ÑÉ½‘Õ”Ñ¡”]L½ÁäÉ•‘Õ¹‘…¹ä€•Àœ°(€€€€¡Á¡É…Í”¤€ôøì(€€€€€€¼¼]”µ…Ñ …¸½Á•¹¥¹œÍ¥¹±”½È‘½Õ‰±”ÅÕ½Ñ”°½ÁÑ¥½¹…°¥¹Ñ•ÉÙ•¹¥¹œ(€€€€€€¼¼Ý¡¥Ñ•ÍÁ…”°…¹Ñ¡”Á¡É…Í”°Í¼Ý”½¹±ä…Ñ Ñ¡”ÍÑÉ¥¹Ì…Ì(€€€€€€¼¼±¥Ñ•É…°½ÁäƒŠP¹½Ð…ÌÁ…ÉÑÌ½˜Ù…É¥…‰±”¹…µ•Ì¸(€€€€€½¹ÍÐ±¥Ñ•É…±½ÉµÌ€ôm€œ‘íÁ¡É…Í•õ€°€ˆ‘íÁ¡É…Í•õ€°q€‘íÁ¡É…Í•õtì(€€€€€½¹ÍÐµ…Ñ¡•€ô±¥Ñ•É…±½ÉµÌ¹™¥¹ ¡¹••‘±”¤€ôøÁÉ½‘ÕÑM¡•±±M½ÕÉ”¹¥¹±Õ‘•Ì¡¹••‘±”¤¤ì(€€€€€¥˜€¡µ…Ñ¡•¤ì(€€€€€€€Ñ¡É½Ü¹•ÜÉÉ½È (€€€€€€€€€]L½ÁäÉ•‘Õ¹‘…¹äÉ•¥¹ÑÉ½‘Õ•è€‘í)M=8¹ÍÑÉ¥¹¥™ä¡Á¡É…Í”¥ôÝ…Ì™½Õ¹…Ì„ÍÑÉ¥¹œ±¥Ñ•É…°¥¸ÁÉ½‘ÕÑM¡•±°¹ÑÍà¸€€¬(€€€€€€€€€€€AH€ŒÄÔàÈÉ•µ½Ù•Ñ¡¥ÌÍÑÉ¥¹œ™…µ¥±ä‰•…ÕÍ”¥ÐÁÕÍ¡••¹¥¹••É¥¹œµÉ½…‘µ…À±…¹Õ…”½¹Ñ¼Ñ¡”ÕÍÑ½µ•ÈU$¸€€¬(€€€€€€€€€€€UÍ”Á±…¥¸µ¹±¥Í Á…”½Áä…¹„É•…°•µÁÑäÍÑ…Ñ”¥¹ÍÑ•…¹€(€€€€€€€€¤ì(€€€€€ô(€€€€€•áÁ•Ð¡µ…Ñ¡•¤¹Ñ½	•U¹‘•™¥¹• ¤ì(€€€ô(€€¤ì((€¥Ð ]L¥¹Ù•¹Ñ½Éä½Áä•¹ÑÉ¥•Ì­••ÀÑ¡”±•…äÉ½…‘µ…Àµ¥¸µU$™¥•±‘Ì‰±…¹¬œ°€ ¤€ôøì(€€€€¼¼Q¡”]M%¹Ù•¹Ñ½ÉåA…•½Áä•¹ÑÉ¥•ÌÝ•É”Ñ¡”Í½ÕÉ”½˜•Ù•Éä(€€€€¼¼]¥É•¹½Ü€¼A±…¹¹•½Ù•É…”€¼MÑ…ÑÕÍ±…‰•±€É•Á•…Ð…É½ÍÌÑ¡”(€€€€¼¼]L¥¹Ù•¹Ñ½ÉäÍÕˆµÁ…•Ì¸Q¡”™¥•±‘Ì(€€€€¼¼ÍÑ¥±°•á¥ÍÐ½¸Ñ¡”ÑåÁ”Í¼Ñ¡”ÍÕÉÉ½Õ¹‘¥¹œÍ¡•±°½¹Ñ¥¹Õ•ÌÑ¼(€€€€¼¼½µÁ¥±”°‰ÕÐÑ¡•¥È€©Ù…±Õ•Ì¨µÕÍÐÍÑ…ä•µÁÑäÍ¼Ñ¡”‘•±•Ñ•Á…¹•°(€€€€¼¼…¹¹½Ð…¥‘•¹Ñ…±±äÉ•…ÁÁ•…È¥˜„™ÕÑÕÉ”AHÉ”µÉ•¹‘•ÉÌÑ¡•´¸(€€€½¹ÍÐ¥¹Ù•¹Ñ½Éå½Áå	±½¬€ôÁÉ½‘ÕÑM¡•±±M½ÕÉ”¹µ…Ñ  (€€€€€€½½¹ÍÐ]M}%9Y9Q=Ie}A}=AemqÍqMt¨ýyôì½´(€€€€¤ì(€€€•áÁ•Ð¡¥¹Ù•¹Ñ½Éå½Áå	±½¬¤¹¹½Ð¹Ñ½	•9Õ±° ¤ì(€€€½¹ÍÐ‰±½¬€ô¥¹Ù•¹Ñ½Éå½Áå	±½¬…lÁtì(€€€€¼¼Ù•Éä…ÍÍ¥¹µ•¹ÐÑ¼Ñ¡”™½ÕÈ™¥•±‘ÌµÕÍÐ‰”Ñ¡”•µÁÑäÍÑÉ¥¹œ¸(€€€™½È€¡½¹ÍÐ™¥•±½˜l•å•‰É½Üœ°€ÍÑ…ÑÕÍ1…‰•°œ°€ÕÉÉ•¹Ñ…Á…‰¥±¥Ñäœ°€Á±…¹¹•‘…Á…‰¥±¥Ñät¤ì(€€€€€½¹ÍÐµ…Ñ¡•Ì€ôl¸¸¹‰±½¬¹µ…Ñ¡±°¡¹•ÜI•áÀ¡€‘í™¥•±‘ôéqqÌ¨œ¡mxt¨¤€°€œœ¤¥tì(€€€€€•áÁ•Ð¡µ…Ñ¡•Ì¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ À¤ì(€€€€€™½È€¡½¹ÍÐµ…Ñ ½˜µ…Ñ¡•Ì¤ì(€€€€€€€•áÁ•Ð¡µ…Ñ¡lÅt¤¹Ñ½	” œœ¤ì(€€€€€ô(€€€ô(€ô¤ì((€¥Ð ]LÉ¥Í¬µ½Á•É…Ñ¥½¸½Áä•¹ÑÉ¥•Ì­••ÀÑ¡”±•…äÉ½…‘µ…Àµ¥¸µU$™¥•±‘Ì‰±…¹¬œ°€ ¤€ôøì(€€€½¹ÍÐÉ¥Í­½Áå	±½¬€ôÁÉ½‘ÕÑM¡•±±M½ÕÉ”¹µ…Ñ  (€€€€€€½½¹ÍÐ]M}I%M-}=AIQ%=9}A}=AemqÍqMt¨ýyôì½´(€€€€¤ì(€€€•áÁ•Ð¡É¥Í­½Áå	±½¬¤¹¹½Ð¹Ñ½	•9Õ±° ¤ì(€€€½¹ÍÐ‰±½¬€ôÉ¥Í­½Áå	±½¬…lÁtì(€€€™½È€¡½¹ÍÐ™¥•±½˜l•å•‰É½Üœ°€ÍÑ…ÑÕÍ1…‰•°œ°€ÕÉÉ•¹Ñ…Á…‰¥±¥Ñäœ°€Á±…¹¹•‘…Á…‰¥±¥Ñäœ°€¹•áÑÑ¥½¸t¤ì(€€€€€½¹ÍÐµ…Ñ¡•Ì€ôl¸¸¹‰±½¬¹µ…Ñ¡±°¡¹•ÜI•áÀ¡€‘í™¥•±‘ôéqqÌ¨œ¡mxt¨¤€°€œœ¤¥tì(€€€€€•áÁ•Ð¡µ…Ñ¡•Ì¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ À¤ì(€€€€€™½È€¡½¹ÍÐµ…Ñ ½˜µ…Ñ¡•Ì¤ì(€€€€€€€•áÁ•Ð¡µ…Ñ¡lÅt¤¹Ñ½	” œœ¤ì(€€€€€ô(€€€ô(€ô¤ì)ô¤ì((¼¼I•Á½Í¥Ñ½Éä¥¹Ñ•±±¥•¹”‘É¥±±‘½Ý¸€ ŒÄÜÄÈ¤ƒŠPÕ¹¥™¥•Í…¸ÍÑ…Ñ”°Á½ÍÑÕÉ”(¼¼…ÁÌ°ÁÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”°Ñ½À‰±…ÍÐµÉ…‘¥ÕÌÁ…Ñ¡Ì°…¹É•µ•‘¥…Ñ¥½¸(¼¼…Ñ¥½¹Ì™½È½¹”É•Á½Í¥Ñ½Éä°…‘‘É•ÍÍ•‰ä„€ýÉ•Á½Í¥Ñ½ÉäôÅÕ•ÉäÁ…É…´¸)‘•ÍÉ¥‰” AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€ ŒÄÜÄÈ¤œ°€ ¤€ôøì(€½¹ÍÐÑ…É•ÑI•Á½Í¥Ñ½Éä€ô€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œì((€½¹ÍÐ½µÁ±•Ñ•‘M…¸èI•Á½M…¹I•½É€ôì(€€€¥è€É•Á¼µÍ…¸µ‘•Ñ…¥°µ½µÁ±•Ñ”œ°(€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€ÍÑ…ÑÕÌè€ÍÕ••‘•œ°(€€€ÍÑ…ÉÑ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔÀèÀÁhœ°(€€€™¥¹¥Í¡•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔÔèÀÁhœ°(€€€½µµ¥ÑÍ}Í…¹¹•è€ÄÈ°(€€€™¥±•Í}Í…¹¹•è€ÌÐÀ°(€€€™¥¹‘¥¹}½Õ¹Ðè€Ì°(€€€ÑÉÕ¹…Ñ•è™…±Í”°(€€€Í…¹}µ½‘”è€ÅÕ¥¬œ°(€€€Í½ÕÉ•}¡•…±Ñ è€½µÁ±•Ñ”œ°(€€€Í½ÕÉ•}¡•…±Ñ¡}‘•Ñ…¥±Ìèl(€€€€€ìÍ½ÕÉ”è€¥Ñ¡Õ‰}Á½ÍÑÕÉ”œ°ÍÑ…ÑÕÌè€½µÁ±•Ñ”œô°(€€€€€ìÍ½ÕÉ”è€É•Á½}¥Ñ}¡¥ÍÑ½Éäœ°ÍÑ…ÑÕÌè€½µÁ±•Ñ”œô(€€€t(€ôì((€½¹ÍÐÁ…ÉÑ¥…±M…¸èI•Á½M…¹I•½É€ôì(€€€€¸¸¹½µÁ±•Ñ•‘M…¸°(€€€¥è€É•Á¼µÍ…¸µ‘•Ñ…¥°µÁ…ÉÑ¥…°œ°(€€€Í½ÕÉ•}¡•…±Ñ è€Á…ÉÑ¥…°œ°(€€€Í½ÕÉ•}¡•…±Ñ¡}‘•Ñ…¥±Ìèl(€€€€€ìÍ½ÕÉ”è€¥Ñ¡Õ‰}Á½ÍÑÕÉ”œ°ÍÑ…ÑÕÌè€½µÁ±•Ñ”œô°(€€€€€ìÍ½ÕÉ”è€É•Á½}¥Ñ}¡¥ÍÑ½Éäœ°ÍÑ…ÑÕÌè€Á…ÉÑ¥…°œ°µ•ÍÍ…”è€¥Ð¡¥ÍÑ½ÉäÑÉÕ¹…Ñ•…Ð€ÔÀÀ½µµ¥ÑÌ¸œô(€€€t(€ôì((€½¹ÍÐÁ½ÍÑÕÉ•¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€¥è€™¥¹‘¥¹œµÁ½ÍÑÕÉ”µ‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°(€€€Í…¹}¥è€É•Á¼µÍ…¸µ‘•Ñ…¥°µ½µÁ±•Ñ”œ°(€€€ÑåÁ”è€É•Á½}µ¥Í½¹™¥ÕÉ…Ñ¥½¸œ°(€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€Ñ¥Ñ±”è€•™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•œ°(€€€¡Õµ…¹}ÍÕµµ…Éäè€I•Á½Í¥Ñ½Éä‘•™…Õ±Ð‰É…¹ ‘½•Ì¹½ÐÉ•ÅÕ¥É”ÁÕ±°É•ÅÕ•ÍÐÉ•Ù¥•ÝÌ¸œ°(€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€‘•Ñ•Ñ½Èè€¥Ñ¡Õ‰}‘•™…Õ±Ñ}‰É…¹¡}Õ¹ÁÉ½Ñ•Ñ•œ°(€€€•Ù¥‘•¹”èì(€€€€€…‘…ÁÑ•É}Í½ÕÉ”è€¥Ñ¡Õ‰}Á½ÍÑÕÉ”œ°(€€€€€¥Ñ¡Õ‰}Á½ÍÑÕÉ•}¡•­}¥è€‘•™…Õ±Ñ}‰É…¹¡}ÁÉ½Ñ•Ñ¥½¸œ°(€€€€€¥Ñ¡Õ‰}Á½ÍÑÕÉ•}Í½Á”è€É•Á½Í¥Ñ½Éäœ(€€€ô°(€€€É•µ•‘¥…Ñ¥½¸è€¹…‰±”‰É…¹ ÁÉ½Ñ•Ñ¥½¸Ý¥Ñ É•ÅÕ¥É•É•Ù¥•ÝÌ¸œ°(€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÀèÀÁhœ(€ôì((€½¹ÍÐÝ½É­™±½Ý¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€¥è€™¥¹‘¥¹œµÝ½É­™±½Üµ½¥‘Œœ°(€€€Í…¹}¥è€É•Á¼µÍ…¸µ‘•Ñ…¥°µ½µÁ±•Ñ”œ°(€€€ÑåÁ”è€É•Á½}µ¥Í½¹™¥ÕÉ…Ñ¥½¸œ°(€€€Í•Ù•É¥Ñäè€µ•‘¥Õ´œ°(€€€Ñ¥Ñ±”è€]½É­™±½Ü=%ÑÉÕÍÐ¥Ì‰É½…œ°(€€€¡Õµ…¹}ÍÕµµ…Éäè€Ý½É­™±½Ü…¸µ¥¹Ð=%Ñ½­•¹Ì……¥¹ÍÐ„‰É½…]LÉ½±”ÑÉÕÍÐ½¹‘¥Ñ¥½¸¸œ°(€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€‘•Ñ•Ñ½Èè€Ý½É­™±½Ý}½¥‘}‰É½…‘}ÑÉÕÍÐœ°(€€€•Ù¥‘•¹”èì™¥±•}Á…Ñ è€œ¹¥Ñ¡Õˆ½Ý½É­™±½ÝÌ½‘•Á±½ä¹åµ°œô°(€€€É•µ•‘¥…Ñ¥½¸è€I•ÍÑÉ¥Ð=%ÑÉÕÍÐÑ¼„ÍÁ•¥™¥ŒÉ•˜½©½ˆ¸œ°(€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÄèÀÔèÀÁhœ(€ôì((€½¹ÍÐ•µÁÑåI¥Í­É…Á èI•Á½I¥Í­É…Á €ôì(€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€¹½‘•Ìèmt°(€€€•‘•Ìèmt°(€€€Í½É•Ìèmt°(€€€ÍÕµµ…Éäèì(€€€€€™¥¹‘¥¹}½Õ¹Ðè€À°(€€€€€¹½‘•}½Õ¹Ðè€À°(€€€€€•‘•}½Õ¹Ðè€À°(€€€€€Õ¹­¹½Ý¹}¹½‘•}½Õ¹Ðè€À°(€€€€€Õ¹­¹½Ý¹}•‘•}½Õ¹Ðè€À°(€€€€€¡¥¡}É¥Í­}™¥¹‘¥¹Ìè€À°(€€€€€É¥Ñ¥…±}™¥¹‘¥¹Ìè€À(€€€ô(€ôì((€½¹ÍÐÉ¥Í­É…Á¡]¥Ñ¡M½É•ÌèI•Á½I¥Í­É…Á €ôì(€€€€¸¸¹•µÁÑåI¥Í­É…Á °(€€€Í½É•Ìèl(€€€€€ì(€€€€€€€™¥¹‘¥¹}¥èÁ½ÍÑÕÉ•¥¹‘¥¹œ¹¥°(€€€€€€€™¥¹‘¥¹}¹½‘•}¥è€¹½‘”µÁ½ÍÑÕÉ”œ°(€€€€€€€Í½É”è€àà°(€€€€€€€Í•Ù•É¥Ñäè€¡¥ œ°(€€€€€€€½¹™¥‘•¹”è€À¸ä°(€€€€€€€™…Ñ½ÉÌèì(€€€€€€€€€Í•Ù•É¥Ñäè€àÀ°(€€€€€€€€€½¹™¥‘•¹”è€äÀ°(€€€€€€€€€•áÁ±½¥Ñ…‰¥±¥Ñäè€ØÀ°(€€€€€€€€€ÁÉ¥Ù¥±•”è€ÐÀ°(€€€€€€€€€•áÁ½ÍÕÉ”è€ÔÔ°(€€€€€€€€€•¹Ù¥É½¹µ•¹Ñ}É¥Ñ¥…±¥Ñäè€ÌÀ°(€€€€€€€€€™É•Í¡¹•ÍÌè€ÄÀÀ°(€€€€€€€€€Á½ÍÑÕÉ•}…µÁ±¥™¥•Èè€ÜÀ(€€€€€€€ô°(€€€€€€€Õ¹­¹½Ý¹Ìèmt(€€€€€ô°(€€€€€ì(€€€€€€€™¥¹‘¥¹}¥èÝ½É­™±½Ý¥¹‘¥¹œ¹¥°(€€€€€€€™¥¹‘¥¹}¹½‘•}¥è€¹½‘”µÝ½É­™±½Üœ°(€€€€€€€Í½É”è€ØÈ°(€€€€€€€Í•Ù•É¥Ñäè€µ•‘¥Õ´œ°(€€€€€€€½¹™¥‘•¹”è€À¸Ü°(€€€€€€€™…Ñ½ÉÌèì(€€€€€€€€€Í•Ù•É¥Ñäè€ÔÔ°(€€€€€€€€€½¹™¥‘•¹”è€ÜÀ°(€€€€€€€€€•áÁ±½¥Ñ…‰¥±¥Ñäè€ÔÀ°(€€€€€€€€€ÁÉ¥Ù¥±•”è€ÌÀ°(€€€€€€€€€•áÁ½ÍÕÉ”è€ÐÀ°(€€€€€€€€€•¹Ù¥É½¹µ•¹Ñ}É¥Ñ¥…±¥Ñäè€À°(€€€€€€€€€™É•Í¡¹•ÍÌè€ÄÀÀ°(€€€€€€€€€Á½ÍÑÕÉ•}…µÁ±¥™¥•Èè€À(€€€€€€€ô°(€€€€€€€Õ¹­¹½Ý¹Ìèl¥‘•¹Ñ¥Ñå}Ñ…É•Ðt(€€€€€ô(€€€t(€ôì((€…Íå¹Œ™Õ¹Ñ¥½¸É•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡½ÁÑ¥½¹Ìèì(€€€¥¹¥Ñ¥…±I•Á½Í¥Ñ½ÉäüèÍÑÉ¥¹œì(€€€Í…¹ÌüèI•Á½M…¹I•½É‘mtì(€€€™¥¹‘¥¹Ìüè¥¹‘¥¹mtì(€€€É¥Í­É…Á üèI•Á½I¥Í­É…Á ì(€€€Á½ÍÑÕÉ”üè¥Ñ!Õ‰I•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”ì(€€€Á½ÍÑÕÉ•ÉÉ½Èüèìµ•ÍÍ…”èÍÑÉ¥¹œìÍÑ…ÑÕÌè¹Õµ‰•Èôì(€€€±¥ÍÑI•Á½¥¹‘¥¹ÍÉÉ½Èüèìµ•ÍÍ…”èÍÑÉ¥¹œìÍÑ…ÑÕÌè¹Õµ‰•Èôì(€€€±¥ÍÑI•Á½M…¹ÍÉÉ½Èüèìµ•ÍÍ…”èÍÑÉ¥¹œìÍÑ…ÑÕÌè¹Õµ‰•Èôì(€ô€ôíô¤ì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì((€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€½¹ÍÐÍ…¹ÍMÁä€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤ì(€€€¥˜€¡½ÁÑ¥½¹Ì¹±¥ÍÑI•Á½M…¹ÍÉÉ½È¤ì(€€€€€Í…¹ÍMÁä¹µ½­I•©•Ñ•‘Y…±Õ”¡¹•Ü…Á¤¹Á¥ÉÉ½È¡½ÁÑ¥½¹Ì¹±¥ÍÑI•Á½M…¹ÍÉÉ½È¹µ•ÍÍ…”°½ÁÑ¥½¹Ì¹±¥ÍÑI•Á½M…¹ÍÉÉ½È¹ÍÑ…ÑÕÌ¤¤ì(€€€ô•±Í”ì(€€€€€Í…¹ÍMÁä¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌè½ÁÑ¥½¹Ì¹Í…¹Ì€üüm½µÁ±•Ñ•‘M…¹tô¤ì(€€€ô((€€€½¹ÍÐ™¥¹‘¥¹ÍMÁä€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤ì(€€€¥˜€¡½ÁÑ¥½¹Ì¹±¥ÍÑI•Á½¥¹‘¥¹ÍÉÉ½È¤ì(€€€€€™¥¹‘¥¹ÍMÁä¹µ½­I•©•Ñ•‘Y…±Õ”¡¹•Ü…Á¤¹Á¥ÉÉ½È¡½ÁÑ¥½¹Ì¹±¥ÍÑI•Á½¥¹‘¥¹ÍÉÉ½È¹µ•ÍÍ…”°½ÁÑ¥½¹Ì¹±¥ÍÑI•Á½¥¹‘¥¹ÍÉÉ½È¹ÍÑ…ÑÕÌ¤¤ì(€€€ô•±Í”ì(€€€€€™¥¹‘¥¹ÍMÁä¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌè½ÁÑ¥½¹Ì¹™¥¹‘¥¹Ì€üümÁ½ÍÑÕÉ•¥¹‘¥¹œ°Ý½É­™±½Ý¥¹‘¥¹tô¤ì(€€€ô(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡½ÁÑ¥½¹Ì¹É¥Í­É…Á €üüÉ¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì((€€€½¹ÍÐÁ½ÍÑÕÉ•MÁä€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤ì(€€€¥˜€¡½ÁÑ¥½¹Ì¹Á½ÍÑÕÉ•ÉÉ½È¤ì(€€€€€Á½ÍÑÕÉ•MÁä¹µ½­I•©•Ñ•‘Y…±Õ”¡¹•Ü…Á¤¹Á¥ÉÉ½È¡½ÁÑ¥½¹Ì¹Á½ÍÑÕÉ•ÉÉ½È¹µ•ÍÍ…”°½ÁÑ¥½¹Ì¹Á½ÍÑÕÉ•ÉÉ½È¹ÍÑ…ÑÕÌ¤¤ì(€€€ô•±Í”ì(€€€€€Á½ÍÑÕÉ•MÁä¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°(€€€€€€€ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€€€Á½ÍÑÕÉ”è½ÁÑ¥½¹Ì¹Á½ÍÑÕÉ”€üüì(€€€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€€€€€€€¥¹ÍÑ…±±…Ñ¥½¹}¥è€ÄÈÌÐÔ°(€€€€€€€€€½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€€€¡•­Ìèl(€€€€€€€€€€€ì(€€€€€€€€€€€€€¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€¥¹Í•ÕÉ”œ°(€€€€€€€€€€€€€ÍÕµµ…Éäè€•™…Õ±Ð‰É…¹ ¥Ìµ¥ÍÍ¥¹œÉ•ÅÕ¥É•ÁÕ±°É•ÅÕ•ÍÐÉ•Ù¥•ÝÌ¸œ(€€€€€€€€€€€ô°(€€€€€€€€€€€ì(€€€€€€€€€€€€€¥è€Í•É•ÐµÍ…¹¹¥¹œœ°…Ñ•½Éäè€Í•ÕÉ¥Ñäœ°ÍÑ…Ñ”è€Í•ÕÉ”œ°(€€€€€€€€€€€€€ÍÕµµ…Éäè€M•É•ÐÍ…¹¹¥¹œ¥Ì•¹…‰±•¸œ(€€€€€€€€€€€ô(€€€€€€€€€t(€€€€€€€ô(€€€€€ô¤ì(€€€ô(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÁÉ•Ù¥•ÝI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€™¥¹‘¥¹œèÁ½ÍÑÕÉ•¥¹‘¥¹œ°(€€€€€É•µ•‘¥…Ñ¥½¸èì(€€€€€€€‘•Ñ•Ñ½Èè€¥Ñ¡Õ‰}‘•™…Õ±Ñ}‰É…¹¡}Õ¹ÁÉ½Ñ•Ñ•œ°(€€€€€€€ÍÕµµ…Éäè€I•ÅÕ¥É”ÁÕ±°µÉ•ÅÕ•ÍÐÉ•Ù¥•ÝÌ½¸Ñ¡”‘•™…Õ±Ð‰É…¹ œ°(€€€€€€€É¥Í­}ÍÕµµ…Éäè€U¹É•ÍÑÉ¥Ñ•µ•É•Ì‰åÁ…ÍÌ•Ù¥‘•¹”É•Ù¥•Ü¸œ°(€€€€€€€ÍÑ•ÁÌèl¹…‰±”‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°€I•ÅÕ¥É”Í¥¹•½µµ¥ÑÌt°(€€€€€€€Í…™•Ñå}¹½Ñ•Ìèmt°Ù…±¥‘…Ñ¥½¸èmt°(€€€€€€€Í•É•Ñ}É½Ñ…Ñ¥½¸è™…±Í”°ÁÕ‰±¥Í¡…‰±”èÑÉÕ”°(€€€€€€€•Ù¥‘•¹”èì™¥¹‘¥¹}¥èÁ½ÍÑÕÉ•¥¹‘¥¹œ¹¥ô(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÉ•Á½Í¥Ñ½Éä€ô½ÁÑ¥½¹Ì¹¥¹¥Ñ¥…±I•Á½Í¥Ñ½Éä€üüÑ…É•ÑI•Á½Í¥Ñ½Éäì(€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐ¥¹¥Ñ¥…±¹ÑÉä€ôÉ•Á½Í¥Ñ½Éä(€€€€€€ü€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡É•Á½Í¥Ñ½Éä¥õ€(€€€€€€è€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½Éµ€ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím¥¹¥Ñ¥…±¹ÑÉåuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€É•ÑÕÉ¸ì™¥¹‘¥¹ÍMÁäôì(€ô((€‰•™½É•…   ¤€ôøì(€€€€¼¼AÉ¥½È‘•ÍÉ¥‰”‰±½­Ì¥¸Ñ¡¥Ì™¥±”±•…Ù”µ½‘Õ±”µÍ½Á•µ½­Ì(€€€€¼¼€¡µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì€¼µ½­	…­•¹‘•…ÑÕÉ•ÌÕÍ”Ù¤¹‘½5½¬¤Ñ¡…Ð…¸(€€€€¼¼±¥¹•ÈÁ…ÍÐÑ¡•¥È…™Ñ•É… ¸I•Í•Ð‰½Ñ Ñ¡”µ½¬É•¥ÍÑÉä…¹Ñ¡”µ½‘Õ±”(€€€€¼¼…¡”Í¼•Ù•Éä‘É¥±±‘½Ý¸Ñ•ÍÐÍÑ…ÉÑÌ™É½´„±•…¸¥µÁ½ÉÐÉ…Á ¸(€€€Ù¤¹É•ÍÑ½É•±±5½­Ì ¤ì(€€€Ù¤¹‘½U¹µ½¬ œ¸½¡½½­Ì½ÕÍ•	…­•¹‘•…ÑÕÉ•Ìœ¤ì(€€€Ù¤¹‘½U¹µ½¬ œ¸½Á…•Ì½½¹‰½…É‘¥¹œ½½¹‰½…É‘¥¹UÑ¥±Ìœ¤ì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€ô¤ì((€…™Ñ•É…   ¤€ôøì(€€€Ù¤¹É•ÍÑ½É•±±5½­Ì ¤ì(€€€Ù¤¹‘½U¹µ½¬ œ¸½¡½½­Ì½ÕÍ•	…­•¹‘•…ÑÕÉ•Ìœ¤ì(€€€Ù¤¹‘½U¹µ½¬ œ¸½Á…•Ì½½¹‰½…É‘¥¹œ½½¹‰½…É‘¥¹UÑ¥±Ìœ¤ì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì(€ô¤ì((€¥Ð É•¹‘•ÉÌÕ¹¥™¥•Í…¸ÍÑ…Ñ”°Á½ÍÑÕÉ”…ÁÌ°…¹ÁÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”™½È„É•Á½Í¥Ñ½Éäœ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥° ¤ì((€€€€¼¼!•…‘•È¹…µ•ÌÑ¡”É•Á½Í¥Ñ½Éä¸(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”èÑ…É•ÑI•Á½Í¥Ñ½Éäô¤ì((€€€€¼¼M…¸ÍÑÉ¥ÀÍ¡½ÝÌÑ¡”½µÁ±•Ñ”Á¥±°¸(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½½µÁ±•Ñ”Í…¸½¤¤ì((€€€€¼¼A½ÍÑÕÉ”…ÀÍ•Ñ¥½¸ÍÕÉ™…•ÌÑ¡”¥¹Í•ÕÉ”¡•¬…¹¡¥‘•ÌÑ¡”Í•ÕÉ”½¹”¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½µ¥ÍÍ¥¹œÉ•ÅÕ¥É•ÁÕ±°É•ÅÕ•ÍÐÉ•Ù¥•ÝÌ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½M•É•ÐÍ…¹¹¥¹œ¥Ì•¹…‰±•½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€€¼¼EÕ•Õ”Í¡½ÝÌ‰½Ñ ™¥¹‘¥¹Ì°Á½ÍÑÕÉ”Í½É”€àà½µ•Ì‰•™½É”Ý½É­™±½ÜÍ½É”€ØÈ¸(€€€½¹ÍÐÅÕ•Õ•1¥ÍÐ€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤¤¹ÅÕ•ÉåM•±•Ñ½È Õ°œ¤ì(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ¤¹¹½Ð¹Ñ½	•9Õ±° ¤ì(€€€½¹ÍÐÉ½ÝÌ€ô€¡ÅÕ•Õ•1¥ÍÐ…Ì!Q51±•µ•¹Ð¤¹ÅÕ•ÉåM•±•Ñ½É±° ±¤œ¤ì(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ •™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•œ¤ì(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ Í½É”€ààœ¤ì(€€€•áÁ•Ð¡É½ÝÍlÅt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ ]½É­™±½Ü=%ÑÉÕÍÐ¥Ì‰É½…œ¤ì(€€€•áÁ•Ð¡É½ÝÍlÅt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ Í½É”€ØÈœ¤ì(€ô¤ì((€¥Ð ÍÕÉ™…•Ì„Á…ÉÑ¥…°µÍ…¸Á¥±°…¹Á•ÈµÍ½ÕÉ”¡•…±Ñ ‘•Ñ…¥±ÌÝ¡•¸Ñ¡”Í…¸¥ÌÁ…ÉÑ¥…°œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ìÍ…¹ÌèmÁ…ÉÑ¥…±M…¹tô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”èÑ…É•ÑI•Á½Í¥Ñ½Éäô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½A…ÉÑ¥…°Í…¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½¥Ð¡¥ÍÑ½ÉäÑÉÕ¹…Ñ•…Ð€ÔÀÀ½µµ¥ÑÌ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð É•¹‘•ÉÌÑ¡”¹¼µ™¥¹‘¥¹Ì•µÁÑäÍÑ…Ñ”Ý¡•¸Ñ¡”ÅÕ•Õ”¥Ì•µÁÑäœ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì™¥¹‘¥¹Ìèmt°É¥Í­É…Á è•µÁÑåI¥Í­É…Á ô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½9¼™¥¹‘¥¹Ì™½ÈÑ¡¥ÌÉ•Á½Í¥Ñ½Éä½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ÍÕÉ™…•Ì„ÑÉÕ¹…Ñ•Í…¸µ¡¥ÍÑ½ÉäÝ…É¹¥¹œ¥¹ÍÑ•…½˜€‰9¼Í…¸å•ÐˆÝ¡•¸Ñ¡”Í•…É ¡¥Ð¥ÑÌ…Àœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼1¥ÍÑI•Á½M…¹Ì¥ÌÝ½É­ÍÁ…”µÝ¥‘”°Í¼„É•Á½Í¥Ñ½ÉäÝ¡½Í”¹•Ý•ÍÐÍ…¸Í¥ÑÌ(€€€€¼¼‰•¡¥¹µ½É”Ñ¡…¸IA=}%9Q11%9}M9}5a}AL€¨M9}A}1%5%P(€€€€¼¼¹•Ý•ÈÝ½É­ÍÁ…”Í…¹Ì¥Ì¹•Ù•ÈÉ•…¡•¸M¥µÕ±…Ñ”Ñ¡…Ð‰äÉ•ÑÕÉ¹¥¹œ(€€€€¼¼Á…•ÌÑ¡…Ð¹•Ù•Èµ…Ñ Ñ¡”Ñ…É•ÐÉ•Á½Í¥Ñ½Éä…¹…±Ý…åÌÉ•ÑÕÉ¸„(€€€€¼¼¹•áÑ}ÕÉÍ½ÈÍ¼Ñ¡”™•Ñ¡•È•á¡…ÕÍÑÌ¥ÑÌ€ÈÀµÁ…”•¥±¥¹œ¸(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€½¹ÍÐ½Ñ¡•ÉI•Á½M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹½µÁ±•Ñ•‘M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ½Ñ¡•Èœ°(€€€€€É•Á½Í¥Ñ½Éäè€Í½µ•½¹”µ•±Í”½½Ñ¡•ÈµÉ•Á¼œ(€€€ôì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèm½Ñ¡•ÉI•Á½M…¹t°(€€€€€¹•áÑ}ÕÉÍ½Èè€¹•Ù•Èµ•á¡…ÕÍÑ•œ(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmtô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡•µÁÑåI¥Í­É…Á ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€Í•ÕÉ”œ°ÍÕµµ…Éäè€Í•ÕÉ”œõt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼!•…‘•ÈÉ•…‘Ì€‰M…¸¡¥ÍÑ½ÉäÑÉÕ¹…Ñ•ˆ°¹½Ð€‰9¼Í…¸å•Ðˆ¸Q¡”‰…¹¹•È(€€€€¼¼ÍÑ••ÉÌÑ¡”½Á•É…Ñ½ÈÑ¼™¥±Ñ•È‰äÉ•Á½Í¥Ñ½Éä¥¹ÍÑ•…½˜…ÍÍÕµ¥¹œÑ¡”(€€€€¼¼É•Á½Í¥Ñ½Éä¡…Ì¹•Ù•È‰••¸Í…¹¹•¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½M…¸¡¥ÍÑ½ÉäÑÉÕ¹…Ñ•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½9¼Í…¸å•Ð½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½I•Á½Í¥Ñ½ÉäÍ…¸Í•…É ¡¥Ð¥ÑÌÍ…™•Ñä•¥±¥¹œ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½Õ¹ÑÌÁÕ‰±¥Í¡…‰±”µÁ…Ñ ‘•Ñ•Ñ½ÉÌ…Ì™¥àµÉ•…‘ä…¹Õ¥‘…¹”µ½¹±ä…ÌÁÉ•Ù¥•Üµ½¹±äœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼Ý½É­™±½Ý}ÝÉ¥Ñ•}…±±}Á•Éµ¥ÍÍ¥½¹ÌƒŠH‘•Ñ•Éµ¥¹¥ÍÑ¥ŒÁ…Ñ €¡AÕ‰±¥Í¡…‰±”éÑÉÕ”¤¸(€€€€¼¼Ý½É­™±½Ý}½¥‘}‰É½…‘}ÑÉÕÍÐƒŠHÕ¥‘…¹”µ½¹±ä€¡AÕ‰±¥Í¡…‰±”é™…±Í”¤¸(€€€€¼¼	½Ñ …É”ÍÕÁÁ½ÉÑ•€¡AÉ•Ù¥•Ü‰ÕÑÑ½¸¤°‰ÕÐ½¹±äÑ¡”™¥ÉÍÐ¥Ì™¥àµÉ•…‘ä¸(€€€½¹ÍÐ™¥áI•…‘å¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€€¸¸¹Ý½É­™±½Ý¥¹‘¥¹œ°(€€€€€¥è€™¥¹‘¥¹œµÝ½É­™±½ÜµÝÉ¥Ñ”µ…±°œ°(€€€€€Ñ¥Ñ±”è€]½É­™±½Ü¡…ÌÝÉ¥Ñ”µ…±°Á•Éµ¥ÍÍ¥½¹Ìœ°(€€€€€‘•Ñ•Ñ½Èè€Ý½É­™±½Ý}ÝÉ¥Ñ•}…±±}Á•Éµ¥ÍÍ¥½¹Ìœ(€€€ôì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì™¥¹‘¥¹Ìèm™¥áI•…‘å¥¹‘¥¹œ°Ý½É­™±½Ý¥¹‘¥¹tô¤ì(€€€½¹ÍÐÅÕ•Õ•1¥ÍÐ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤ì(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ œÄ™¥àµÉ•…‘äœ¤ì(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ œÄÁÉ•Ù¥•Üµ½¹±äœ¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½Ð½™™•È„AÉ•Ù¥•Ü‰ÕÑÑ½¸™½ÈÕ¹É•½¹¥é•Ñ•ÉÉ…™½Éµ|‘•Ñ•Ñ½ÉÌœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼É½¹Ñ•¹ÁÉ•™¥àÍ•ÐÕÍ•Ñ¼¥¹±Õ‘”Ñ•ÉÉ…™½Éµ|½‘½­•É|½¬áÍ|°‰ÕÐÑ¡”(€€€€¼¼‰…­•¹ÍÝ¥Ñ ½¹±ä…•ÁÑÌ„™¥á•±¥ÍÐ½˜•á…Ð‘•Ñ•Ñ½ÉÌ™½ÈÑ¡•Í”(€€€€¼¼™…µ¥±¥•Ì¸¸Õ¹É•½¹¥é•Ñ•ÉÉ…™½Éµ|‘•Ñ•Ñ½ÈÝ½Õ±€ÐÈÈ½¸ÁÉ•Ù¥•Ü¸(€€€½¹ÍÐÕ¹ÍÕÁÁ½ÉÑ•‘Q•ÉÉ…™½Éµ¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€€¸¸¹Ý½É­™±½Ý¥¹‘¥¹œ°(€€€€€¥è€™¥¹‘¥¹œµÑ•ÉÉ…™½É´µÕ¹É•½¹¥é•œ°(€€€€€Ñ¥Ñ±”è€U¹É•½¹¥é•Ñ•ÉÉ…™½É´µ¥Í½¹™¥ÕÉ…Ñ¥½¸œ°(€€€€€‘•Ñ•Ñ½Èè€Ñ•ÉÉ…™½Éµ}Í½µ•}¹•Ý}‘•Ñ•Ñ½É}‰…­•¹‘}‘½•Í}¹½Ñ}¡…¹‘±”œ(€€€ôì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì™¥¹‘¥¹ÌèmÕ¹ÍÕÁÁ½ÉÑ•‘Q•ÉÉ…™½Éµ¥¹‘¥¹tô¤ì(€€€½¹ÍÐÅÕ•Õ•1¥ÍÐ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤ì(€€€€¼¼I½ÜÉ•¹‘•É•™½ÈÑÉ¥…”¸(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ U¹É•½¹¥é•Ñ•ÉÉ…™½É´µ¥Í½¹™¥ÕÉ…Ñ¥½¸œ¤ì(€€€€¼¼9¼AÉ•Ù¥•Ü‰ÕÑÑ½¸¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½AÉ•Ù¥•ÜÉ•µ•‘¥…Ñ¥½¸½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÅÕ•Õ•1¥ÍÐ¤¹•Ñ	åQ•áÐ ½I•Ù¥•Ü¥¸¥Ñ!Õˆ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð Í¡½ÝÌ…¸•ÉÉ½È‰…¹¹•ÈÝ¡•¸Ñ¡”É•Á½Í¥Ñ½ÉäÅÕ•ÉäÁ…É…µ•Ñ•È¥Ìµ¥ÍÍ¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì¥¹¥Ñ¥…±I•Á½Í¥Ñ½Éäè€œœô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½I•Á½Í¥Ñ½Éä¹½ÐÍ•±•Ñ•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åI½±” ±¥¹¬œ°ì¹…µ”è€½	…¬Ñ¼É•Á½Í¥Ñ½É¥•Ì½¤ô¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð Í¡½ÝÌ…¸¥¹±¥¹”™¥¹‘¥¹Ì•ÉÉ½È‰ÕÐ­••ÁÌÑ¡”Í…¸ÍÑÉ¥À…¹Á½ÍÑÕÉ”ÕÍ…‰±”œ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼¥¹‘¥¹Ì±…¹”ÉÕ¹Ì¥¹‘•Á•¹‘•¹Ñ±ä¹½Ü°Í¼„™¥¹‘¥¹Ì™…¥±ÕÉ”ÍÕÉ™…•Ì(€€€€¼¼¥¹±¥¹”¥¸Ñ¡”ÅÕ•Õ”Á…¹•°Ý¡¥±”Ñ¡”Í…¸ÍÑÉ¥À…¹Á½ÍÑÕÉ”Á…¹•±Ì(€€€€¼¼ÍÑ¥±°É•¹‘•ÈÑ¡•¥È½Ý¸ÍÕ•ÍÍ™Õ°ÍÑ…Ñ”¸(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì±¥ÍÑI•Á½¥¹‘¥¹ÍÉÉ½Èèìµ•ÍÍ…”è€‰½½´œ°ÍÑ…ÑÕÌè€ÔÀÀôô¤ì(€€€€¼¼M…¸ÍÑÉ¥À½µµ¥ÑÌ¥ÑÌ½Ý¸ÍÕ•ÍÌ•Ù•¸Ñ¡½Õ ™¥¹‘¥¹ÌÉ•©•Ñ•¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½½µÁ±•Ñ”Í…¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼¥¹‘¥¹ÌÅÕ•Õ”Á…¹•°ÍÕÉ™…•Ì¥ÑÌ½Ý¸•ÉÉ½È¸(€€€½¹ÍÐÅÕ•Õ•A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÅÕ•Õ•A…¹•°¤¹•Ñ	åQ•áÐ ½‰½½´½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼9¼Í¡…É•€‰½Õ±‘¸Ð±½…É•Á½Í¥Ñ½Éä¥¹Ñ•±±¥•¹”ˆ‰…¹¹•ÈƒŠPÑ¡…Ð(€€€€¼¼‰…¹¹•ÈÝ…Ìµ¥Í±•…‘¥¹œ‰•…ÕÍ”¥Ð¡¥Ñ¡”ÍÕ•ÍÍ™Õ°Í…¸Á…¹•°¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½½Õ±‘¸Ð±½…É•Á½Í¥Ñ½Éä¥¹Ñ•±±¥•¹”½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½µµ¥ÑÌÍÕ•ÍÍ™Õ°™¥¹‘¥¹ÌÝ¡•¸Ñ¡”Í…¸±½½­ÕÀÉ•©•ÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼M…¸…¹™¥¹‘¥¹Ì±…¹•Ì…É”¥¹‘•Á•¹‘•¹Ð°Í¼„ÑÉ…¹Í¥•¹Ð(€€€€¼¼€½ØÄ½É•Á¼µÍ…¹Ì™…¥±ÕÉ”µÕÍÐ¹½Ð‘¥Í…É„ÍÕ•ÍÍ™Õ±±ä™•Ñ¡•(€€€€¼¼™¥¹‘¥¹ÌÅÕ•Õ”¸AÉ•Ù¥½ÕÍ±äAÉ½µ¥Í”¹…±°É•©•Ñ•Ñ½•Ñ¡•È°Í¼Ñ¡”(€€€€¼¼Á…”µ¥Í±•…‘¥¹±äÍ¡½Ý•‰½Ñ €‰9¼Í…¸å•Ðˆ…¹€‰9¼™¥¹‘¥¹Ìˆ(€€€€¼¼Õ¹‘•È„Í¡…É••ÉÉ½È‰…¹¹•È•Ù•¸Ý¡•¸™¥¹‘¥¹ÌÝ…Ì™¥¹”¸(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì±¥ÍÑI•Á½M…¹ÍÉÉ½Èèìµ•ÍÍ…”è€Í…¹Ì‘½Ý¸œ°ÍÑ…ÑÕÌè€ÔÀÈôô¤ì(€€€€¼¼¥¹‘¥¹ÌÅÕ•Õ”É•¹‘•É•™É½´¥ÑÌ½Ý¸ÍÕ•ÍÍ™Õ°É•ÍÁ½¹Í”¸(€€€½¹ÍÐÅÕ•Õ•A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÅÕ•Õ•A…¹•°¤¹•Ñ	åQ•áÐ ½•™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÅÕ•Õ•A…¹•°¤¹•Ñ	åQ•áÐ ½]½É­™±½Ü=%ÑÉÕÍÐ¥Ì‰É½…½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼M…¸ÍÑÉ¥ÀÍÕÉ™…•Ì¥ÑÌ½Ý¸¥¹±¥¹”•ÉÉ½È°¹½ÐÑ¡”Í¡…É•‰…¹¹•È¸(€€€½¹ÍÐÍ…¹A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ 1…Ñ•ÍÐÍ…¸œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Í…¹A…¹•°¤¹•Ñ	åQ•áÐ ½Í…¹Ì‘½Ý¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½½Õ±‘¸Ð±½…É•Á½Í¥Ñ½Éä¥¹Ñ•±±¥•¹”½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼9½ÐÑ¡”µ¥Í±•…‘¥¹œ€‰9¼Í…¸å•Ðˆ™…±±‰…¬•¥Ñ¡•ÈƒŠPÑ¡…ÐÝ½Õ±ÍÕ•ÍÐ(€€€€¼¼Ñ¡”É•Á½Í¥Ñ½Éä¡…Ì¹•Ù•È‰••¸Í…¹¹•É…Ñ¡•ÈÑ¡…¸„ÑÉ…¹Í¥•¹Ð•ÉÉ½È¸(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Í…¹A…¹•°¤¹ÅÕ•Éå	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€Ì°¹…µ”è€½9¼Í…¸å•Ð½¤ô¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð Í¡½ÝÌ…¸¥¹±¥¹”Á½ÍÑÕÉ”•ÉÉ½È‰ÕÐ­••ÁÌÑ¡”É•ÍÐ½˜Ñ¡”‘É¥±±‘½Ý¸ÕÍ…‰±”œ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ìÁ½ÍÑÕÉ•ÉÉ½Èèìµ•ÍÍ…”è€Á½ÍÑÕÉ”É…Ñ”±¥µ¥Ñ•œ°ÍÑ…ÑÕÌè€ÐÈäôô¤ì(€€€€¼¼¥¹‘¥¹ÌÅÕ•Õ”ÍÑ¥±°É•¹‘•É•¸(€€€€¼¼¥¹‘¥¹œÑ¥Ñ±”…ÁÁ•…ÉÌ¥¸‰½Ñ Ñ¡”ÅÕ•Õ”Á…¹•°…¹Ñ¡”Á…Ñ¡ÌÁ…¹•°¹½Ü(€€€€¼¼Ñ¡…ÐÁ…Ñ¡ÌÉ•¹‘•ÈÑ¡”…ÑÕ…°™¥¹‘¥¹œ¡…¥¸°Í¼Í½Á”Ñ¼Ñ¡”ÅÕ•Õ”¸(€€€…Ý…¥ÐÝ¥Ñ¡¥¸¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤¤¹™¥¹‘	åQ•áÐ ½•™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•½¤¤ì(€€€€¼¼A½ÍÑÕÉ”Á…¹•°Í¡½ÝÌ…¸¥¹±¥¹”…±•ÉÐÝ¥Ñ¡½ÕÐ‰É•…­¥¹œÑ¡”Á…”¸]…¥Ð™½ÈÑ¡”(€€€€¼¼…Íå¹ŒÍÑ…Ñ”ÕÁ‘…Ñ”É…Ñ¡•ÈÑ¡…¸É•…‘¥¹œÍå¹¡É½¹½ÕÍ±äèÑ¡”Á½ÍÑÕÉ”É•ÅÕ•ÍÐ(€€€€¼¼É•©•ÑÌ½¸„Í•Á…É…Ñ”ÁÉ½µ¥Í”™É½´Ñ¡”Í…¹Ì½™¥¹‘¥¹Ì½É…Á ™•Ñ °…¹¥ÑÌ(€€€€¼¼…Ñ ¡…¹‘±•ÈÉÕ¹Ì…™Ñ•ÈÑ¡”ÅÕ•Õ”Ì¥¹¥Ñ¥…°É•¹‘•È¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½Á½ÍÑÕÉ”É…Ñ”±¥µ¥Ñ•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½Á•¹Ì„É•µ•‘¥…Ñ¥½¸ÁÉ•Ù¥•ÜÝ¡•¸Ñ¡”½Á•É…Ñ½È±¥­ÌAÉ•Ù¥•ÜÉ•µ•‘¥…Ñ¥½¸½¸„™¥àµÉ•…‘ä™¥¹‘¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥° ¤ì(€€€½¹ÍÐÁÉ•Ù¥•Ý	ÕÑÑ½¹Ì€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½AÉ•Ù¥•ÜÉ•µ•‘¥…Ñ¥½¸½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÁÉ•Ù¥•Ý	ÕÑÑ½¹ÍlÁt¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½I•ÅÕ¥É”ÁÕ±°µÉ•ÅÕ•ÍÐÉ•Ù¥•ÝÌ½¸Ñ¡”‘•™…Õ±Ð‰É…¹ ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½¹…‰±”‰É…¹ ÁÉ½Ñ•Ñ¥½¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ½µµ¥ÑÌÍ…¸…¹™¥¹‘¥¹Ì•Ù•¸Ý¡•¸Ñ¡”É¥Í¬É…Á É•ÅÕ•ÍÐÉ•©•ÑÌœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼I¥Í¬É…Á ÉÕ¹Ì½¸¥ÑÌ½Ý¸±…¹”°Í¼„É…Á ™…¥±ÕÉ”µÕÍÐ¹½Ð‰±½¬Ñ¡”(€€€€¼¼Í…¸…¹™¥¹‘¥¹ÌÁ…¹•±ÌèÑ¡”ÅÕ•Õ”…±É•…‘ä™…±±Ì‰…¬Ñ¼Í•Ù•É¥Ñä(€€€€¼¼½É‘•É¥¹œÝ¡•¸É¥Í­É…Á ¥Ì¹Õ±°¸]¥Ñ¡½ÕÐÑ¡”ÍÁ±¥Ð°AÉ½µ¥Í”¹…±°Ý½Õ±(€€€€¼¼É•©•Ð½¸Ñ¡”É…Á •ÉÉ½È…¹Ñ¡”½Á•É…Ñ½ÈÝ½Õ±Í•”Ñ¡”Í¡…É••ÉÉ½È(€€€€¼¼‰…¹¹•È½Ù•È€‰9¼Í…¸å•Ðˆ€¼€‰9¼™¥¹‘¥¹Ìˆ•Ù•¸Ñ¡½Õ Ñ¡”…ÑÕ…°Í…¸(€€€€¼¼…¹™¥¹‘¥¹ÌÉ•ÅÕ•ÍÑÌ½µÁ±•Ñ•ÍÕ•ÍÍ™Õ±±ä¸(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁ½ÍÑÕÉ•¥¹‘¥¹œ°Ý½É­™±½Ý¥¹‘¥¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•©•Ñ•‘Y…±Õ” (€€€€€¹•Ü…Á¤¹Á¥ÉÉ½È É¥Í¬É…Á Õ¹…Ù…¥±…‰±”œ°€ÔÀÌ¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€Í•ÕÉ”œ°ÍÕµµ…Éäè€Í•ÕÉ”œõt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼M…¸ÍÑÉ¥À…¹™¥¹‘¥¹ÌÅÕ•Õ”½µµ¥Ð‘•ÍÁ¥Ñ”Ñ¡”É…Á ™…¥±ÕÉ”¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½½µÁ±•Ñ”Í…¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€½¹ÍÐÅÕ•Õ•1¥ÍÐ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÅÕ•Õ•1¥ÍÐ¤¹•Ñ	åQ•áÐ ½•™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÅÕ•Õ•1¥ÍÐ¤¹•Ñ	åQ•áÐ ½]½É­™±½Ü=%ÑÉÕÍÐ¥Ì‰É½…½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€€¼¼É…Á •ÉÉ½ÈÍÕÉ™…•Ì¥¹±¥¹”¥¸¥ÑÌ½Ý¸Á…¹•°ìÍ¡…É••ÉÉ½È‰…¹¹•ÈÍÑ…åÌ±•…È¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½É¥Í¬É…Á Õ¹…Ù…¥±…‰±”½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½½Õ±‘¸Ð±½…É•Á½Í¥Ñ½Éä¥¹Ñ•±±¥•¹”½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½ÐÁÉ•±½…Ý½É­ÍÁ…”µÝ¥‘”É••¹ÐÍ…¹ÌÑ¡É½Õ ÕÍ•¥Ñ!Õ‰½µ…¥¹…Ñ„œ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼Q¡”‘É¥±±‘½Ý¸É•…‘ÌÍ…¹ÌÑ¡É½Õ ¥ÑÌ½Ý¸Á…¥¹…Ñ•(€€€€¼¼™¥¹‘I•Á½%¹Ñ•±±¥•¹•1…Ñ•ÍÑM…¸°¹½Ð‘½µ…¥¹…Ñ„¹Í…¹Ì¸A…ÍÍ¥¹œ„¹½¸µé•É¼(€€€€¼¼Í…¹1¥µ¥ÐÑ¼ÕÍ•¥Ñ!Õ‰½µ…¥¹…Ñ„Ý½Õ±Á…¥¹…Ñ”(€€€€¼¼±¥ÍÑI•Á½M…¹Í½ÉM•±•Ñ•‘I•Á½Í¥Ñ½É¥•ÌÝ¥Ñ ¹…ÉÉ½ÜÁ…•Ì‰•™½É”Ñ¡”(€€€€¼¼‘É¥±±‘½Ý¸•™™•Ð…¸•Ù•¸ÍÑ…ÉÐ°Í¥¹”Ñ¡”•™™•ÐÝ…¥ÑÌ™½È(€€€€¼¼‘½µ…¥¹…Ñ„¹±½…‘¥¹œÑ¼±•…È¸ÍÍ•ÉÐÑ¡”ÁÉ•±½…¹•Ù•ÈÉÕ¹Ì¸(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½M…¹Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁ½ÍÑÕÉ•¥¹‘¥¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€Í•ÕÉ”œ°ÍÕµµ…Éäè€Í•ÕÉ”œõt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼]…¥Ð™½ÈÑ¡”‘É¥±±‘½Ý¸Ñ¼™¥¹¥Í ¥ÑÌ½Ý¸Í…¸±½½­ÕÀÍ¼Ý”­¹½ÜÑ¡”(€€€€¼¼•™™•Ð¡…ÌÉÕ¸¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½½µÁ±•Ñ”Í…¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€€¼¼Ù•Éä±¥ÍÑI•Á½M…¹Ì…±°µÕÍÐ‰”Ñ¡”‘É¥±±‘½Ý¸Ì½Ý¸Á…¥¹…Ñ½È€¡Ý¡¥ (€€€€¼¼ÕÍ•ÌIA=}%9Q11%9}M9}A}1%5%PôÔÀ¤°¹½ÐÑ¡”ÁÉ•±½…Ì¹…ÉÉ½Ü(€€€€¼¼€ÔµÉ•½ÉÁ…”¸%˜ÕÍ•¥Ñ!Õ‰½µ…¥¹…Ñ„¡…‰••¸¥Ù•¸„¹½¸µé•É¼(€€€€¼¼Í…¹1¥µ¥Ð°¥ÐÝ½Õ±…±°±¥ÍÑI•Á½M…¹ÌÝ¥Ñ ±¥µ¥ÐôÔ¸(€€€™½È€¡½¹ÍÐ…±°½˜±¥ÍÑI•Á½M…¹Ì¹µ½¬¹…±±Ì¤ì(€€€€€½¹ÍÐ™¥±Ñ•ÉÌ€ô…±±lÁtì(€€€€€•áÁ•Ð¡™¥±Ñ•ÉÌü¹±¥µ¥Ð¤¹¹½Ð¹Ñ½	” Ô¤ì(€€€ô(€ô¤ì((€¥Ð Á…¥¹…Ñ•Ì±¥ÍÑI•Á½M…¹ÌÕ¹Ñ¥°Ñ¡”Ñ…É•ÐÉ•Á½Í¥Ñ½Éä¥Ì™½Õ¹É…Ñ¡•ÈÑ¡…¸É•…‘¥¹œ½¹±äÑ¡”™¥ÉÍÐÁ…”œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì((€€€€¼¼¥ÉÍÐÁ…”¡½±‘Ì„Í…¸™½È…¹½Ñ¡•ÈÉ•Á½Í¥Ñ½ÉäìÑ¡”Ñ…É•ÐÉ•Á¼ÌÍ…¸(€€€€¼¼±¥Ù•Ì½¸Ñ¡”Í•½¹Á…”°­•å•‰äÑ¡”ÕÉÍ½È¸%˜Á…¥¹…Ñ¥½¸¥Ì¹½Ð(€€€€¼¼™½±±½Ý•Ñ¡”‘É¥±±‘½Ý¸™…±Í•±äÉ•Á½ÉÑÌ€‰9¼Í…¸å•Ðˆ¸(€€€½¹ÍÐ½Ñ¡•ÉI•Á½M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹½µÁ±•Ñ•‘M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ¹•Ý•Èµ½Ñ¡•Èœ°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½½Ñ¡•ÈµÉ•Á¼œ(€€€ôì(€€€½¹ÍÐ±¥ÍÑI•Á½M…¹Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤ì(€€€±¥ÍÑI•Á½M…¹Ì¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡™¥±Ñ•ÉÌ¤€ôøì(€€€€€¥˜€ …™¥±Ñ•ÉÌü¹ÕÉÍ½È¤ì(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèm½Ñ¡•ÉI•Á½M…¹t°¹•áÑ}ÕÉÍ½Èè€ÕÉÍ½ÈµÁ…”´Èœôì(€€€€€ô(€€€€€¥˜€¡™¥±Ñ•ÉÌ¹ÕÉÍ½È€ôôô€ÕÉÍ½ÈµÁ…”´Èœ¤ì(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tôì(€€€€€ô(€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèmtôì(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁ½ÍÑÕÉ•¥¹‘¥¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€Í•ÕÉ”œ°ÍÕµµ…Éäè€Í•ÕÉ”œõt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½½µÁ±•Ñ”Í…¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼Q¡”½¹¹•Ñ¥½¸µ±½…‘¥¹œÉ•¹‘•ÈÑÉ¥•ÉÌ…¸¥¹¥Ñ¥…°¹¼µ½¹¹•Ñ½È•™™•ÐÉÕ¸(€€€€¼¼Í¼±¥ÍÑI•Á½M…¹Ì¥Ì…±±•µ½É”Ñ¡…¸ÑÝ¥”ìÑ¡”µ•…¹¥¹™Õ°…ÍÍ•ÉÑ¥½¸¥Ì(€€€€¼¼Ñ¡…ÐÁ…¥¹…Ñ¥½¸™½±±½Ý•Ñ¡”ÕÉÍ½ÈÑ¼É•… Ñ¡”Ñ…É•ÐÉ•Á½Í¥Ñ½Éä¸(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡±¥ÍÑI•Á½M…¹Ì¹µ½¬¹…±±Ì¹Í½µ” ¡m™¥±Ñ•ÉÍt¤€ôø™¥±Ñ•ÉÌü¹ÕÉÍ½È€ôôô€ÕÉÍ½ÈµÁ…”´Èœ¤¤¹Ñ½	”¡ÑÉÕ”¤(€€€€¤ì(€ô¤ì((€¥Ð Á…¥¹…Ñ•Ì±¥ÍÑI•Á½¥¹‘¥¹ÌÍ¼…¸½±‘•È¡¥¡•ÈµÍ½É¥¹œ™¥¹‘¥¹œ¥Ì¹½Ð‘É½ÁÁ•™É½´Ñ¡”ÅÕ•Õ”œ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼=±‘•È™¥¹‘¥¹œ¥Ì½¸Á…”€È‰ÕÐ¡…ÌÑ¡”¡¥¡•ÍÐÉ…Á Í½É”¸EÕ•Õ”µÕÍÐ(€€€€¼¼¥¹±Õ‘”¥Ð…¹É…¹¬¥Ð™¥ÉÍÐ¸(€€€½¹ÍÐ½±‘•ÉÉ¥Ñ¥…±¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°(€€€€€¥è€™¥¹‘¥¹œµÉ¥Ñ¥…°µ½±‘•Èœ°(€€€€€Ñ¥Ñ±”è€É¥Ñ¥…°¡¥ÍÑ½É¥…°™¥¹‘¥¹œœ°(€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÁPÀäèÀÀèÀÁhœ(€€€ôì(€€€½¹ÍÐÉ¥Ñ¥…±M½É•‘É…Á èI•Á½I¥Í­É…Á €ôì(€€€€€€¸¸¹É¥Í­É…Á¡]¥Ñ¡M½É•Ì°(€€€€€Í½É•Ìèl(€€€€€€€ì(€€€€€€€€€™¥¹‘¥¹}¥è½±‘•ÉÉ¥Ñ¥…±¥¹‘¥¹œ¹¥°(€€€€€€€€€™¥¹‘¥¹}¹½‘•}¥è€¹½‘”µÉ¥Ñ¥…°œ°(€€€€€€€€€Í½É”è€ää°(€€€€€€€€€Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°(€€€€€€€€€½¹™¥‘•¹”è€À¸ää°(€€€€€€€€€™…Ñ½ÉÌèì(€€€€€€€€€€€Í•Ù•É¥Ñäè€ÄÀÀ°½¹™¥‘•¹”è€ää°•áÁ±½¥Ñ…‰¥±¥Ñäè€äÀ°ÁÉ¥Ù¥±•”è€àÀ°(€€€€€€€€€€€•áÁ½ÍÕÉ”è€ÜÀ°•¹Ù¥É½¹µ•¹Ñ}É¥Ñ¥…±¥Ñäè€ØÀ°™É•Í¡¹•ÍÌè€ÈÀ°Á½ÍÑÕÉ•}…µÁ±¥™¥•Èè€àÀ(€€€€€€€€€ô°(€€€€€€€€€Õ¹­¹½Ý¹Ìèmt(€€€€€€€ô(€€€€€t(€€€ôì((€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½¥¹‘¥¹Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤ì(€€€±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡™¥±Ñ•ÉÌ¤€ôøì(€€€€€¥˜€ …™¥±Ñ•ÉÌü¹ÕÉÍ½È¤ì(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèmÁ½ÍÑÕÉ•¥¹‘¥¹t°¹•áÑ}ÕÉÍ½Èè€™¥¹‘¥¹ÌµÕÉÍ½È´Èœôì(€€€€€ô(€€€€€¥˜€¡™¥±Ñ•ÉÌ¹ÕÉÍ½È€ôôô€™¥¹‘¥¹ÌµÕÉÍ½È´Èœ¤ì(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèm½±‘•ÉÉ¥Ñ¥…±¥¹‘¥¹tôì(€€€€€ô(€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèmtôì(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Ñ¥…±M½É•‘É…Á ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€Í•ÕÉ”œ°ÍÕµµ…Éäè€Í•ÕÉ”œõt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼Q¡”½±‘•ÈÉ¥Ñ¥…°™¥¹‘¥¹œµÕÍÐ…ÁÁ•…È…ÐÑ¡”Ñ½À½˜Ñ¡”ÅÕ•Õ”¸(€€€½¹ÍÐÅÕ•Õ•1¥ÍÐ€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤¤¹ÅÕ•ÉåM•±•Ñ½È Õ°œ¤ì(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ¤¹¹½Ð¹Ñ½	•9Õ±° ¤ì(€€€½¹ÍÐÉ½ÝÌ€ô€¡ÅÕ•Õ•1¥ÍÐ…Ì!Q51±•µ•¹Ð¤¹ÅÕ•ÉåM•±•Ñ½É±° ±¤œ¤ì(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ É¥Ñ¥…°¡¥ÍÑ½É¥…°™¥¹‘¥¹œœ¤ì(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ Í½É”€ääœ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½¬¹…±±Ì¹Í½µ” ¡m™¥±Ñ•ÉÍt¤€ôø™¥±Ñ•ÉÌü¹ÕÉÍ½È€ôôô€™¥¹‘¥¹ÌµÕÉÍ½È´Èœ¤¤¹Ñ½	”¡ÑÉÕ”¤(€€€€¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½Ð™•Ñ É•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”½¸„AP½¹¹•Ñ¥½¸Ý¡•É”Ñ¡”•¹‘Á½¥¹Ð¥ÌÕ¹ÍÕÁÁ½ÉÑ•œ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€€¼¼AP½¹¹•Ñ¥½¸è½¹¹•Ñ•Ý¥Ñ „½¹¹•Ñ½É}¥°‰ÕÐÁÉ½Ù¥‘•È¥Ì¥Ñ¡Õ‰}Á…Ð(€€€€¼¼Í¼Ñ¡”Á½ÍÑÕÉ”•¹‘Á½¥¹ÐÝ½Õ±É•ÑÕÉ¸…¸Õ¹ÍÕÁÁ½ÉÑ••ÉÉ½È¥˜Ý”¡¥Ð¥Ð¸(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ¥½¸èì(€€€€€€€€¸¸¹½¹¹•Ñ•‘¥Ñ!Õˆ°(€€€€€€€ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}Á…Ðœ°(€€€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ•¹Ñ•ÉÁÉ¥Í”œ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁ½ÍÑÕÉ•¥¹‘¥¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì(€€€½¹ÍÐÁ½ÍÑÕÉ•MÁä€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼¥¹‘¥¹œÑ¥Ñ±”…ÁÁ•…ÉÌ¥¸‰½Ñ Ñ¡”ÅÕ•Õ”Á…¹•°…¹Ñ¡”Á…Ñ¡ÌÁ…¹•°¹½Ü(€€€€¼¼Ñ¡…ÐÁ…Ñ¡ÌÉ•¹‘•ÈÑ¡”…ÑÕ…°™¥¹‘¥¹œ¡…¥¸°Í¼Í½Á”Ñ¼Ñ¡”ÅÕ•Õ”¸(€€€…Ý…¥ÐÝ¥Ñ¡¥¸¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤¤¹™¥¹‘	åQ•áÐ ½•™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•½¤¤ì(€€€€¼¼A½ÍÑÕÉ”Á…¹•°Í¡½ÝÌÑ¡”•µÁÑäÍÑ…Ñ”°¹½Ð…¸•ÉÉ½È‰…¹¹•È¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½9¼Á½ÍÑÕÉ”½±±•Ñ•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼Q¡”Á½ÍÑÕÉ”•¹‘Á½¥¹ÐÝ…Ì¹•Ù•È…±±•™½È„AP½¹¹•Ñ¥½¸¸(€€€•áÁ•Ð¡Á½ÍÑÕÉ•MÁä¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì((€¥Ð Í½ÉÑÌÉ¥Í¬É…Á Í½É•Ì‰•™½É”Ñ…­¥¹œÑ¡”Ñ½À‰±…ÍÐµÉ…‘¥ÕÌÍ±¥”œ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼A$É•ÑÕÉ¹ÌÍ½É•Ì¥¸¥¹Í•ÉÑ¥½¸½É‘•ÈÝ¥Ñ Ñ¡”¡¥¡•ÍÐµÍ½É¥¹œÁ…Ñ (€€€€¼¼‰ÕÉ¥•¥¸Ñ¡”µ¥‘‘±”¸Q¡”€‰Q½À‰±…ÍÐµÉ…‘¥ÕÌÁ…Ñ¡ÌˆÍ•Ñ¥½¸µÕÍÐÍÑ¥±°(€€€€¼¼É…¹¬¥Ð™¥ÉÍÐƒŠPÑ¡”‘É¥±±‘½Ý¸Í½ÉÑÌ‰•™½É”Í±¥¥¹œÉ…Ñ¡•ÈÑ¡…¸É•±å¥¹œ(€€€€¼¼½¸A$µ½É‘•È•ÅÕ…±¥¹œÍ½É”µ½É‘•È¸(€€€½¹ÍÐÕ¹Í½ÉÑ•‘M½É•ÍÉ…Á èI•Á½I¥Í­É…Á €ôì(€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€€€¹½‘•Ìèmt°•‘•Ìèmt°(€€€€€ÍÕµµ…Éäèì(€€€€€€€™¥¹‘¥¹}½Õ¹Ðè€À°¹½‘•}½Õ¹Ðè€À°•‘•}½Õ¹Ðè€À°Õ¹­¹½Ý¹}¹½‘•}½Õ¹Ðè€À°(€€€€€€€Õ¹­¹½Ý¹}•‘•}½Õ¹Ðè€À°¡¥¡}É¥Í­}™¥¹‘¥¹Ìè€À°É¥Ñ¥…±}™¥¹‘¥¹Ìè€À(€€€€€ô°(€€€€€Í½É•Ìèl(€€€€€€€ì(€€€€€€€€€™¥¹‘¥¹}¥è€±½Ý•ÈµÍ½É”œ°™¥¹‘¥¹}¹½‘•}¥è€¹½‘”µ„œ°(€€€€€€€€€Í½É”è€ÐÀ°Í•Ù•É¥Ñäè€±½Üœ°½¹™¥‘•¹”è€À¸Ø°(€€€€€€€€€™…Ñ½ÉÌèì(€€€€€€€€€€€Í•Ù•É¥Ñäè€ÐÀ°½¹™¥‘•¹”è€ØÀ°•áÁ±½¥Ñ…‰¥±¥Ñäè€ÌÀ°ÁÉ¥Ù¥±•”è€ÈÀ°(€€€€€€€€€€€•áÁ½ÍÕÉ”è€ÄÔ°•¹Ù¥É½¹µ•¹Ñ}É¥Ñ¥…±¥Ñäè€À°™É•Í¡¹•ÍÌè€ÄÀÀ°Á½ÍÑÕÉ•}…µÁ±¥™¥•Èè€À(€€€€€€€€€ô°(€€€€€€€€€Õ¹­¹½Ý¹Ìèmt(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€™¥¹‘¥¹}¥è€¡¥¡•ÍÐµÍ½É”œ°™¥¹‘¥¹}¹½‘•}¥è€¹½‘”µˆœ°(€€€€€€€€€Í½É”è€äÔ°Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°½¹™¥‘•¹”è€À¸äÔ°(€€€€€€€€€™…Ñ½ÉÌèì(€€€€€€€€€€€Í•Ù•É¥Ñäè€ÄÀÀ°½¹™¥‘•¹”è€äÔ°•áÁ±½¥Ñ…‰¥±¥Ñäè€äÀ°ÁÉ¥Ù¥±•”è€àÀ°(€€€€€€€€€€€•áÁ½ÍÕÉ”è€ÜÀ°•¹Ù¥É½¹µ•¹Ñ}É¥Ñ¥…±¥Ñäè€ØÀ°™É•Í¡¹•ÍÌè€ÄÀÀ°Á½ÍÑÕÉ•}…µÁ±¥™¥•Èè€àÀ(€€€€€€€€€ô°(€€€€€€€€€Õ¹­¹½Ý¹Ìèmt(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€™¥¹‘¥¹}¥è€µ¥‘‘±”µÍ½É”œ°™¥¹‘¥¹}¹½‘•}¥è€¹½‘”µŒœ°(€€€€€€€€€Í½É”è€ØÔ°Í•Ù•É¥Ñäè€µ•‘¥Õ´œ°½¹™¥‘•¹”è€À¸ÜÔ°(€€€€€€€€€™…Ñ½ÉÌèì(€€€€€€€€€€€Í•Ù•É¥Ñäè€ÔÔ°½¹™¥‘•¹”è€ÜÔ°•áÁ±½¥Ñ…‰¥±¥Ñäè€ÔÀ°ÁÉ¥Ù¥±•”è€ÐÀ°(€€€€€€€€€€€•áÁ½ÍÕÉ”è€ÌÀ°•¹Ù¥É½¹µ•¹Ñ}É¥Ñ¥…±¥Ñäè€ÄÀ°™É•Í¡¹•ÍÌè€ÄÀÀ°Á½ÍÑÕÉ•}…µÁ±¥™¥•Èè€À(€€€€€€€€€ô°(€€€€€€€€€Õ¹­¹½Ý¹Ìèmt(€€€€€€€ô(€€€€€t(€€€ôì(€€€€¼¼AÉ½Ù¥‘”½Á•¸™¥¹‘¥¹ÌÝ¡½Í”%Ìµ…Ñ •… Í½É”Í¼Ñ¡”…Ñ¥Ù”µ™¥¹‘¥¹Ì(€€€€¼¼™¥±Ñ•ÈÑ¡…ÐÑ¡”Ñ½ÀµÁ…Ñ¡Ì±¥ÍÐ…ÁÁ±¥•Ì‘½•Ì¹½ÐÉ•µ½Ù”Ñ¡•´¸Q¥Ñ±•Ì(€€€€¼¼…É”Í•Ð™É½´Ñ¡”Í½É”¹…µ”Í¼Ñ¡”½É‘•É¥¹œ…ÍÍ•ÉÑ¥½¹Ì…¸±½½¬…Ð(€€€€¼¼Ñ¡”É½Ü¡•…‘•È€¡Ý¡¥ ÕÍ•ÌÑ¡”™¥¹‘¥¹œÑ¥Ñ±”°¹½Ð¥¤¸(€€€½¹ÍÐ…Ñ¥Ù•¥¹‘¥¹Ìè¥¹‘¥¹mt€ôl±½Ý•ÈµÍ½É”œ°€¡¥¡•ÍÐµÍ½É”œ°€µ¥‘‘±”µÍ½É”t¹µ…À ¡¥¤€ôø€¡ì(€€€€€€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°(€€€€€¥°(€€€€€Ñ¥Ñ±”è¥¹‘¥¹œÉ…¹­•€‘í¥‘õ€°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€½Á•¸œ(€€€ô¤¤ì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì™¥¹‘¥¹Ìè…Ñ¥Ù•¥¹‘¥¹Ì°É¥Í­É…Á èÕ¹Í½ÉÑ•‘M½É•ÍÉ…Á ô¤ì(€€€½¹ÍÐÁ…Ñ¡Í1¥ÍÐ€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ Q½À‰±…ÍÐµÉ…‘¥ÕÌÁ…Ñ¡Ìœ¤¤¹ÅÕ•ÉåM•±•Ñ½È ½°œ¤ì(€€€•áÁ•Ð¡Á…Ñ¡Í1¥ÍÐ¤¹¹½Ð¹Ñ½	•9Õ±° ¤ì(€€€½¹ÍÐÉ½ÝÌ€ô€¡Á…Ñ¡Í1¥ÍÐ…Ì!Q51±•µ•¹Ð¤¹ÅÕ•ÉåM•±•Ñ½É±° ±¤œ¤ì(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ ¥¹‘¥¹œÉ…¹­•¡¥¡•ÍÐµÍ½É”œ¤ì(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ Í½É”€äÔœ¤ì(€€€•áÁ•Ð¡É½ÝÍlÅt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ ¥¹‘¥¹œÉ…¹­•µ¥‘‘±”µÍ½É”œ¤ì(€€€•áÁ•Ð¡É½ÝÍlÉt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ ¥¹‘¥¹œÉ…¹­•±½Ý•ÈµÍ½É”œ¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½ÐÉ•¹‘•ÈÑ¡”ÁÉ•Ù¥½ÕÌÉ•Á½Í¥Ñ½ÉåpÌ‘…Ñ„Ý¡•¸„É•±½…É•©•ÑÌ½¸•ÉÉ½Èœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼MÑ…ÉÐ½¸É•Á¼Ý¥Ñ ‘…Ñ„°Ñ¡•¸É•ÉÕ¸Ñ¡”É•¹‘•ÈÁ½¥¹Ñ¥¹œ…ÐÉ•Á¼Ý¡•É”(€€€€¼¼±¥ÍÑI•Á½¥¹‘¥¹ÌÉ•©•ÑÌ¸Q¡”¡•…‘•ÈµÕÍÐÍÝ…ÀÑ¼É•Á¼…¹Ñ¡”(€€€€¼¼™¥¹‘¥¹ÌÁ…¹•°µÕÍÐÍ¡½Ü¥ÑÌ½Ý¸¥¹±¥¹”•ÉÉ½ÈƒŠPÑ¡”ÅÕ•Õ”…¹Í…¸(€€€€¼¼Á…¹•±ÌµÕÍÐ¹½Ð…ÉÉäÉ•Á¼Ì±•™Ñ½Ù•È‘…Ñ„¸(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥° ¤ì(€€€€¼¼½¹™¥É´É•Á¼É•¹‘•É•™Õ±±ä¸(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”èÑ…É•ÑI•Á½Í¥Ñ½Éäô¤ì(€€€€¼¼¥¹‘¥¹œÑ¥Ñ±”…ÁÁ•…ÉÌ¥¸‰½Ñ Ñ¡”ÅÕ•Õ”Á…¹•°…¹Ñ¡”Á…Ñ¡ÌÁ…¹•°¹½Ü(€€€€¼¼Ñ¡…ÐÁ…Ñ¡ÌÉ•¹‘•ÈÑ¡”…ÑÕ…°™¥¹‘¥¹œ¡…¥¸°Í¼Í½Á”Ñ¼Ñ¡”ÅÕ•Õ”¸(€€€…Ý…¥ÐÝ¥Ñ¡¥¸¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤¤¹™¥¹‘	åQ•áÐ ½•™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•½¤¤ì(€€€±•…¹ÕÀ ¤ì(€€€Ù¤¹É•ÍÑ½É•±±5½­Ì ¤ì(€€€Ù¤¹É•Í•Ñ5½‘Õ±•Ì ¤ì((€€€½¹ÍÐ½Ñ¡•ÉI•Á½Í¥Ñ½Éä€ô€¥‘•¹ÑÉ…¥°½½Ñ¡•ÈµÉ•Á¼œì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì(€€€€€¥¹¥Ñ¥…±I•Á½Í¥Ñ½Éäè½Ñ¡•ÉI•Á½Í¥Ñ½Éä°(€€€€€±¥ÍÑI•Á½¥¹‘¥¹ÍÉÉ½Èèìµ•ÍÍ…”è€ÑÉ…¹Í¥•¹Ð½ÕÑ…”œ°ÍÑ…ÑÕÌè€ÔÀÀô(€€€ô¤ì(€€€…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ¡•…‘¥¹œœ°ì±•Ù•°è€È°¹…µ”è½Ñ¡•ÉI•Á½Í¥Ñ½Éäô¤ì(€€€€¼¼¥¹‘¥¹ÌÁ…¹•°ÍÕÉ™…•Ì¥ÑÌ½Ý¸•ÉÉ½È¥¹±¥¹”¸(€€€½¹ÍÐÅÕ•Õ•A…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÅÕ•Õ•A…¹•°¤¹•Ñ	åQ•áÐ ½ÑÉ…¹Í¥•¹Ð½ÕÑ…”½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼MÑ…±”ÅÕ•Õ”É½ÝÌ™É½´É•Á¼µÕÍÐ¹½Ð‰”ÁÉ•Í•¹Ð¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½•™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½]½É­™±½Ü=%ÑÉÕÍÐ¥Ì‰É½…½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð µ…Ñ¡•ÌÍ…¸É•½É‘Ì…Í”µ¥¹Í•¹Í¥Ñ¥Ù•±äÍ¼µ¥á•µ…Í”‘••À±¥¹­Ì‘¼¹½ÐÉ•Á½ÉÐ9¼Í…¸å•Ðœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼••À±¥¹¬ÕÍ•Ì€‰%‘•¹ÑÉ…¥°½%‘•¹ÑÉ…¥°ˆìÍÑ½É•Í…¸ÕÍ•Ì€‰¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°ˆ¸(€€€½¹ÍÐµ¥á•‘…Í•I•Á½Í¥Ñ½Éä€ô€%‘•¹ÑÉ…¥°½%‘•¹ÑÉ…¥°œì(€€€½¹ÍÐ±½Ý•É…Í•M…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹½µÁ±•Ñ•‘M…¸°(€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ(€€€ôì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm±½Ý•É…Í•M…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁ½ÍÑÕÉ•¥¹‘¥¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½Éäè€¥‘•¹ÑÉ…¥°½¥‘•¹ÑÉ…¥°œ°½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€Í•ÕÉ”œ°ÍÕµµ…Éäè€Í•ÕÉ”œõt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡µ¥á•‘…Í•I•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼Q¡”…Í”µµ¥Íµ…Ñ¡•‘••À±¥¹¬µÕÍÐÉ•Í½±Ù”Ñ¼Ñ¡”ÍÑ½É•±½Ý•É…Í”Í…¸¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½½µÁ±•Ñ”Í…¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½9¼Í…¸å•Ð½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ¥¹Ù…±¥‘…Ñ•Ì„Á•¹‘¥¹œÉ•µ•‘¥…Ñ¥½¸ÁÉ•Ù¥•ÜÝ¡•¸Ñ¡”½Á•É…Ñ½È±½Í•ÌÑ¡”Á…¹•°œ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼M•ÐÕÀ„ÁÉ•Ù¥•Ü•¹‘Á½¥¹ÐÝ¡½Í”ÁÉ½µ¥Í”É•Í½±Ù•Ì½¹±äÝ¡•¸Ý”É•±•…Í”¥Ð°(€€€€¼¼Í¼Ñ¡”±¥¬½¸±½Í”¡…ÁÁ•¹ÌÝ¡¥±”Ñ¡”É•ÅÕ•ÍÐ¥ÌÍÑ¥±°¥¸™±¥¡Ð¸%˜(€€€€¼¼Ñ¡”±½Í”¡…¹‘±•È‘½•Ì¹½Ð¥¹Ù…±¥‘…Ñ”Ñ¡”É•ÅÕ•ÍÐÑ½­•¸°Ñ¡”±…Ñ”(€€€€¼¼É•ÍÁ½¹Í”Ý½Õ±ÝÉ¥Ñ”¥¹Ñ¼ÁÉ•Ù¥•ÜÍÑ…Ñ”¸(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€€¼¼UÍ”„ÍÕÁÁ½ÉÑ•€¡Ý½É­™±½Ý|¨¤‘•Ñ•Ñ½ÈÍ¼Ñ¡”AÉ•Ù¥•Ü‰ÕÑÑ½¸É•¹‘•ÉÌ¸(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÝ½É­™±½Ý¥¹‘¥¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€Í•ÕÉ”œ°ÍÕµµ…Éäè€Í•ÕÉ”œõt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ•Ù¥•Ý•™•ÉÉ•€ô‘•™•ÉÉ•ñI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¹AÉ•Ù¥•Üø ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÁÉ•Ù¥•ÝI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôøÁÉ•Ù¥•Ý•™•ÉÉ•¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼=Á•¸Ñ¡”ÁÉ•Ù¥•ÜƒŠPÉ•ÅÕ•ÍÐ¥Ì¹½ÜÁ•¹‘¥¹œ¸(€€€½¹ÍÐÁÉ•Ù¥•Ý	ÕÑÑ½¹Ì€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½AÉ•Ù¥•ÜÉ•µ•‘¥…Ñ¥½¸½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÁÉ•Ù¥•Ý	ÕÑÑ½¹ÍlÁt¤ì(€€€€¼¼1½…‘¥¹œ¥¹‘¥…Ñ½È½¹™¥ÉµÌÑ¡”É•ÅÕ•ÍÐ¥Ì¥¸™±¥¡Ð¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½1½…‘¥¹œÉ•µ•‘¥…Ñ¥½¸ÁÉ•Ù¥•Ü½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼±½Í”Ñ¡”Á…¹•°‰•™½É”Ñ¡”É•ÅÕ•ÍÐÉ•Í½±Ù•Ì¸(€€€™¥É•Ù•¹Ð¹±¥¬¡ÍÉ••¸¹•Ñ	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½±½Í”½¤ô¤¤ì((€€€€¼¼9½ÜÉ•±•…Í”Ñ¡”±…Ñ”É•ÍÁ½¹Í”¸(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€ÁÉ•Ù¥•Ý•™•ÉÉ•¹É•Í½±Ù”¡ì(€€€€€€€™¥¹‘¥¹œèÁ½ÍÑÕÉ•¥¹‘¥¹œ°(€€€€€€€É•µ•‘¥…Ñ¥½¸èì(€€€€€€€€€‘•Ñ•Ñ½Èè€¥Ñ¡Õ‰}‘•™…Õ±Ñ}‰É…¹¡}Õ¹ÁÉ½Ñ•Ñ•œ°(€€€€€€€€€ÍÕµµ…Éäè€1…Ñ”É•µ•‘¥…Ñ¥½¸Í¡½Õ±¹½Ð½µµ¥Ðœ°(€€€€€€€€€É¥Í­}ÍÕµµ…Éäè€œœ°(€€€€€€€€€ÍÑ•ÁÌèl1…Ñ”ÍÑ•ÀÑ¡…ÐÍ¡½Õ±¹•Ù•ÈÉ•¹‘•Èt°(€€€€€€€€€Í…™•Ñå}¹½Ñ•Ìèmt°Ù…±¥‘…Ñ¥½¸èmt°(€€€€€€€€€Í•É•Ñ}É½Ñ…Ñ¥½¸è™…±Í”°ÁÕ‰±¥Í¡…‰±”èÑÉÕ”°(€€€€€€€€€•Ù¥‘•¹”èì™¥¹‘¥¹}¥èÁ½ÍÑÕÉ•¥¹‘¥¹œ¹¥ô(€€€€€€€ô(€€€€€ô¤ì(€€€€€…Ý…¥ÐÁÉ•Ù¥•Ý•™•ÉÉ•¹ÁÉ½µ¥Í”ì(€€€ô¤ì((€€€€¼¼Q¡”‘¥Íµ¥ÍÍ•ÁÉ•Ù¥•ÜµÕÍÐ¹½ÐÉ•ÍÕÉÉ•Ðè¹¼ÍÕµµ…Éä°¹¼ÍÑ•ÁÌ¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1…Ñ”É•µ•‘¥…Ñ¥½¸Í¡½Õ±¹½Ð½µµ¥Ð½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1…Ñ”ÍÑ•ÀÑ¡…ÐÍ¡½Õ±¹•Ù•ÈÉ•¹‘•È½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1½…‘¥¹œÉ•µ•‘¥…Ñ¥½¸ÁÉ•Ù¥•Ü½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½ÐÉ•ÍÑ…ÉÐÍ…¸°™¥¹‘¥¹Ì°…¹É…Á ™•Ñ¡•ÌÝ¡•¸½¹¹•Ñ¥½¸ÍÑ…ÑÕÌÍ•ÑÑ±•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼Q¡”½É”™•Ñ¡•ÌµÕÍÐÝ…¥Ð™½È½¹¹•Ñ¥½¸ÍÑ…ÑÕÌ‰•™½É”™¥É¥¹œ¸]¥Ñ¡½ÕÐ(€€€€¼¼Ñ¡”…Ñ”°Ñ¡”•™™•ÐÝ½Õ±ÉÕ¸½¹”Ý¥Ñ ½¹¹•Ñ¥½¸õ¹Õ±°°ÍÑ…ÉÐÑ¡”(€€€€¼¼Ñ¡É•”™•Ñ¡•Ì°•Ð¥¹Ù…±¥‘…Ñ•Ý¡•¸‘½µ…¥¹…Ñ„¹±½…‘¥¹œ™±¥ÁÌÑ¼™…±Í”°(€€€€¼¼…¹ÍÑ…ÉÐÑ¡•´……¥¸ƒŠP‘½Õ‰±¥¹œÑ¡”Á…¥¹…Ñ¥½¸½ÍÐ½¸‘••ÀÉ•Á½Ì¸(€€€€¼¼ÍÍ•ÉÐ•… ½˜Ñ¡”Ñ¡É•”‘É¥±±‘½Ý¸µ½Ý¹••¹‘Á½¥¹ÑÌ¥Ì…±±•…Ðµ½ÍÐ(€€€€¼¼½¹”™½È„¥Ù•¸É•Á½Í¥Ñ½Éä½¹”Ñ¡”‘É¥±±‘½Ý¸¡…ÌÍ•ÑÑ±•¸(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½M…¹Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½¥¹‘¥¹Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁ½ÍÑÕÉ•¥¹‘¥¹tô¤ì(€€€½¹ÍÐ•ÑI•Á½I¥Í­É…Á €ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€Í•ÕÉ”œ°ÍÕµµ…Éäè€Í•ÕÉ”œõt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼]…¥ÐÕ¹Ñ¥°Ñ¡”‘É¥±±‘½Ý¸¡…Ì™¥¹¥Í¡•Í•ÑÑ±¥¹œ€¡Ñ¡”ÅÕ•Õ”É•¹‘•É•¤¸(€€€€¼¼¥¹‘¥¹œÑ¥Ñ±”…ÁÁ•…ÉÌ¥¸‰½Ñ Ñ¡”ÅÕ•Õ”Á…¹•°…¹Ñ¡”Á…Ñ¡ÌÁ…¹•°¹½Ü(€€€€¼¼Ñ¡…ÐÁ…Ñ¡ÌÉ•¹‘•ÈÑ¡”…ÑÕ…°™¥¹‘¥¹œ¡…¥¸°Í¼Í½Á”Ñ¼Ñ¡”ÅÕ•Õ”¸(€€€…Ý…¥ÐÝ¥Ñ¡¥¸¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤¤¹™¥¹‘	åQ•áÐ ½•™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•½¤¤ì((€€€€¼¼=¹±ä½¹”…±°Á•ÈÉ•Á½Í¥Ñ½ÉäƒŠP±¥ÍÑI•Á½M…¹Ì½¥¹‘¥¹Ì½•ÑI•Á½I¥Í­É…Á (€€€€¼¼•… ™¥É•™½ÈÑ¡”Ñ…É•Ð½¹”°¹½ÐÑÝ¥”¸ÕÍ•¥Ñ!Õ‰½µ…¥¹…Ñ„Ì½Ý¸(€€€€¼¼Í…¸™•Ñ ¥ÌÝ½É­ÍÁ…”µÝ¥‘”€¡¹¼ÕÉÍ½È…ÉÕµ•¹Ð¤°Í¼™¥±Ñ•ÈÑ¼Ñ¡”(€€€€¼¼‘É¥±±‘½Ý¸ÌÁ…¥¹…Ñ•…±°‰äµ…Ñ¡¥¹œÑ¡”ÁÉ•Í•¹”½˜ÕÉÍ½È=H„(€€€€¼¼É•ÅÕ•ÍÐÑ¡…ÐÉ•ÑÕÉ¹•Ñ¡”Ñ…É•ÐÉ•Á½Í¥Ñ½ÉäÉ•½É¸(€€€½¹ÍÐÍ…¹…±±Í½ÉI•Á½Í¥Ñ½Éä€ô±¥ÍÑI•Á½M…¹Ì¹µ½¬¹…±±Ì¹™¥±Ñ•È (€€€€€€¡m™¥±Ñ•ÉÍt¤€ôø™¥±Ñ•ÉÌü¹±¥µ¥Ð€ôôô€ÔÀ€¼¼IA=}%9Q11%9}M9}A}1%5%P(€€€€¤¹±•¹Ñ ì(€€€•áÁ•Ð¡Í…¹…±±Í½ÉI•Á½Í¥Ñ½Éä¤¹Ñ½	” Ä¤ì(€€€•áÁ•Ð¡±¥ÍÑI•Á½¥¹‘¥¹Ì¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤ì(€€€•áÁ•Ð¡•ÑI•Á½I¥Í­É…Á ¤¹Ñ½!…Ù•	••¹…±±•‘Q¥µ•Ì Ä¤ì(€ô¤ì((€¥Ð É•¹‘•ÉÌ½É…¹¥é…Ñ¥½¸Á½ÍÑÕÉ”…ÁÌ…±½¹Í¥‘”É•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”½¸Ñ¡”‘É¥±±‘½Ý¸œ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”É•ÑÕÉ¹Ì‰½Ñ É•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”…¹(€€€€¼¼½É…¹¥é…Ñ¥½¹}Á½ÍÑÕÉ”¸Q¡”‘É¥±±‘½Ý¸µÕÍÐÉ•¹‘•È¥¹¡•É¥Ñ•½Éœ½¹ÑÉ½°(€€€€¼¼…ÁÌÑ½¼ƒŠP¡¥‘¥¹œÑ¡•´Ý½Õ±±•…Ù”¥¹¡•É¥Ñ•Ñ¥½¹ÌÁ½±¥ä€¼Í•ÕÉ¥Ñä(€€€€¼¼½¹™¥ÕÉ…Ñ¥½¸€¼ÉÕ¹¹•ÈÁ½ÍÑÕÉ”¥¹Ù¥Í¥‰±”Ñ¼Ñ¡”½Á•É…Ñ½È¸(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁ½ÍÑÕÉ•¥¹‘¥¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°(€€€€€ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€€€€€½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì(€€€€€€€€€¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€¥¹Í•ÕÉ”œ°(€€€€€€€€€ÍÕµµ…Éäè€I•Á½Í¥Ñ½Éä‘•™…Õ±Ð‰É…¹ ¥Ìµ¥ÍÍ¥¹œÉ•ÅÕ¥É•É•Ù¥•ÝÌ¸œ(€€€€€€€õt(€€€€€ô°(€€€€€½É…¹¥é…Ñ¥½¹}Á½ÍÑÕÉ”èì(€€€€€€€½É…¹¥é…Ñ¥½¸è€¥‘•¹ÑÉ…¥°œ°(€€€€€€€½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì(€€€€€€€€€¥è€…Ñ¥½¹ÌµÁ½±¥äœ°…Ñ•½Éäè€…Ñ¥½¹Ìœ°ÍÑ…Ñ”è€¥¹Í•ÕÉ”œ°(€€€€€€€€€ÍÕµµ…Éäè€=É…¹¥é…Ñ¥½¸Ñ¥½¹ÌÁ½±¥ä…±±½ÝÌÝÉ¥Ñ”µ…±°Ý½É­™±½ÜÑ½­•¹Ì¸œ(€€€€€€€õt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼	½Ñ É•Á½Í¥Ñ½Éä…¹½É…¹¥é…Ñ¥½¸Á½ÍÑÕÉ”…ÁÌÉ•¹‘•È°…¹Ñ¡”½ÉœÉ½Ü(€€€€¼¼…ÉÉ¥•ÌÑ¡”Í½Á”ÁÉ•™¥àÍ¼Ñ¡”½Á•É…Ñ½È…¸Ñ•±°Ñ¡•´…Á…ÉÐ¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½I•Á½Í¥Ñ½Éä‘•™…Õ±Ð‰É…¹ ¥Ìµ¥ÍÍ¥¹œÉ•ÅÕ¥É•É•Ù¥•ÝÌ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½=É…¹¥é…Ñ¥½¸Ñ¥½¹ÌÁ½±¥ä…±±½ÝÌÝÉ¥Ñ”µ…±°Ý½É­™±½ÜÑ½­•¹Ì½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½=É…¹¥é…Ñ¥½¸ƒŠˆ€½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ¡¥‘•ÌÑ¡”AÉ•Ù¥•ÜÉ•µ•‘¥…Ñ¥½¸‰ÕÑÑ½¸™½È‘•Ñ•Ñ½ÉÌÑ¡”‰…­•¹…¹¹½ÐÉ•µ•‘¥…Ñ”œ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼5¥á•ÅÕ•Õ”èÝ½É­™±½Ý|™¥¹‘¥¹œ¥ÌÍÕÁÁ½ÉÑ•°¥Ñ¡Õ‰|Á½ÍÑÕÉ”™¥¹‘¥¹œ¥Ì(€€€€¼¼¹½Ð¸Q¡”ÅÕ•Õ”µÕÍÐÍÑ¥±°É•¹‘•È‰½Ñ €¡Á½ÍÑÕÉ”™¥¹‘¥¹Ì…É”Ý½ÉÑ (€€€€¼¼ÑÉ¥…¥¹œ•Ù•¸¥˜Ý”…¹¹½Ð…ÕÑ¼µÉ•µ•‘¥…Ñ”Ñ¡•´¤°‰ÕÐ½¹±äÑ¡”Ý½É­™±½Ü(€€€€¼¼½¹”…ÉÉ¥•Ì„AÉ•Ù¥•Ü‰ÕÑÑ½¸¸(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì™¥¹‘¥¹ÌèmÁ½ÍÑÕÉ•¥¹‘¥¹œ°Ý½É­™±½Ý¥¹‘¥¹tô¤ì((€€€½¹ÍÐÅÕ•Õ•1¥ÍÐ€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤ì(€€€€¼¼	½Ñ ™¥¹‘¥¹ÌÉ•¹‘•È¸(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ •™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•œ¤ì(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ ]½É­™±½Ü=%ÑÉÕÍÐ¥Ì‰É½…œ¤ì(€€€€¼¼	ÕÐ½¹±ä½¹”AÉ•Ù¥•Ü‰ÕÑÑ½¸ƒŠPÑ¡”Á½ÍÑÕÉ”™¥¹‘¥¹œÍ¡½ÝÌÑ¡”™…±±‰…¬¸(€€€½¹ÍÐÁÉ•Ù¥•Ý	ÕÑÑ½¹Ì€ôÍÉ••¸¹•Ñ±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½AÉ•Ù¥•ÜÉ•µ•‘¥…Ñ¥½¸½¤ô¤ì(€€€•áÁ•Ð¡ÁÉ•Ù¥•Ý	ÕÑÑ½¹Ì¹±•¹Ñ ¤¹Ñ½	” Ä¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡ÅÕ•Õ•1¥ÍÐ¤¹•Ñ	åQ•áÐ ½I•Ù¥•Ü¥¸¥Ñ!Õˆ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€€¼¼!•…‘•ÈÍÁ±¥ÑÌÑ¡”ÅÕ•Õ”‰äÉ•µ•‘¥…Ñ¥½¸…Ñ•½ÉäèÝ½É­™±½Ý}½¥‘}‰É½…‘}ÑÉÕÍÐ(€€€€¼¼¥ÌÍÕÁÁ½ÉÑ•€¡AÉ•Ù¥•Ü‰ÕÑÑ½¸¤‰ÕÐ‰…­•¹É•ÑÕÉ¹ÌÁÕ‰±¥Í¡…‰±”é™…±Í”(€€€€¼¼€¡Õ¥‘…¹”µ½¹±ä¤°Í¼¥Ð½Õ¹ÑÌ…ÌÁÉ•Ù¥•Üµ½¹±äÉ…Ñ¡•ÈÑ¡…¸™¥àµÉ•…‘ä¸Q¡¥Ì(€€€€¼¼µ…Ñ¡•ÌÑ¡”…•ÁÑ•µ‘•Ñ•Ñ½ÈÍ•µ…¹Ñ¥Ì¥¸(€€€€¼¼¥¹Ñ•É¹…°½™¥¹‘¥¹Ì½ÍÑ…¹‘…É‘Ì½É•Á½}É•µ•‘¥…Ñ¥½¸¹¼¸(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ¹Ñ•áÑ½¹Ñ•¹Ð¤¹¹½Ð¹Ñ½½¹Ñ…¥¸ ™¥àµÉ•…‘äœ¤ì(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ œÄÁÉ•Ù¥•Üµ½¹±äœ¤ì(€ô¤ì((€¥Ð É•Á½ÉÑÌÑÉÕ¹…Ñ¥½¸Ý¡•¸¥ÐÍÑ½ÁÁ•‰•…ÕÍ”Ñ¡”…Ñ¥Ù”µ™¥¹‘¥¹ÌÑ…É•Ð™¥±±•Ý¡¥±”Á…•ÌÉ•µ…¥¹•œ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼	…­•¹­••ÁÌÉ•ÑÕÉ¹¥¹œ¹•áÑ}ÕÉÍ½È¸Q¡”™•Ñ¡•ÈµÕÍÐÍÑ½À½¹”Ñ¡”(€€€€¼¼…Ñ¥Ù”Ñ…É•Ð™¥±±Ì€ ÔÀÀ¤9É•Á½ÉÐÑÉÕ¹…Ñ•éÑÉÕ”Í¼Ñ¡”½Á•É…Ñ½È(€€€€¼¼Í••ÌÑ¡”Í…™•Ñäµ•¥±¥¹œÝ…É¹¥¹œ‰…¹¹•ÈÉ…Ñ¡•ÈÑ¡…¸…ÍÍÕµ¥¹œÑ¡”Ñ½À(€€€€¼¼½˜Ñ¡”ÅÕ•Õ”¥ÌÑ¡”¡¥¡•ÍÐµÍ½É¥¹œ™¥¹‘¥¹œ¸(€€€½¹ÍÐ…Ñ¥Ù•A…”è¥¹‘¥¹mt€ôÉÉ…ä¹™É½´¡ì±•¹Ñ è€ÄÀÀô°€¡|°¥¹‘•à¤€ôø€¡ì(€€€€€€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°(€€€€€¥è™¥¹‘¥¹œµ…Ñ¥Ù”´‘í¥¹‘•áõ€°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€½Á•¸œ(€€€ô¤¤ì((€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€€¼¼Ù•ÉäÁ…”É•ÑÕÉ¹Ì€ÄÀÀ…Ñ¥Ù”™¥¹‘¥¹Ì€¬„¹•áÑ}ÕÉÍ½È°Í¼Á…¥¹…Ñ¥½¸(€€€€¼¼É•…¡•ÌÑ¡”€ÔÀÀµ…Ñ¥Ù”Ñ…É•Ð½¸Á…”€ÔÝ¥Ñ µ½É”Á…•ÌÍÑ¥±°…Ù…¥±…‰±”¸(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€ ¤€ôø€¡ì(€€€€€¥Ñ•µÌè…Ñ¥Ù•A…”°(€€€€€¹•áÑ}ÕÉÍ½Èè€…±Ý…åÌµ…¹½Ñ¡•ÈµÁ…”œ(€€€ô¤¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€Í•ÕÉ”œ°ÍÕµµ…Éäè€Í•ÕÉ”œõt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼QÉÕ¹…Ñ¥½¸‰…¹¹•ÈÍÕÉ™…•Ì¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½¥¹‘¥¹ÌÁ…¥¹…Ñ¥½¸¡¥Ð¥ÑÌÍ…™•Ñä•¥±¥¹œ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ÁÉ½Á……Ñ•Ì„½¹¹•Ñ¥½¸µÍÑ…ÑÕÌ•ÉÉ½È¥¹ÍÑ•…½˜Í¡½Ý¥¹œ€‰½¹¹•Ð¥Ñ!ÕˆˆÝ¡•¸Ñ¡”ÍÑ…ÑÕÌ™•Ñ ™…¥±Ìœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼½¹¹•Ñ¥½¸™•Ñ É•©•ÑÌ¸]¥Ñ¡½ÕÐÑ¡¥Ì™¥à°Á½ÍÑÕÉ•MÕÁÁ½ÉÑ•Ý½Õ±©ÕÍÐ(€€€€¼¼•Ù…±Õ…Ñ”Ñ¼™…±Í”…¹Ñ¡”‘É¥±±‘½Ý¸Ý½Õ±É•¹‘•È…Ì¥˜Ñ¡”½Á•É…Ñ½È(€€€€¼¼¹••‘•Ñ¼½¹¹•Ð¥Ñ!Õˆ°¡¥‘¥¹œÑ¡”É•…°•ÉÉ½È¸(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•©•Ñ•‘Y…±Õ” (€€€€€¹•Ü…Á¤¹Á¥ÉÉ½È ¥Ñ¡ÕˆÍÑ…ÑÕÌÕ¹…Ù…¥±…‰±”œ°€ÔÀÌ¤(€€€€¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁ½ÍÑÕÉ•¥¹‘¥¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼Q¡”½¹¹•Ñ¥½¸µÍÑ…ÑÕÌ•ÉÉ½ÈÍÕÉ™…•ÌÙ¥„Ñ¡”Í¡…É••ÉÉ½È‰…¹¹•È¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½¥Ñ¡ÕˆÍÑ…ÑÕÌÕ¹…Ù…¥±…‰±”½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð É•¹‘•ÉÌÍ…¸°™¥¹‘¥¹Ì°…¹‰±…ÍÐµÉ…‘¥ÕÌÁ…Ñ¡Ì‰•™½É”Í±½ÜÁ½ÍÑÕÉ”É•Í½±Ù•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼A½ÍÑÕÉ”¥Ì„±¥Ù”¥Ñ!Õˆ…±°…¹…¸‰”Í±½Ý•ÈÑ¡…¸Ñ¡”É•ÍÐ½˜Ñ¡”(€€€€¼¼‘É¥±±‘½Ý¸¸Q¡”Í…¸½™¥¹‘¥¹Ì½É…Á µÕÍÐÉ•¹‘•È…ÌÍ½½¸…ÌÑ¡•¥È½Ý¸(€€€€¼¼ÁÉ½µ¥Í•ÌÍ•ÑÑ±”ìÑ¡”Á½ÍÑÕÉ”Á…¹•°•ÑÌ¥ÑÌ½Ý¸±½…‘¥¹œ¥¹‘¥…Ñ½È(€€€€¼¼…¹‘½•Ì¹½Ð…Ñ”…¹åÑ¡¥¹œ•±Í”¸(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁ½ÍÑÕÉ•¥¹‘¥¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì(€€€½¹ÍÐÁ½ÍÑÕÉ••™•ÉÉ•€ô‘•™•ÉÉ•ñì(€€€€€½¹¹•Ñ½É}¥èÍÑÉ¥¹œì(€€€€€ÁÉ½Ù¥‘•ÈèÍÑÉ¥¹œì(€€€€€Á½ÍÑÕÉ”è¥Ñ!Õ‰I•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”ì(€€€ôø ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸  ¤€ôøÁ½ÍÑÕÉ••™•ÉÉ•¹ÁÉ½µ¥Í”¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼¥¹‘¥¹Ì°Í…¸°…¹‰±…ÍÐµÉ…‘¥ÕÌÁ…Ñ¡ÌÉ•¹‘•È‰•™½É”Á½ÍÑÕÉ”Í•ÑÑ±•Ì¸(€€€€¼¼M½Á”Ñ¼Ñ¡”ÅÕ•Õ”Á…¹•°‰•…ÕÍ”Ñ¡”™¥¹‘¥¹œÑ¥Ñ±”…±Í¼…ÁÁ•…ÉÌ¥¸(€€€€¼¼Ñ¡”Á…Ñ¡ÌÁ…¹•°Ì¹½‘”¡…¥¸¸(€€€…Ý…¥ÐÝ¥Ñ¡¥¸¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤¤(€€€€€€¹™¥¹‘	åQ•áÐ ½•™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•½¤¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½½µÁ±•Ñ”Í…¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	å1…‰•±Q•áÐ Q½À‰±…ÍÐµÉ…‘¥ÕÌÁ…Ñ¡Ìœ¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€€¼¼A½ÍÑÕÉ”Á…¹•°Í¡½ÝÌ¥ÑÌ½Ý¸±½…‘¥¹œ¥¹‘¥…Ñ½È°¹½ÐÑ¡”‘É¥±±‘½Ý¹pÌÉ½ÕÑ”±½…‘•È¸(€€€€¼¼]…¥Ð™½È½¹¹•Ñ¥½¸ÍÑ…ÑÕÌÑ¼Í•ÑÑ±”Í¼Ñ¡”Í•½¹µÁ…ÍÌ•™™•Ð™¥É•ÌÁ½ÍÑÕÉ”¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½1½…‘¥¹œÉ•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì((€€€€¼¼9½Ü±•ÐÁ½ÍÑÕÉ”Í•ÑÑ±”…¹¡•¬¥ÐÉ•¹‘•ÉÌ¸(€€€…Ý…¥Ð…Ð¡…Íå¹Œ€ ¤€ôøì(€€€€€Á½ÍÑÕÉ••™•ÉÉ•¹É•Í½±Ù”¡ì(€€€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°(€€€€€€€ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€€€Á½ÍÑÕÉ”èì(€€€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€€€€€€€½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€€€¡•­Ìèmì(€€€€€€€€€€€¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€¥¹Í•ÕÉ”œ°(€€€€€€€€€€€É•…Í½¸è€Ý•…­}ÁÉ½Ñ•Ñ¥½¸œ°ÍÕµµ…Éäè€•™…Õ±Ð‰É…¹ ¥Ìµ¥ÍÍ¥¹œÉ•ÅÕ¥É•É•Ù¥•ÝÌ¸œ(€€€€€€€€€õt(€€€€€€€ô(€€€€€ô¤ì(€€€€€…Ý…¥ÐÁ½ÍÑÕÉ••™•ÉÉ•¹ÁÉ½µ¥Í”ì(€€€ô¤ì(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½•™…Õ±Ð‰É…¹ ¥Ìµ¥ÍÍ¥¹œÉ•ÅÕ¥É•É•Ù¥•ÝÌ½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½1½…‘¥¹œÉ•Á½Í¥Ñ½ÉäÁ½ÍÑÕÉ”½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ­••ÁÌÁ…¥¹…Ñ¥¹œÁ…ÍÐ±½Í•µ™¥¹‘¥¹œÁ…•ÌÍ¼½±‘•È…Ñ¥Ù”É¥Í­ÌÉ•… Ñ¡”ÅÕ•Õ”œ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼A…”€Ä¥Ì€ÄÀÀ±½Í•€¡™¥á•¤™¥¹‘¥¹Ì¸A…”€È¡½±‘Ì½¹”…Ñ¥Ù”É•½Á•¹•(€€€€¼¼™¥¹‘¥¹œ¸AÉ•Ù¥½ÕÍ±äÑ¡”‘É¥±±‘½Ý¸ÍÑ½ÁÁ•…ÐÁ…”€Ä‰•…ÕÍ”¥Ð½Õ¹Ñ•(€€€€¼¼Ñ½Ñ…°¥Ñ•µÌÑ½Ý…ÉÑ¡”…Àì¹½Ü¥Ð½Õ¹ÑÌ½¹±äQ%Y¥Ñ•µÌÍ¼¥ÐµÕÍÐ(€€€€¼¼™•Ñ Á…”€È…¹ÍÕÉ™…”Ñ¡”…Ñ¥Ù”½¹”¸(€€€½¹ÍÐ±½Í•‘A…•=¹”è¥¹‘¥¹mt€ôÉÉ…ä¹™É½´¡ì±•¹Ñ è€ÄÀÀô°€¡|°¥¹‘•à¤€ôø€¡ì(€€€€€€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°(€€€€€¥è™¥¹‘¥¹œµ±½Í•´‘í¥¹‘•áõ€°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€™¥á•œ(€€€ô¤¤ì(€€€½¹ÍÐ…Ñ¥Ù•=±‘•Èè¥¹‘¥¹œ€ôì(€€€€€€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°(€€€€€¥è€½±‘•Èµ…Ñ¥Ù”µ™¥¹‘¥¹œœ°(€€€€€Ñ¥Ñ±”è€=±‘•È…Ñ¥Ù”™¥¹‘¥¹œ¡¥‘¥¹œ‰•¡¥¹±½Í•Á…”œ°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€É•½Á•¹•œ(€€€ôì((€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½¥¹‘¥¹Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤ì(€€€±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½­%µÁ±•µ•¹Ñ…Ñ¥½¸¡…Íå¹Œ€¡™¥±Ñ•ÉÌ¤€ôøì(€€€€€¥˜€ …™¥±Ñ•ÉÌü¹ÕÉÍ½È¤ì(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌè±½Í•‘A…•=¹”°¹•áÑ}ÕÉÍ½Èè€±½Í•µ¡•…ÙäµÁ…”´Èœôì(€€€€€ô(€€€€€¥˜€¡™¥±Ñ•ÉÌ¹ÕÉÍ½È€ôôô€±½Í•µ¡•…ÙäµÁ…”´Èœ¤ì(€€€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèm…Ñ¥Ù•=±‘•Étôì(€€€€€ô(€€€€€É•ÑÕÉ¸ì¥Ñ•µÌèmtôì(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€Í•ÕÉ”œ°ÍÕµµ…Éäè€Í•ÕÉ”œõt(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼Q¡”½±‘•È…Ñ¥Ù”™¥¹‘¥¹œµÕÍÐ…ÁÁ•…È¥¸Ñ¡”ÅÕ•Õ”ƒŠPÑ¡”‘É¥±±‘½Ý¸(€€€€¼¼Á…¥¹…Ñ•Á…ÍÐÑ¡”±½Í•µ¡•…ÙäÁ…”É…Ñ¡•ÈÑ¡…¸ÍÑ½ÁÁ¥¹œ…ÐÁ…”€Ä¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½=±‘•È…Ñ¥Ù”™¥¹‘¥¹œ¡¥‘¥¹œ‰•¡¥¹±½Í•Á…”½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡±¥ÍÑI•Á½¥¹‘¥¹Ì¹µ½¬¹…±±Ì¹Í½µ” ¡m™¥±Ñ•ÉÍt¤€ôø™¥±Ñ•ÉÌü¹ÕÉÍ½È€ôôô€±½Í•µ¡•…ÙäµÁ…”´Èœ¤¤¹Ñ½	”¡ÑÉÕ”¤(€€€€¤ì(€€€€¼¼9¼™¥á•™¥¹‘¥¹œÉ•¹‘•É•¥¸Ñ¡”ÅÕ•Õ”¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	åQ•áÐ ½™¥¹‘¥¹œµ±½Í•´À½¤¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð É•¹‘•ÉÌÑ¡”…ÑÕ…°‰±…ÍÐµÉ…‘¥ÕÌ¹½‘”¡…¥¸™É½´É¥Í­É…Á ¹¹½‘•Ì…¹É¥Í­É…Á ¹•‘•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼A…¹•°ÁÉ½µ¥Í•Ì€‰Q½À‰±…ÍÐµÉ…‘¥ÕÌÁ…Ñ¡ÌˆƒŠP¥ÐµÕÍÐÍ¡½ÜÑ¡”É•…¡…‰±”(€€€€¼¼Ý½É­™±½Ü½¥‘•¹Ñ¥Ñä½ÉÕ¹¹•È½•¹Ù¥É½¹µ•¹Ð½½¹ÑÉ½°¡…¥¸Ñ¡”™¥¹‘¥¹œ(€€€€¼¼Ñ½Õ¡•Ì°¹½Ð©ÕÍÐÑ¡”™¥¹‘¥¹œ¥…¹Í½É”¸]…±­•ÈÍÑ…ÉÑÌ…ÐÑ¡”(€€€€¼¼™¥¹‘¥¹œÌ™¥¹‘¥¹}¹½‘•}¥°™½±±½ÝÌ½ÕÑ½¥¹œ•‘•Ì°…¹ÁÉ•™•ÉÌ­¹½Ý¸(€€€€¼¼•‘•Ì½Ù•ÈÉ•…¡…‰¥±¥Ñå}Õ¹­¹½Ý¸¸(€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°(€€€€€¥è€¡…¥¸µ™¥¹‘¥¹œœ°(€€€€€Ñ¥Ñ±”è€]½É­™±½ÜÉ•…¡•ÌÁÉ½‘ÕÑ¥½¸±½ÕÉ½±”œ°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€½Á•¸œ(€€€ôì(€€€½¹ÍÐ¡…¥¹É…Á èI•Á½I¥Í­É…Á €ôì(€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€€€¹½‘•Ìèl(€€€€€€€ì¥è€¹½‘”µ™¥¹‘¥¹œœ°­¥¹è€™¥¹‘¥¹œœ°±…‰•°è€¡…¥¸µ™¥¹‘¥¹œœ°•Ù¥‘•¹•}ÍÑ…Ñ”è€­¹½Ý¸œô°(€€€€€€€ì¥è€¹½‘”µÝ½É­™±½Üœ°­¥¹è€Ý½É­™±½Üœ°±…‰•°è€‘•Á±½ä¹åµ°œ°•Ù¥‘•¹•}ÍÑ…Ñ”è€­¹½Ý¸œô°(€€€€€€€ì¥è€¹½‘”µÍ•É•Ðœ°­¥¹è€Í•É•Ðœ°±…‰•°è€]M}A1=e}-dœ°•Ù¥‘•¹•}ÍÑ…Ñ”è€­¹½Ý¸œô°(€€€€€€€ì¥è€¹½‘”µ±½ÕµÉ½±”œ°­¥¹è€±½Õ‘}É½±”œ°±…‰•°è€ÁÉ½µ‘•Á±½äµÉ½±”œ°•Ù¥‘•¹•}ÍÑ…Ñ”è€­¹½Ý¸œô°(€€€€€€€ì¥è€¹½‘”µÍÁ•Õ±…Ñ¥Ù”œ°­¥¹è€•¹Ù¥É½¹µ•¹Ðœ°±…‰•°è€ÍÁ•Õ±…Ñ¥Ù”µ•¹Øœ°•Ù¥‘•¹•}ÍÑ…Ñ”è€Õ¹­¹½Ý¸œô(€€€€€t°(€€€€€•‘•Ìèl(€€€€€€€ì(€€€€€€€€€¥è€”Äœ°­¥¹è€™¥¹‘¥¹}…™™•ÑÍ}Ý½É­™±½Üœ°(€€€€€€€€€™É½µ}¹½‘•}¥è€¹½‘”µ™¥¹‘¥¹œœ°Ñ½}¹½‘•}¥è€¹½‘”µÝ½É­™±½Üœ°(€€€€€€€€€•Ù¥‘•¹•}ÍÑ…Ñ”è€­¹½Ý¸œ(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€¥è€”Èœ°­¥¹è€©½‰}ÕÍ•Í}Í•É•Ðœ°(€€€€€€€€€™É½µ}¹½‘•}¥è€¹½‘”µÝ½É­™±½Üœ°Ñ½}¹½‘•}¥è€¹½‘”µÍ•É•Ðœ°(€€€€€€€€€•Ù¥‘•¹•}ÍÑ…Ñ”è€­¹½Ý¸œ(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€¥è€”Ìœ°­¥¹è€½¥‘}ÍÕ‰©•Ñ}…¹}…ÍÍÕµ•}É½±”œ°(€€€€€€€€€™É½µ}¹½‘•}¥è€¹½‘”µÍ•É•Ðœ°Ñ½}¹½‘•}¥è€¹½‘”µ±½ÕµÉ½±”œ°(€€€€€€€€€•Ù¥‘•¹•}ÍÑ…Ñ”è€­¹½Ý¸œ(€€€€€€€ô°(€€€€€€€€¼¼É•…¡…‰¥±¥Ñå}Õ¹­¹½Ý¸•‘”•á¥ÍÑÌ™É½´Ñ¡”Ý½É­™±½Ü°‰ÕÐÑ¡”(€€€€€€€€¼¼­¹½Ý¸µ•‘”Ý…±¬…‰½Ù”Í¡½Õ±É•… ±½Õ‘}É½±”™¥ÉÍÐìÑ¡”(€€€€€€€€¼¼ÍÁ•Õ±…Ñ¥Ù”¹½‘”µÕÍÐ¹½Ð‰”ÁÉ•™•ÉÉ•½Ù•ÈÑ¡”½¹É•Ñ”¡…¥¸¸(€€€€€€€ì(€€€€€€€€€¥è€”ÐµÕ¹­¹½Ý¸œ°­¥¹è€É•…¡…‰¥±¥Ñå}Õ¹­¹½Ý¸œ°(€€€€€€€€€™É½µ}¹½‘•}¥è€¹½‘”µÝ½É­™±½Üœ°Ñ½}¹½‘•}¥è€¹½‘”µÍÁ•Õ±…Ñ¥Ù”œ°(€€€€€€€€€•Ù¥‘•¹•}ÍÑ…Ñ”è€Õ¹­¹½Ý¸œ(€€€€€€€ô(€€€€€t°(€€€€€Í½É•Ìèl(€€€€€€€ì(€€€€€€€€€™¥¹‘¥¹}¥è™¥¹‘¥¹œ¹¥°™¥¹‘¥¹}¹½‘•}¥è€¹½‘”µ™¥¹‘¥¹œœ°(€€€€€€€€€Í½É”è€àà°Í•Ù•É¥Ñäè€¡¥ œ°½¹™¥‘•¹”è€À¸ä°(€€€€€€€€€™…Ñ½ÉÌèì(€€€€€€€€€€€Í•Ù•É¥Ñäè€àÀ°½¹™¥‘•¹”è€äÀ°•áÁ±½¥Ñ…‰¥±¥Ñäè€ØÀ°ÁÉ¥Ù¥±•”è€ÐÀ°(€€€€€€€€€€€•áÁ½ÍÕÉ”è€ÔÔ°•¹Ù¥É½¹µ•¹Ñ}É¥Ñ¥…±¥Ñäè€ÌÀ°™É•Í¡¹•ÍÌè€ÄÀÀ°(€€€€€€€€€€€Á½ÍÑÕÉ•}…µÁ±¥™¥•Èè€ÜÀ(€€€€€€€€€ô°(€€€€€€€€€Õ¹­¹½Ý¹Ìèmt(€€€€€€€ô(€€€€€t°(€€€€€ÍÕµµ…Éäèì(€€€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä°¹½‘•}½Õ¹Ðè€Ô°•‘•}½Õ¹Ðè€Ð°Õ¹­¹½Ý¹}¹½‘•}½Õ¹Ðè€Ä°(€€€€€€€Õ¹­¹½Ý¹}•‘•}½Õ¹Ðè€Ä°¡¥¡}É¥Í­}™¥¹‘¥¹Ìè€Ä°É¥Ñ¥…±}™¥¹‘¥¹Ìè€À(€€€€€ô(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì™¥¹‘¥¹Ìèm™¥¹‘¥¹t°É¥Í­É…Á è¡…¥¹É…Á ô¤ì((€€€½¹ÍÐÁ…Ñ¡ÍA…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ Q½À‰±…ÍÐµÉ…‘¥ÕÌÁ…Ñ¡Ìœ¤ì(€€€½¹ÍÐÁ…Ñ¡Í1¥ÍÐ€ôÁ…Ñ¡ÍA…¹•°¹ÅÕ•ÉåM•±•Ñ½È ½°œ¤ì(€€€•áÁ•Ð¡Á…Ñ¡Í1¥ÍÐ¤¹¹½Ð¹Ñ½	•9Õ±° ¤ì(€€€½¹ÍÐÉ½ÝÌ€ô€¡Á…Ñ¡Í1¥ÍÐ…Ì!Q51±•µ•¹Ð¤¹ÅÕ•ÉåM•±•Ñ½É±° ±¤œ¤ì(€€€•áÁ•Ð¡É½ÝÌ¹±•¹Ñ ¤¹Ñ½	” Ä¤ì((€€€€¼¼Q¡”½¹É•Ñ”Ý½É­™±½ÜƒŠHÍ•É•ÐƒŠH±½Õ‘}É½±”¡…¥¸É•¹‘•ÉÌ¥¸Ñ¡”É½Ü¸(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ ‘•Á±½ä¹åµ°œ¤ì(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ ]M}A1=e}-dœ¤ì(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ ÁÉ½µ‘•Á±½äµÉ½±”œ¤ì(€€€€¼¼9½‘”­¥¹‘Ì…É”±…‰•±•Í¼Ñ¡”½Á•É…Ñ½È…¸Ñ•±°Ý½É­™±½Ü™É½´É½±”¸(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ ]½É­™±½Üœ¤ì(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ ±½ÕI½±”œ¤ì(€ô¤ì((€¥Ð ™…±±Ì‰…¬Ñ¼„€‰¹¼É•…¡…‰¥±¥Ñäˆ¡¥¹ÐÝ¡•¸Ñ¡”É…Á ¡…Ì¹¼¹½‘•Ì½È•‘•Ìœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼M½µ”É¥Í¬µÉ…Á É•ÍÁ½¹Í•Ì…ÉÉä½¹±äÍ½É•Ì€¡½±‘•ÈÍÕµµ…É¥•Ì½È(€€€€¼¼Á…ÉÑ¥…°½±±•Ñ¥½¸¤¸Q¡”Á…Ñ¡ÌÁ…¹•°µÕÍÐÍÑ¥±°É•¹‘•ÈÝ¥Ñ Ñ¡”(€€€€¼¼™¥¹‘¥¹œÑ¥Ñ±”½Í½É”°‰ÕÐÍ…ä•áÁ±¥¥Ñ±ä¹¼É•…¡…‰¥±¥Ñä¡…¥¸(€€€€¼¼¥Ì…Ù…¥±…‰±”ƒŠP¹•Ù•È±…¥´„¡…¥¸Ñ¡…Ð¥Í¸Ð¥¸Ñ¡”‘…Ñ„¸(€€€½¹ÍÐ™¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°(€€€€€¥è€¹¼µ¡…¥¸µ™¥¹‘¥¹œœ°(€€€€€Ñ¥Ñ±”è€¥¹‘¥¹œÝ¥Ñ ¹¼É•…¡…‰¥±¥Ñä‘…Ñ„œ°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€½Á•¸œ(€€€ôì(€€€½¹ÍÐÍ½É•Í=¹±åÉ…Á èI•Á½I¥Í­É…Á €ôì(€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€€€¹½‘•Ìèmt°•‘•Ìèmt°(€€€€€Í½É•Ìèl(€€€€€€€ì(€€€€€€€€€™¥¹‘¥¹}¥è™¥¹‘¥¹œ¹¥°™¥¹‘¥¹}¹½‘•}¥è€¹½‘”µàœ°(€€€€€€€€€Í½É”è€ÜÈ°Í•Ù•É¥Ñäè€¡¥ œ°½¹™¥‘•¹”è€À¸à°(€€€€€€€€€™…Ñ½ÉÌèì(€€€€€€€€€€€Í•Ù•É¥Ñäè€ÜÀ°½¹™¥‘•¹”è€àÀ°•áÁ±½¥Ñ…‰¥±¥Ñäè€ÔÀ°ÁÉ¥Ù¥±•”è€ÌÀ°(€€€€€€€€€€€•áÁ½ÍÕÉ”è€ÐÀ°•¹Ù¥É½¹µ•¹Ñ}É¥Ñ¥…±¥Ñäè€ÄÀ°™É•Í¡¹•ÍÌè€ÄÀÀ°Á½ÍÑÕÉ•}…µÁ±¥™¥•Èè€À(€€€€€€€€€ô°(€€€€€€€€€Õ¹­¹½Ý¹Ìèmt(€€€€€€€ô(€€€€€t°(€€€€€ÍÕµµ…Éäèì(€€€€€€€™¥¹‘¥¹}½Õ¹Ðè€Ä°¹½‘•}½Õ¹Ðè€À°•‘•}½Õ¹Ðè€À°Õ¹­¹½Ý¹}¹½‘•}½Õ¹Ðè€À°(€€€€€€€Õ¹­¹½Ý¹}•‘•}½Õ¹Ðè€À°¡¥¡}É¥Í­}™¥¹‘¥¹Ìè€Ä°É¥Ñ¥…±}™¥¹‘¥¹Ìè€À(€€€€€ô(€€€ôì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì™¥¹‘¥¹Ìèm™¥¹‘¥¹t°É¥Í­É…Á èÍ½É•Í=¹±åÉ…Á ô¤ì(€€€½¹ÍÐÁ…Ñ¡ÍA…¹•°€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ Q½À‰±…ÍÐµÉ…‘¥ÕÌÁ…Ñ¡Ìœ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á…Ñ¡ÍA…¹•°¤¹•Ñ	åQ•áÐ ½¥¹‘¥¹œÝ¥Ñ ¹¼É•…¡…‰¥±¥Ñä‘…Ñ„½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡Ý¥Ñ¡¥¸¡Á…Ñ¡ÍA…¹•°¤¹•Ñ	åQ•áÐ ½9¼É•…¡…‰¥±¥ÑäÉ…Á ½±±•Ñ•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ™¥±Ñ•ÉÌÑ½À‰±…ÍÐµÉ…‘¥ÕÌÁ…Ñ¡ÌÍ¼„±½Í•™¥¹‘¥¹œ…¹¹½Ð‘¥ÍÁ±…”…Ñ¥Ù”É¥Í­Ìœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼¡¥ µÍ½É¥¹œÁ…Ñ ‰•±½¹ÌÑ¼„™¥á•™¥¹‘¥¹œƒŠP¥ÐµÕÍÐ¹½Ð…ÁÁ•…È¥¸(€€€€¼¼Ñ¡”Ñ½Àµ8±¥ÍÐ•Ù•¸Ñ¡½Õ ¥ÑÌÉ…ÜÍ½É”¥ÌÑ¡”¡¥¡•ÍÐ°‰•…ÕÍ”Ñ¡”(€€€€¼¼™¥¹‘¥¹œ¥ÑÍ•±˜¥Ì¹¼±½¹•È…Ñ¥Ù”¸(€€€½¹ÍÐ…Ñ¥Ù•=Á•¸è¥¹‘¥¹œ€ôì€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°¥è€…Ñ¥Ù”µ½Á•¸œ°Ñ¥Ñ±”è€Ñ¥Ù”½Á•¸™¥¹‘¥¹œœ°±¥™•å±•}ÍÑ…ÑÕÌè€½Á•¸œôì(€€€½¹ÍÐ±½Í•‘¥á•è¥¹‘¥¹œ€ôì€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°¥è€±½Í•µ™¥á•œ°Ñ¥Ñ±”è€±½Í•™¥á•™¥¹‘¥¹œœ°±¥™•å±•}ÍÑ…ÑÕÌè€™¥á•œôì(€€€½¹ÍÐÉ…Á¡]¥Ñ¡±½Í•‘Q½ÁM½É”èI•Á½I¥Í­É…Á €ôì(€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€€€¹½‘•Ìèmt°•‘•Ìèmt°(€€€€€ÍÕµµ…Éäèì(€€€€€€€™¥¹‘¥¹}½Õ¹Ðè€À°¹½‘•}½Õ¹Ðè€À°•‘•}½Õ¹Ðè€À°Õ¹­¹½Ý¹}¹½‘•}½Õ¹Ðè€À°(€€€€€€€Õ¹­¹½Ý¹}•‘•}½Õ¹Ðè€À°¡¥¡}É¥Í­}™¥¹‘¥¹Ìè€À°É¥Ñ¥…±}™¥¹‘¥¹Ìè€À(€€€€€ô°(€€€€€Í½É•Ìèl(€€€€€€€ì(€€€€€€€€€™¥¹‘¥¹}¥è±½Í•‘¥á•¹¥°™¥¹‘¥¹}¹½‘•}¥è€¹½‘”µ±½Í•œ°(€€€€€€€€€Í½É”è€ää°Í•Ù•É¥Ñäè€É¥Ñ¥…°œ°½¹™¥‘•¹”è€À¸ää°(€€€€€€€€€™…Ñ½ÉÌèì(€€€€€€€€€€€Í•Ù•É¥Ñäè€ÄÀÀ°½¹™¥‘•¹”è€ää°•áÁ±½¥Ñ…‰¥±¥Ñäè€äÀ°ÁÉ¥Ù¥±•”è€àÀ°(€€€€€€€€€€€•áÁ½ÍÕÉ”è€ÜÀ°•¹Ù¥É½¹µ•¹Ñ}É¥Ñ¥…±¥Ñäè€ØÀ°™É•Í¡¹•ÍÌè€ÄÀÀ°Á½ÍÑÕÉ•}…µÁ±¥™¥•Èè€àÀ(€€€€€€€€€ô°(€€€€€€€€€Õ¹­¹½Ý¹Ìèmt(€€€€€€€ô°(€€€€€€€ì(€€€€€€€€€™¥¹‘¥¹}¥è…Ñ¥Ù•=Á•¸¹¥°™¥¹‘¥¹}¹½‘•}¥è€¹½‘”µ½Á•¸œ°(€€€€€€€€€Í½É”è€ÔÔ°Í•Ù•É¥Ñäè€µ•‘¥Õ´œ°½¹™¥‘•¹”è€À¸Ü°(€€€€€€€€€™…Ñ½ÉÌèì(€€€€€€€€€€€Í•Ù•É¥Ñäè€ÔÔ°½¹™¥‘•¹”è€ÜÀ°•áÁ±½¥Ñ…‰¥±¥Ñäè€ÐÀ°ÁÉ¥Ù¥±•”è€ÌÀ°(€€€€€€€€€€€•áÁ½ÍÕÉ”è€ÈÀ°•¹Ù¥É½¹µ•¹Ñ}É¥Ñ¥…±¥Ñäè€À°™É•Í¡¹•ÍÌè€ÄÀÀ°Á½ÍÑÕÉ•}…µÁ±¥™¥•Èè€À(€€€€€€€€€ô°(€€€€€€€€€Õ¹­¹½Ý¹Ìèmt(€€€€€€€ô(€€€€€t(€€€ôì((€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì(€€€€€™¥¹‘¥¹Ìèm…Ñ¥Ù•=Á•¸°±½Í•‘¥á•‘t°(€€€€€É¥Í­É…Á èÉ…Á¡]¥Ñ¡±½Í•‘Q½ÁM½É”(€€€ô¤ì((€€€½¹ÍÐÁ…Ñ¡Í1¥ÍÐ€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ Q½À‰±…ÍÐµÉ…‘¥ÕÌÁ…Ñ¡Ìœ¤¤¹ÅÕ•ÉåM•±•Ñ½È ½°œ¤ì(€€€•áÁ•Ð¡Á…Ñ¡Í1¥ÍÐ¤¹¹½Ð¹Ñ½	•9Õ±° ¤ì(€€€½¹ÍÐÉ½ÝÌ€ô€¡Á…Ñ¡Í1¥ÍÐ…Ì!Q51±•µ•¹Ð¤¹ÅÕ•ÉåM•±•Ñ½É±° ±¤œ¤ì(€€€€¼¼=¹±äÑ¡”…Ñ¥Ù”™¥¹‘¥¹œ…ÁÁ•…ÉÌƒŠPÑ¡”±½Í•µ‰ÕÐµ¡¥¡•ÍÐµÍ½É¥¹œ½¹”¥Ì™¥±Ñ•É•¸(€€€•áÁ•Ð¡É½ÝÌ¹±•¹Ñ ¤¹Ñ½	” Ä¤ì(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ Ñ¥Ù”½Á•¸™¥¹‘¥¹œœ¤ì(€€€•áÁ•Ð¡É½ÝÍlÁt¹Ñ•áÑ½¹Ñ•¹Ð¤¹¹½Ð¹Ñ½½¹Ñ…¥¸ ±½Í•™¥á•™¥¹‘¥¹œœ¤ì(€ô¤ì((€¥Ð É•¹‘•ÉÌÑ¡”A$µÁÉ½Ù¥‘•Á½ÍÑÕÉ”¡•¬É•…Í½¸½¸Á•Éµ¥ÍÍ¥½¸µ±¥µ¥Ñ•…¹Õ¹…Ù…¥±…‰±”¡•­Ìœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼Á•Éµ¥ÍÍ¥½¹}±¥µ¥Ñ•Á½ÍÑÕÉ”¡•¬…ÉÉ¥•Ì„É•…Í½¸ÍÑÉ¥¹œÑ¡…Ð(€€€€¼¼‘¥…¹½Í•ÌÑ¡”½±±•Ñ¥½¸…ÀìÑ¡”‘É¥±±‘½Ý¸µÕÍÐÉ•¹‘•È¥ÐÍ¼(€€€€¼¼½Á•É…Ñ½ÉÌ…¸…Ð½¸¥Ð°µ…Ñ¡¥¹œÑ¡”É•Á½Í¥Ñ½É¥•Ì¥¹Ù•¹Ñ½ÉäÙ¥•Ü¸(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°(€€€€€€€½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèl(€€€€€€€€€ì(€€€€€€€€€€€¥è€½ÉœµÉÕ¹¹•ÈµÉ½ÕÁÌœ°(€€€€€€€€€€€…Ñ•½Éäè€ÉÕ¹¹•ÉÌœ°(€€€€€€€€€€€ÍÑ…Ñ”è€Á•Éµ¥ÍÍ¥½¹}±¥µ¥Ñ•œ°(€€€€€€€€€€€É•…Í½¸è€µ¥ÍÍ¥¹}½É…¹¥é…Ñ¥½¹}Á•Éµ¥ÍÍ¥½¸œ°(€€€€€€€€€€€ÍÕµµ…Éäè€M•±˜µ¡½ÍÑ•ÉÕ¹¹•ÈÁ½ÍÑÕÉ”½Õ±¹½Ð‰”½±±•Ñ•¸œ(€€€€€€€€€ô(€€€€€€€t(€€€€€ô(€€€ô¤ì((€€€€¼¼	½Ñ Ñ¡”ÍÕµµ…Éä…¹Ñ¡”É•…Í½¸µÕÍÐ…ÁÁ•…È…±½¹Í¥‘”Ñ¡”¡•¬¸(€€€•áÁ•Ð¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	åQ•áÐ ½M•±˜µ¡½ÍÑ•ÉÕ¹¹•ÈÁ½ÍÑÕÉ”½Õ±¹½Ð‰”½±±•Ñ•½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ	åQ•áÐ ½5¥ÍÍ¥¹œ=É…¹¥é…Ñ¥½¸A•Éµ¥ÍÍ¥½¸½¤¤¤¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€ô¤ì((€¥Ð ‘½•Ì¹½Ð•áÁ½Í”Ñ¡”‘É¥±±‘½Ý¸‘•Ñ…¥°É½ÕÑ”¥¸Ñ¡”¥Ñ!Õˆ‘½µ…¥¸™±å½ÕÐœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼AÉ½‘ÕÑ½µ…¥¹±å½ÕÐÉ•¹‘•ÉÌ•Ù•Éä•¹ÑÉä¥¸AI=UQ}=5%9}=9%L¹¥Ñ¡Õˆ¹É½ÕÑ•Ì(€€€€¼¼…Ì„Á±…¥¸±¥¹¬°Í¼É•¥ÍÑ•É¥¹œÑ¡”Á…É…µ•Ñ•É¥é•‘•Ñ…¥°É½ÕÑ”Ý½Õ±(€€€€¼¼½Á•¸¥ÐÝ¥Ñ ¹¼€ýÉ•Á½Í¥Ñ½ÉäôÁ…É…´…¹¥µµ•‘¥…Ñ•±äÍ¡½Ü€‰I•Á½Í¥Ñ½Éä¹½Ð(€€€€¼¼Í•±•Ñ•¸ˆQ¡”‘É¥±±‘½Ý¸µÕÍÐÑ¡•É•™½É”ÍÑ…ä½ÕÐ½˜AI=UQ}=5%9}=9%L¸(€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€½¹ÍÐ½¹™¥œ€ôÁÉ½‘ÕÑM¡•±°¹AI=UQ}=5%9}=9%L¹¥Ñ¡Õˆì(€€€½¹ÍÐÉ½ÕÑ•%Ì€ô½¹™¥œ¹É½ÕÑ•Ì¹µ…À ¡É½ÕÑ”¤€ôøÉ½ÕÑ”¹¥¤ì(€€€•áÁ•Ð¡É½ÕÑ•%Ì¤¹¹½Ð¹Ñ½½¹Ñ…¥¸ É•Á½Í¥Ñ½É¥•Ìµ‘•Ñ…¥°œ¤ì(€€€€¼¼Q¡”I•Á½Í¥Ñ½É¥•Ì•¹ÑÉä¥ÌÍÑ¥±°Ñ¡•É”Í¼½Á•É…Ñ½ÉÌÉ•… Ñ¡”‘É¥±±‘½Ý¸(€€€€¼¼Ù¥„„É½Ü±¥¬½¸Ñ¡”¥¹Ù•¹Ñ½ÉäÁ…”¥¹ÍÑ•…¸(€€€•áÁ•Ð¡É½ÕÑ•%Ì¤¹Ñ½½¹Ñ…¥¸ É•Á½Í¥Ñ½É¥•Ìœ¤ì(€ô¤ì((€¥Ð •á±Õ‘•Ì™¥á•°ÍÕÁÁÉ•ÍÍ•°É¥Í¬µ…•ÁÑ•°…¹™…±Í”µÁ½Í¥Ñ¥Ù”™¥¹‘¥¹Ì™É½´Ñ¡”ÅÕ•Õ”…¹AÉ•Ù¥•Ü½Õ¹Ðœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼5¥à…Ñ¥Ù”…¹±½Í•™¥¹‘¥¹ÌƒŠPÑ¡”ÅÕ•Õ”µÕÍÐÍ¡½Ü½¹±ä½Á•¸½É•½Á•¹•¸(€€€½¹ÍÐ±½Í•‘¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°(€€€€€¥è€™¥¹‘¥¹œµ±½Í•µ™¥á•œ°(€€€€€Ñ¥Ñ±”è€±É•…‘ä™¥á•™¥¹‘¥¹œµÕÍÐ¹½ÐÉ…¹¬œ°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€™¥á•œ(€€€ôì(€€€½¹ÍÐÍÕÁÁÉ•ÍÍ•‘¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°(€€€€€¥è€™¥¹‘¥¹œµÍÕÁÁÉ•ÍÍ•œ°(€€€€€Ñ¥Ñ±”è€MÕÁÁÉ•ÍÍ•™¥¹‘¥¹œµÕÍÐ¹½ÐÉ…¹¬œ°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€ÍÕÁÁÉ•ÍÍ•œ(€€€ôì(€€€½¹ÍÐÉ•½Á•¹•‘¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€€¸¸¹Ý½É­™±½Ý¥¹‘¥¹œ°(€€€€€¥è€™¥¹‘¥¹œµÉ•½Á•¹•œ°(€€€€€Ñ¥Ñ±”è€I•½Á•¹•™¥¹‘¥¹œµÕÍÐ…ÁÁ•…Èœ°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€É•½Á•¹•œ(€€€ôì(€€€½¹ÍÐ…Ñ¥Ù•=Á•¸è¥¹‘¥¹œ€ôì€¸¸¹Á½ÍÑÕÉ•¥¹‘¥¹œ°±¥™•å±•}ÍÑ…ÑÕÌè€½Á•¸œôì(€€€…Ý…¥ÐÉ•¹‘•ÉI•Á½Í¥Ñ½Éå•Ñ…¥°¡ì(€€€€€™¥¹‘¥¹Ìèm…Ñ¥Ù•=Á•¸°±½Í•‘¥¹‘¥¹œ°É•½Á•¹•‘¥¹‘¥¹œ°ÍÕÁÁÉ•ÍÍ•‘¥¹‘¥¹t(€€€ô¤ì((€€€½¹ÍÐÅÕ•Õ•1¥ÍÐ€ô€¡…Ý…¥ÐÍÉ••¸¹™¥¹‘	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤¤¹ÅÕ•ÉåM•±•Ñ½È Õ°œ¤ì(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ¤¹¹½Ð¹Ñ½	•9Õ±° ¤ì(€€€½¹ÍÐÉ½ÝÌ€ô€¡ÅÕ•Õ•1¥ÍÐ…Ì!Q51±•µ•¹Ð¤¹ÅÕ•ÉåM•±•Ñ½É±° ±¤œ¤ì(€€€€¼¼€È™¥¹‘¥¹ÌÍÕÉÙ¥Ù•€¡½Á•¸€¬É•½Á•¹•¤°€È±½Í•‘É½ÁÁ•¸(€€€•áÁ•Ð¡É½ÝÌ¹±•¹Ñ ¤¹Ñ½	” È¤ì(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ„¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ •™…Õ±Ð‰É…¹ ÁÉ½Ñ•Ñ¥½¸¥ÌÕ¹ÁÉ½Ñ•Ñ•œ¤ì(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ„¹Ñ•áÑ½¹Ñ•¹Ð¤¹Ñ½½¹Ñ…¥¸ I•½Á•¹•™¥¹‘¥¹œµÕÍÐ…ÁÁ•…Èœ¤ì(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ„¹Ñ•áÑ½¹Ñ•¹Ð¤¹¹½Ð¹Ñ½½¹Ñ…¥¸ ±É•…‘ä™¥á•™¥¹‘¥¹œµÕÍÐ¹½ÐÉ…¹¬œ¤ì(€€€•áÁ•Ð¡ÅÕ•Õ•1¥ÍÐ„¹Ñ•áÑ½¹Ñ•¹Ð¤¹¹½Ð¹Ñ½½¹Ñ…¥¸ MÕÁÁÉ•ÍÍ•™¥¹‘¥¹œµÕÍÐ¹½ÐÉ…¹¬œ¤ì(€€€€¼¼AÉ•Ù¥•Ü‰ÕÑÑ½¸½¹±ä…ÁÁ•…ÉÌ½¸™¥¹‘¥¹ÌÑ¡”‰…­•¹…¸…ÑÕ…±±ä(€€€€¼¼É•µ•‘¥…Ñ”èÑ¡”É•½Á•¹•™¥¹‘¥¹œÕÍ•Ì„Ý½É­™±½Ý}€‘•Ñ•Ñ½È€¡ÍÕÁÁ½ÉÑ•¤°(€€€€¼¼Ñ¡”…Ñ¥Ù”½Á•¸ÕÍ•Ì„¥Ñ¡Õ‰}€Á½ÍÑÕÉ”‘•Ñ•Ñ½È€¡¹½ÐÍÕÁÁ½ÉÑ•¤¸M¼(€€€€¼¼Ñ¡”‰ÕÑÑ½¸½Õ¹ÐÍ¡½Õ±‰”€Ä°µ…Ñ¡¥¹œÑ¡”™¥àµÉ•…‘äÍÕ‰Í•ÐƒŠP¹½ÐÑ¡”(€€€€¼¼™Õ±°…Ñ¥Ù”½Õ¹Ð½˜€È¸(€€€½¹ÍÐÁÉ•Ù¥•Ý	ÕÑÑ½¹Ì€ôÍÉ••¸¹•Ñ±±	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½AÉ•Ù¥•ÜÉ•µ•‘¥…Ñ¥½¸½¤ô¤ì(€€€•áÁ•Ð¡ÁÉ•Ù¥•Ý	ÕÑÑ½¹Ì¹±•¹Ñ ¤¹Ñ½	” Ä¤ì(€ô¤ì((€¥Ð Í•¹‘ÌÑ¡”™¥¹‘¥¹pÌ½Ý¸Í…¹}¥Ý¡•¸ÁÉ•Ù¥•Ý¥¹œÉ•µ•‘¥…Ñ¥½¸™½È„É•Ñ…¥¹•½±‘•È™¥¹‘¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€€¼¼Q¡”‘É¥±±‘½Ý¹pÌ±…Ñ•ÍÐÍ…¸¥Ì„¹•Ý•ÈÁ…ÉÑ¥…°Í…¸ìÑ¡”™¥¹‘¥¹œÝ…Ì(€€€€¼¼É•Ñ…¥¹•™É½´…¸½±‘•ÈÍ…¸¸AÉ•Ù¥•ÜµÕÍÐ…±°Ý¥Ñ Ñ¡”™¥¹‘¥¹pÌ(€€€€¼¼Í…¹}¥€¡½±‘•È¤°¹½ÐÑ¡”‘É¥±±‘½Ý¹pÌ±…Ñ•ÍÐÍ…¸¹¥¸(€€€½¹ÍÐ½±‘•ÉM…¹%€ô€É•Á¼µÍ…¸µ½±‘•Èµ‘•Ñ…¥°œì(€€€€¼¼UÍ”Ý½É­™±½Ý¥¹‘¥¹œ…ÌÑ¡”‰…Í”Í¼Ñ¡”‘•Ñ•Ñ½È€¡Ý½É­™±½Ý}½¥‘}‰É½…‘}ÑÉÕÍÑ€¤(€€€€¼¼¥Ì¥¸Ñ¡”MÕ•ÍÑI•Á½áÁ½ÍÕÉ•I•µ•‘¥…Ñ¥½¸ÍÕÁÁ½ÉÑ•Í•ÐìÁ½ÍÑÕÉ”µ‘•Ñ•Ñ½È(€€€€¼¼™¥¹‘¥¹Ì‘¼¹½ÐÉ•¹‘•È„AÉ•Ù¥•Ü‰ÕÑÑ½¸‰ä‘•Í¥¸¸(€€€½¹ÍÐÉ•Ñ…¥¹•‘¥¹‘¥¹œè¥¹‘¥¹œ€ôì(€€€€€€¸¸¹Ý½É­™±½Ý¥¹‘¥¹œ°(€€€€€¥è€™¥¹‘¥¹œµÉ•Ñ…¥¹•µ™É½´µ½±‘•ÈµÍ…¸œ°(€€€€€Í…¹}¥è½±‘•ÉM…¹%°(€€€€€±¥™•å±•}ÍÑ…ÑÕÌè€½Á•¸œ(€€€ôì(€€€½¹ÍÐ¹•Ý•ÉM…¸èI•Á½M…¹I•½É€ôì(€€€€€€¸¸¹½µÁ±•Ñ•‘M…¸°(€€€€€¥è€É•Á¼µÍ…¸µ¹•Ý•ÍÐµ‘•Ñ…¥°œ(€€€ôì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉMÑ…ÑÕÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì½¹¹•Ñ¥½¸è½¹¹•Ñ•‘¥Ñ!Õˆô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm¹•Ý•ÉM…¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÉ•Ñ…¥¹•‘¥¹‘¥¹tô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•Ñ¥Ñ!Õ‰½¹¹•Ñ½ÉI•Á½Í¥Ñ½ÉåA½ÍÑÕÉ”œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€½¹¹•Ñ½É}¥è€¥Ñ¡Õˆµ…ÁÀœ°ÁÉ½Ù¥‘•Èè€¥Ñ¡Õ‰}…ÁÀœ°(€€€€€Á½ÍÑÕÉ”èì(€€€€€€€É•Á½Í¥Ñ½ÉäèÑ…É•ÑI•Á½Í¥Ñ½Éä°½±±•Ñ•‘}…Ðè€œÈÀÈØ´ÀÔ´ÄÝPÄÀèÔØèÀÁhœ°(€€€€€€€¡•­Ìèmì¥è€‰É…¹ µÁÉ½Ñ•Ñ¥½¸œ°…Ñ•½Éäè€‰É…¹ ÁÉ½Ñ•Ñ¥½¸œ°ÍÑ…Ñ”è€Í•ÕÉ”œ°ÍÕµµ…Éäè€Í•ÕÉ”œõt(€€€€€ô(€€€ô¤ì(€€€½¹ÍÐÁÉ•Ù¥•ÝMÁä€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€ÁÉ•Ù¥•ÝI•Á½¥¹‘¥¹I•µ•‘¥…Ñ¥½¸œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€™¥¹‘¥¹œèÉ•Ñ…¥¹•‘¥¹‘¥¹œ°(€€€€€É•µ•‘¥…Ñ¥½¸èì(€€€€€€€‘•Ñ•Ñ½Èè€àœ°ÍÕµµ…Éäè€½¬œ°É¥Í­}ÍÕµµ…Éäè€œœ°ÍÑ•ÁÌèmt°Í…™•Ñå}¹½Ñ•Ìèmt°Ù…±¥‘…Ñ¥½¸èmt°(€€€€€€€Í•É•Ñ}É½Ñ…Ñ¥½¸è™…±Í”°ÁÕ‰±¥Í¡…‰±”èÑÉÕ”°•Ù¥‘•¹”èì™¥¹‘¥¹}¥èÉ•Ñ…¥¹•‘¥¹‘¥¹œ¹¥ô(€€€€€ô(€€€ô¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€½¹ÍÐÁÉ•Ù¥•Ý	ÕÑÑ½¸€ô…Ý…¥ÐÍÉ••¸¹™¥¹‘	åI½±” ‰ÕÑÑ½¸œ°ì¹…µ”è€½AÉ•Ù¥•ÜÉ•µ•‘¥…Ñ¥½¸½¤ô¤ì(€€€™¥É•Ù•¹Ð¹±¥¬¡ÁÉ•Ù¥•Ý	ÕÑÑ½¸¤ì(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø•áÁ•Ð¡ÁÉ•Ù¥•ÝMÁä¤¹Ñ½!…Ù•	••¹…±±• ¤¤ì(€€€€¼¼AÉ•Ù¥•Ü•¹‘Á½¥¹ÐÉ••¥Ù•Ñ¡”™¥¹‘¥¹pÌ½Ý¸Í…¸¥°¹½ÐÑ¡”±…Ñ•ÍÐÍ…¸¸(€€€•áÁ•Ð¡ÁÉ•Ù¥•ÝMÁä¹µ½¬¹…±±ÍlÁtü¹lÁt¤¹Ñ½	”¡É•Ñ…¥¹•‘¥¹‘¥¹œ¹¥¤ì(€€€•áÁ•Ð¡ÁÉ•Ù¥•ÝMÁä¹µ½¬¹…±±ÍlÁtü¹lÅt¤¹Ñ½ÅÕ…°¡•áÁ•Ð¹½‰©•Ñ½¹Ñ…¥¹¥¹œ¡ìÉ•Á½}Í…¹}¥è½±‘•ÉM…¹%ô¤¤ì(€ô¤ì((€¥Ð É•¹‘•ÉÌÑ¡”±½…‘¥¹œÍ¡•±°Ý¡•¸¥Ñ!Õˆ…Ù…¥±…‰¥±¥Ñä¥ÌÍÑ¥±°É•Í½±Ù¥¹œœ°…Íå¹Œ€ ¤€ôøì(€€€µ½­½¹¹•Ñ½É•…ÑÕÉ•±…Ì¡ì…ÝÌè™…±Í”°¥Ñ¡ÕˆèÑÉÕ”°­Õ‰•É¹•Ñ•Ìè™…±Í”ô¤ì(€€€€¼¼±½…‘¥¹œèÑÉÕ”ƒŠP…Ù…¥±…‰¥±¥Ñä¥ÌÍÑ¥±°É•Í½±Ù¥¹œ¸(€€€µ½­	…­•¹‘•…ÑÕÉ•Ì¡ì¥Ñ¡ÕˆèÑÉÕ”ô°ì±½…‘¥¹œèÑÉÕ”ô¤ì(€€€½¹ÍÐ…Á¤€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½…Á¤½±¥•¹Ðœ¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑAÉ½©•ÑÌœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€¥Ñ•µÌèmì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€õt(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑAÉ½©•Ðœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì(€€€€€ÁÉ½©•Ðèì(€€€€€€€Ñ•¹…¹Ñ}¥è€Ñ•¹…¹Ðµ„œ°Ý½É­ÍÁ…•}¥è€Ý½É­ÍÁ…”µ„œ°ÁÉ½©•Ñ}¥è€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°(€€€€€€€¹…µ”è€AÉ½‘ÕÑ¥½¸A±…Ñ™½É´œ°Í±Õœè€ÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´œ°‘•ÍÉ¥ÁÑ¥½¸è€œœ°(€€€€€€€É•…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÅPÀÀèÀÀèÀÁhœ°ÕÁ‘…Ñ•‘}…Ðè€œÈÀÈØ´ÀÄ´ÀÉPÀÀèÀÀèÀÁhœ(€€€€€ô(€€€ô¤ì(€€€Ù¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½M…¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèm½µÁ±•Ñ•‘M…¹tô¤ì(€€€½¹ÍÐ±¥ÍÑI•Á½¥¹‘¥¹Ì€ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€±¥ÍÑI•Á½¥¹‘¥¹Ìœ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡ì¥Ñ•µÌèmÁ½ÍÑÕÉ•¥¹‘¥¹tô¤ì(€€€½¹ÍÐ•ÑI•Á½I¥Í­É…Á €ôÙ¤¹ÍÁå=¸¡…Á¤¹…Á¥±¥•¹Ð°€•ÑI•Á½I¥Í­É…Á œ¤¹µ½­I•Í½±Ù•‘Y…±Õ”¡É¥Í­É…Á¡]¥Ñ¡M½É•Ì¤ì((€€€½¹ÍÐÁÉ½‘ÕÑM¡•±°€ô…Ý…¥Ð¥µÁ½ÉÐ œ¸½ÁÉ½‘ÕÑM¡•±°œ¤ì(€€€É•¹‘•È (€€€€€€ñ5•µ½ÉåI½ÕÑ•È¥¹¥Ñ¥…±¹ÑÉ¥•Ìõím€½…ÁÀ½Ñ•¹…¹Ðµ„½Ý½É­ÍÁ…”µ„½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ý•¹Ù¥É½¹µ•¹ÐõÁÉ½‘ÕÑ¥½¸µÁ±…Ñ™½É´™É•Á½Í¥Ñ½Éäô‘í•¹½‘•UI%½µÁ½¹•¹Ð¡Ñ…É•ÑI•Á½Í¥Ñ½Éä¥õuôø(€€€€€€€€ñI½ÕÑ•Ìø(€€€€€€€€€€ñI½ÕÑ”(€€€€€€€€€€€Á…Ñ ôˆ½…ÁÀ¼éÑ•¹…¹Ñ%¼éÝ½É­ÍÁ…•%½¥Ñ¡Õˆ½É•Á½Í¥Ñ½É¥•Ì½‘•Ñ…¥°ˆ(€€€€€€€€€€€•±•µ•¹ÐõìñÁÉ½‘ÕÑM¡•±°¹AÉ½‘ÕÑ¥Ñ!Õ‰I•Á½Í¥Ñ½Éå•Ñ…¥±A…”€¼ùô(€€€€€€€€€€¼ø(€€€€€€€€ð½I½ÕÑ•Ìø(€€€€€€ð½5•µ½ÉåI½ÕÑ•Èø(€€€€¤ì((€€€€¼¼Q¡”±½…‘¥¹œÍ¡•±°É•¹‘•ÉÌ¥¹ÍÑ•…½˜Ñ¡”¹½Éµ…°‘É¥±±‘½Ý¸Í¡•±°¸(€€€€¼¼	½Ñ Ñ¡”½µ…¥¹A…•M¡•±°‘•ÍÉ¥ÁÑ¥½¸…¹Ñ¡”½µ…¥¹1½…‘¥¹MÑ…Ñ”±…‰•°(€€€€¼¼…ÉÉäÑ¡”Á¡É…Í”°Í¼…±±½ÜµÕ±Ñ¥Á±”µ…Ñ¡•Ì¸(€€€…Ý…¥ÐÝ…¥Ñ½È  ¤€ôø(€€€€€•áÁ•Ð¡ÍÉ••¸¹•Ñ±±	åQ•áÐ ½1½…‘¥¹œ¥Ñ!Õˆ…Ù…¥±…‰¥±¥Ñä½¤¤¹±•¹Ñ ¤¹Ñ½	•É•…Ñ•ÉQ¡…¸ À¤(€€€€¤ì(€€€€¼¼Q¡”ÁÉ¥½É¥Ñ¥é•ÅÕ•Õ”…¹Ñ¡”‘É¥±±‘½Ý¸µÍÁ•¥™¥Œ™•Ñ¡•ÌµÕÍÐ¹•Ù•ÈÉÕ¸(€€€€¼¼Ý¡¥±”…Ù…¥±…‰¥±¥Ñä¥ÌÍÑ¥±°É•Í½±Ù¥¹œ¸±¥ÍÑI•Á½M…¹Ì¥Ì½ÉÑ¡½½¹…±±ä(€€€€¼¼•á•É¥Í•‰äÑ¡”Í¡…É•ÕÍ•¥Ñ!Õ‰½µ…¥¹…Ñ„¡½½¬°Í¼½¹±ä…ÍÍ•ÉÐ½¸Ñ¡”(€€€€¼¼‘É¥±±‘½Ý¸µÍÁ•¥™¥Œ™¥¹‘¥¹Ì½É…Á ™•Ñ¡•Ì¡•É”¸(€€€•áÁ•Ð¡ÍÉ••¸¹ÅÕ•Éå	å1…‰•±Q•áÐ AÉ¥½É¥Ñ¥é•™¥¹‘¥¹ÌÅÕ•Õ”œ¤¤¹¹½Ð¹Ñ½	•%¹Q¡•½Õµ•¹Ð ¤ì(€€€•áÁ•Ð¡±¥ÍÑI•Á½¥¹‘¥¹Ì¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€€€•áÁ•Ð¡•ÑI•Á½I¥Í­É…Á ¤¹¹½Ð¹Ñ½!…Ù•	••¹…±±• ¤ì(€ô¤ì)ô¤ì
