@@ -13223,6 +13223,16 @@ html[data-theme='light'] .idt-pricing-decision-console {
   color: #52525b;
 }
 
+.idt-pricing-path-cadence {
+  color: var(--pricing-muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.idt-pricing-path-option.is-featured .idt-pricing-path-cadence {
+  color: #52525b;
+}
+
 .idt-pricing-path-option p {
   margin: 0;
   color: var(--pricing-bright);
