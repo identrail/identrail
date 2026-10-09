@@ -189,10 +189,11 @@ func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) 
 	}
 	adminRequest := request
 	adminRequest.MemberID = "member-admin-created"
-	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", adminRequest, admin.ID); err != nil {
+	adminMember, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", adminRequest, admin.ID)
+	if err != nil {
 		t.Fatalf("expected admin member write to succeed, got %v", err)
 	}
-	if err := svc.DeleteWorkspaceMemberAs(ctx, "workspace-a", adminRequest.MemberID, admin.ID); err != nil {
+	if err := svc.DeleteWorkspaceMemberAs(ctx, "workspace-a", adminMember.MemberID, admin.ID); err != nil {
 		t.Fatalf("expected admin member delete to succeed, got %v", err)
 	}
 
@@ -247,6 +248,58 @@ func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) 
 	}
 	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, "00000000-0000-0000-0000-000000000099"); !errors.Is(err, ErrWorkspaceAdminRequired) {
 		t.Fatalf("expected orphan owner write to be denied, got %v", err)
+	}
+}
+
+func TestServiceWorkspaceMemberUpsertReusesExistingMembershipByLocalUser(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
+	store := svc.Store.(*db.MemoryStore)
+	target, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "alex@example.com",
+		DisplayName:  "Alex",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed target user: %v", err)
+	}
+	const legacyMemberID = "member-alex-example-com"
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		MemberID:    legacyMemberID,
+		UserID:      target.ID,
+		UserUUID:    target.ID,
+		Email:       target.PrimaryEmail,
+		Role:        "viewer",
+		Status:      "invited",
+	}); err != nil {
+		t.Fatalf("seed existing membership: %v", err)
+	}
+
+	newMemberID := "member-" + strings.Repeat("a", 64)
+	member, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: newMemberID,
+		UserID:   target.ID,
+		Email:    target.PrimaryEmail,
+		Role:     "viewer",
+		Status:   "invited",
+	}, ownerUUID)
+	if err != nil {
+		t.Fatalf("upsert with changed member ID: %v", err)
+	}
+	if member.MemberID != legacyMemberID || member.UserUUID != target.ID {
+		t.Fatalf("expected the existing local-user membership to be reused, got %+v", member)
+	}
+	if _, err := store.GetWorkspaceMember(ctx, "workspace-a", newMemberID); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("unexpected duplicate membership under new ID: %v", err)
+	}
+	byUser, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", target.ID)
+	if err != nil {
+		t.Fatalf("lookup reused membership by local user: %v", err)
+	}
+	if byUser.MemberID != legacyMemberID {
+		t.Fatalf("expected one membership under the original ID, got %+v", byUser)
 	}
 }
 

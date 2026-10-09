@@ -3723,6 +3723,12 @@ func (s *Service) UpsertWorkspaceMemberAs(
 	if existingErr != nil && !errors.Is(existingErr, db.ErrNotFound) {
 		return db.TenancyWorkspaceMember{}, existingErr
 	}
+	if errors.Is(existingErr, db.ErrNotFound) && strings.TrimSpace(request.MemberID) != "" {
+		existing, existingErr = findExistingWorkspaceMemberForTarget(ctx, s.Store, normalizedWorkspaceID, request)
+		if existingErr == nil {
+			request.MemberID = existing.MemberID
+		}
+	}
 	var existingMember db.TenancyWorkspaceMember
 	if existingErr == nil {
 		existingMember = existing
@@ -3748,6 +3754,47 @@ func (s *Service) UpsertWorkspaceMemberAs(
 		return db.TenancyWorkspaceMember{}, err
 	}
 	return s.Store.GetWorkspaceMember(ctx, normalized.WorkspaceID, normalized.MemberID)
+}
+
+func findExistingWorkspaceMemberForTarget(
+	ctx context.Context,
+	store db.Store,
+	workspaceID string,
+	request WorkspaceMemberUpsertRequest,
+) (db.TenancyWorkspaceMember, error) {
+	if subject := strings.TrimSpace(request.UserID); subject != "" {
+		member, err := store.GetWorkspaceMemberByUserID(ctx, workspaceID, subject)
+		if err == nil {
+			return member, nil
+		}
+		if !errors.Is(err, db.ErrNotFound) {
+			return db.TenancyWorkspaceMember{}, err
+		}
+
+		identity, err := store.GetUserIdentityBySubject(ctx, subject)
+		if err == nil {
+			member, err = store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, identity.UserID)
+			if err == nil || !errors.Is(err, db.ErrNotFound) {
+				return member, err
+			}
+		} else if !errors.Is(err, db.ErrNotFound) {
+			if errors.Is(err, db.ErrConflict) {
+				return db.TenancyWorkspaceMember{}, ErrInvalidTenancyRequest
+			}
+			return db.TenancyWorkspaceMember{}, err
+		}
+	}
+
+	if email := strings.TrimSpace(request.Email); email != "" {
+		user, err := store.GetUserByPrimaryEmail(ctx, email)
+		if err == nil {
+			return store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, user.ID)
+		}
+		if !errors.Is(err, db.ErrNotFound) {
+			return db.TenancyWorkspaceMember{}, err
+		}
+	}
+	return db.TenancyWorkspaceMember{}, db.ErrNotFound
 }
 
 // GetWorkspaceMember returns one scoped workspace member.
