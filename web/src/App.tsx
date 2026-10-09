@@ -1104,14 +1104,23 @@ function ProductHeroVisual() {
 
 type PricingHeroVisualProps = {
   proPrice: number;
+  billingCadence: 'Billed annually' | 'Billed monthly';
 };
 
-function PricingHeroVisual({ proPrice }: PricingHeroVisualProps) {
+function PricingHeroVisual({ proPrice, billingCadence }: PricingHeroVisualProps) {
   const shouldReduceMotion = useReducedMotion();
   const transition = shouldReduceMotion
     ? { duration: 0 }
     : { duration: 0.42, ease: [0.22, 1, 0.36, 1] as const };
-  const paths = [
+  const paths: Array<{
+    name: string;
+    price: string;
+    unit: string;
+    cadence?: string;
+    summary: string;
+    detail: string;
+    featured?: boolean;
+  }> = [
     {
       name: 'Open Source',
       price: '$0',
@@ -1123,6 +1132,7 @@ function PricingHeroVisual({ proPrice }: PricingHeroVisualProps) {
       name: 'Pro',
       price: `$${proPrice}`,
       unit: '/user/mo',
+      cadence: billingCadence,
       summary: 'Managed speed',
       detail: 'Hosted graph and guided setup',
       featured: true
@@ -1169,6 +1179,7 @@ function PricingHeroVisual({ proPrice }: PricingHeroVisualProps) {
               <strong>{path.price}</strong>
               {path.unit ? <small>{path.unit}</small> : null}
             </div>
+            {path.cadence ? <span className="idt-pricing-path-cadence">{path.cadence}</span> : null}
             <p>{path.summary}</p>
             <span className="idt-pricing-path-detail">{path.detail}</span>
           </motion.div>
@@ -3395,7 +3406,7 @@ function PricingPage() {
         title="Pricing that matches your control boundary"
         body="Start self-hosted, move to hosted Pro, or add private controls when your program requires them."
         variant="pricing"
-        visual={<PricingHeroVisual proPrice={proPrice} />}
+        visual={<PricingHeroVisual proPrice={proPrice} billingCadence={annual ? 'Billed annually' : 'Billed monthly'} />}
         actions={
           <>
             <ScanIntakeCTA className="idt-btn idt-btn-primary" />
