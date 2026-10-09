@@ -556,10 +556,17 @@ describe('App', () => {
     expect(screen.getAllByRole('button', { name: /Annual/i })).toHaveLength(1);
     expect(screen.getByRole('button', { name: /Annual/i })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /Annual/i })).toHaveAttribute('data-state', 'on');
+    expect(screen.getByText('$30 per user per month, billed annually at $360 per user.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Monthly/i }));
     await waitFor(() => expect(document.querySelector('.idt-pricing-card.is-featured .idt-price-value')).toHaveTextContent('39'));
+    expect(screen.getByText('Billed monthly at $39 per user.')).toBeInTheDocument();
+    expect(
+      screen.queryByText('$30 per user per month, billed annually at $360 per user.')
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Annual/i }));
     await waitFor(() => expect(document.querySelector('.idt-pricing-card.is-featured .idt-price-value')).toHaveTextContent('30'));
+    expect(screen.getByText('$30 per user per month, billed annually at $360 per user.')).toBeInTheDocument();
+    expect(screen.queryByText('Billed monthly at $39 per user.')).not.toBeInTheDocument();
   });
 
   it('keeps pricing content visible and controls stateful with reduced motion', async () => {
