@@ -12,15 +12,44 @@ import {
   routeToOnboardingStep
 } from './onboardingUtils';
 
-function parseInviteEmails(value: string): string[] {
-  return Array.from(
-    new Set(
-      value
-        .split(/[\s,;]+/)
-        .map((item) => item.trim().toLowerCase())
-        .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item))
-    )
+const EMAIL_LOCAL_PART_PATTERN = /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/i;
+const EMAIL_DOMAIN_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+
+function isValidInviteEmail(email: string): boolean {
+  if (email.length > 254) {
+    return false;
+  }
+  const [localPart, domain, ...extra] = email.split('@');
+  if (extra.length || !localPart || localPart.length > 64 || !domain || !EMAIL_LOCAL_PART_PATTERN.test(localPart)) {
+    return false;
+  }
+  const labels = domain.split('.');
+  const topLevelDomain = labels.at(-1) ?? '';
+  return (
+    labels.length > 1 &&
+    labels.every((label) => EMAIL_DOMAIN_LABEL_PATTERN.test(label)) &&
+    /^[a-z0-9-]{2,63}$/i.test(topLevelDomain) &&
+    /[a-z]/i.test(topLevelDomain)
   );
+}
+
+function parseInviteEmails(value: string): { invitees: string[]; invalidEmails: string[] } {
+  const tokens = value
+    .split(/[\s,;]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  const invitees = new Set<string>();
+  const invalidEmails = new Set<string>();
+
+  for (const token of tokens) {
+    if (isValidInviteEmail(token)) {
+      invitees.add(token);
+    } else {
+      invalidEmails.add(token);
+    }
+  }
+
+  return { invitees: Array.from(invitees), invalidEmails: Array.from(invalidEmails) };
 }
 
 export function InvitePage() {
@@ -31,7 +60,7 @@ export function InvitePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [emailsError, setEmailsError] = useState('');
-  const invitees = useMemo(() => parseInviteEmails(emails), [emails]);
+  const { invitees, invalidEmails } = useMemo(() => parseInviteEmails(emails), [emails]);
 
   useEffect(() => {
     if (!FEATURE_ONBOARDING_WIZARD) {
@@ -77,9 +106,13 @@ export function InvitePage() {
   }
 
   const complete = async () => {
-    setSaving(true);
     setError('');
     setEmailsError('');
+    if (invalidEmails.length) {
+      setEmailsError(`Correct or remove invalid email addresses before continuing: ${invalidEmails.join(', ')}`);
+      return;
+    }
+    setSaving(true);
     try {
       const response = await apiClient.completeOnboarding();
       setState(response.state);
@@ -99,8 +132,12 @@ export function InvitePage() {
       setError('Workspace context is required before inviting teammates.');
       return;
     }
+    if (invalidEmails.length) {
+      setEmailsError(`Correct or remove invalid email addresses before continuing: ${invalidEmails.join(', ')}`);
+      return;
+    }
     if (!invitees.length) {
-      setEmailsError('Enter a valid email');
+      setEmailsError('Enter at least one valid email address.');
       return;
     }
     setSaving(true);
@@ -155,8 +192,8 @@ export function InvitePage() {
                 }
               }}
               rows={5}
+              aria-describedby={emailsError ? 'invite-emails-hint invite-emails-error' : 'invite-emails-hint'}
               aria-invalid={emailsError ? 'true' : undefined}
-              aria-describedby={emailsError ? 'invite-emails-error' : undefined}
             />
             {emailsError ? (
               <span id="invite-emails-error" className="idt-onboarding-input-error" role="alert">
@@ -164,6 +201,9 @@ export function InvitePage() {
               </span>
             ) : null}
           </div>
+          <p id="invite-emails-hint" className="idt-muted">
+            Separate addresses with commas, semicolons, or new lines.
+          </p>
         </div>
         <div className="idt-onboarding-actions">
           <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading}>

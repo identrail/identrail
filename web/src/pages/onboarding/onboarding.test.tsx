@@ -600,12 +600,25 @@ describe('onboarding pages', () => {
 
     renderOnboarding(<InvitePage />, '/onboarding/invite');
 
+    const emailInput = await screen.findByLabelText('Email addresses');
+    expect(screen.getByText('Separate addresses with commas, semicolons, or new lines.')).toBeInTheDocument();
+    expect(emailInput).toHaveAttribute('aria-describedby', 'invite-emails-hint');
     fireEvent.click(await screen.findByRole('button', { name: 'Invite and finish' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid email');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter at least one valid email address.');
     expect(invite).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
 
-    fireEvent.change(await screen.findByLabelText('Email addresses'), { target: { value: 'analyst@example.com' } });
+    fireEvent.change(emailInput, { target: { value: 'analyst@example.com, not-an-email' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Correct or remove invalid email addresses before continuing: not-an-email'
+    );
+    expect(emailInput).toHaveAttribute('aria-invalid', 'true');
+    expect(emailInput).toHaveAttribute('aria-describedby', 'invite-emails-hint invite-emails-error');
+    expect(invite).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+
+    fireEvent.change(emailInput, { target: { value: 'analyst@example.com' } });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
 
@@ -647,7 +660,7 @@ describe('onboarding pages', () => {
     fireEvent.change(emailInput, { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid email');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter at least one valid email address.');
     expect(screen.queryByText('Invite failed')).not.toBeInTheDocument();
     expect(invite).toHaveBeenCalledTimes(1);
     expect(complete).not.toHaveBeenCalled();
@@ -668,13 +681,44 @@ describe('onboarding pages', () => {
 
     renderOnboarding(<InvitePage />, '/onboarding/invite');
 
+    const emailInput = await screen.findByLabelText('Email addresses');
     fireEvent.click(await screen.findByRole('button', { name: 'Invite and finish' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid email');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter at least one valid email address.');
 
+    fireEvent.change(emailInput, { target: { value: 'broken..local@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Finish without invites' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Correct or remove invalid email addresses before continuing: broken..local@example.com'
+    );
+    expect(complete).not.toHaveBeenCalled();
+
+    fireEvent.change(emailInput, { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Finish without invites' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Unable to finish');
-    expect(screen.queryByText('Enter a valid email')).not.toBeInTheDocument();
+    expect(screen.queryByText('Enter at least one valid email address.')).not.toBeInTheDocument();
     expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects malformed email syntax instead of accepting any dotted domain', async () => {
+    const { apiClient, InvitePage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({ current_step: 'invite', org_id: 'tenant-a', workspace_id: 'production' }),
+      redirect_path: '/onboarding/invite'
+    });
+    const invite = vi.spyOn(apiClient, 'upsertWorkspaceMember');
+    const complete = vi.spyOn(apiClient, 'completeOnboarding');
+
+    renderOnboarding(<InvitePage />, '/onboarding/invite');
+    fireEvent.change(await screen.findByLabelText('Email addresses'), {
+      target: { value: 'first..last@example.com, user@-example.com, user@example..com' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'first..last@example.com, user@-example.com, user@example..com'
+    );
+    expect(invite).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
   });
 });
