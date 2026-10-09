@@ -11485,12 +11485,11 @@ function AWSMachineIdentityDetailTabs({
 }) {
   const tabCounts = new Map((detail?.tabs ?? []).map((tab) => [tab.id, tab.count]));
   return (
-    <div className="idt-inline-actions" role="tablist" aria-label="Machine identity detail tabs">
+    <nav className="idt-inline-actions" aria-label="Machine identity details">
       {AWS_MACHINE_IDENTITY_DETAIL_TAB_IDS.map((tabID) => (
         <Link
           key={tabID}
-          role="tab"
-          aria-selected={activeTab === tabID}
+          aria-current={activeTab === tabID ? 'page' : undefined}
           aria-label={`${AWS_MACHINE_IDENTITY_DETAIL_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
           className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
           to={awsMachineIdentityDetailLink(scope, selectedEnvironmentID, identity, tabID)}
@@ -11499,7 +11498,7 @@ function AWSMachineIdentityDetailTabs({
           <span>{tabCounts.get(tabID) ?? 0}</span>
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -11980,12 +11979,11 @@ function AWSAgentIdentityDetailTabs({
 }) {
   const tabCounts = new Map((detail?.tabs ?? []).map((tab) => [tab.id, tab.count]));
   return (
-    <div className="idt-inline-actions" role="tablist" aria-label="Agent identity detail tabs">
+    <nav className="idt-inline-actions" aria-label="Agent identity details">
       {AWS_AGENT_IDENTITY_DETAIL_TAB_IDS.map((tabID) => (
         <Link
           key={tabID}
-          role="tab"
-          aria-selected={activeTab === tabID}
+          aria-current={activeTab === tabID ? 'page' : undefined}
           aria-label={`${AWS_AGENT_IDENTITY_DETAIL_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
           className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
           to={awsAgentIdentityDetailLink(scope, selectedEnvironmentID, agent, tabID)}
@@ -11994,7 +11992,7 @@ function AWSAgentIdentityDetailTabs({
           <span>{tabCounts.get(tabID) ?? 0}</span>
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -12554,12 +12552,11 @@ function AWSRemediationCenterTabs({
 }) {
   const tabCounts = new Map((center?.tabs ?? []).map((tab) => [tab.id, tab.count]));
   return (
-    <div className="idt-inline-actions" role="tablist" aria-label="Remediation center tabs">
+    <nav className="idt-inline-actions" aria-label="Remediation center sections">
       {AWS_REMEDIATION_CENTER_TAB_IDS.map((tabID) => (
         <Link
           key={tabID}
-          role="tab"
-          aria-selected={activeTab === tabID}
+          aria-current={activeTab === tabID ? 'page' : undefined}
           aria-label={`${AWS_REMEDIATION_CENTER_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
           className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
           to={awsRemediationCenterLink(scope, selectedEnvironmentID, tabID, searchParams)}
@@ -12568,7 +12565,7 @@ function AWSRemediationCenterTabs({
           <span>{tabCounts.get(tabID) ?? 0}</span>
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }
 
