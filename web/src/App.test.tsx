@@ -562,6 +562,62 @@ describe('App', () => {
     await waitFor(() => expect(document.querySelector('.idt-pricing-card.is-featured .idt-price-value')).toHaveTextContent('30'));
   });
 
+  it('supports keyboard navigation in the ROI profile tabs', () => {
+    setCurrentPath('/roi-assessment');
+    render(<App />);
+
+    const profileTabs = within(screen.getByRole('tablist', { name: 'ROI profiles' })).getAllByRole('tab');
+    const midmarketTab = screen.getByRole('tab', { name: 'Mid-market platform team' });
+    const enterpriseTab = screen.getByRole('tab', { name: 'Enterprise multi-account AWS' });
+
+    expect(profileTabs.filter((tab) => tab.getAttribute('tabindex') === '0')).toHaveLength(1);
+    expect(midmarketTab).toHaveAttribute('tabIndex', '0');
+    enterpriseTab.focus();
+    fireEvent.keyDown(enterpriseTab, { key: 'ArrowRight' });
+
+    const startupTab = screen.getByRole('tab', { name: 'Startup cloud-native' });
+    expect(startupTab).toHaveFocus();
+    expect(startupTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('Number of machine identities')).toHaveValue(900);
+
+    const identitiesInput = screen.getByLabelText('Number of machine identities');
+    fireEvent.change(identitiesInput, { target: { value: '1234' } });
+    act(() => {
+      identitiesInput.focus();
+      startupTab.focus();
+    });
+    expect(identitiesInput).toHaveValue(1234);
+
+    fireEvent.keyDown(startupTab, { key: 'ArrowLeft' });
+    expect(enterpriseTab).toHaveFocus();
+    fireEvent.keyDown(enterpriseTab, { key: 'Home' });
+    expect(startupTab).toHaveFocus();
+    fireEvent.keyDown(startupTab, { key: 'End' });
+    expect(enterpriseTab).toHaveFocus();
+
+    fireEvent.keyDown(enterpriseTab, { key: 'ArrowLeft', ctrlKey: true });
+    expect(enterpriseTab).toHaveFocus();
+    expect(identitiesInput).toHaveValue(9800);
+  });
+
+  it('supports keyboard navigation in the trust graph view tabs', () => {
+    setCurrentPath('/product');
+    render(<App />);
+
+    const trustGraphTabs = within(screen.getByRole('tablist', { name: 'Trust path explorer view' }));
+    const graphTab = trustGraphTabs.getByRole('tab', { name: 'Graph' });
+    const listTab = trustGraphTabs.getByRole('tab', { name: 'List' });
+    expect(graphTab).toHaveAttribute('tabIndex', '0');
+    expect(listTab).toHaveAttribute('tabIndex', '-1');
+
+    graphTab.focus();
+    fireEvent.keyDown(graphTab, { key: 'ArrowRight' });
+
+    expect(listTab).toHaveFocus();
+    expect(listTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', listTab.id);
+  });
+
   it('keeps pricing content visible and controls stateful with reduced motion', async () => {
     vi.stubGlobal(
       'matchMedia',
