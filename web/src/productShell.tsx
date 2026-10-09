@@ -236,6 +236,7 @@ import {
   DomainDetailDrawer,
   DomainDetailPanel,
   DomainCoverageCard,
+  DomainMetricCard,
   DomainDataTable,
   DomainEmptyState,
   DomainErrorState,
@@ -15676,7 +15677,7 @@ function AWSPlatformObservabilityContent({
     <>
       {result ? (
         <section className="idt-aws-inventory-coverage" aria-label="AWS platform observability summary">
-          <DomainCoverageCard label="Scan throughput" scanned={result.summary.scan_throughput_per_hour} total={Math.max(result.summary.scan_throughput_per_hour, 1)} detail="targets/hour" />
+          <DomainMetricCard label="Scan throughput" value={result.summary.scan_throughput_per_hour} detail="targets/hour" />
           <DomainCoverageCard label="Queue lag" scanned={Math.max(0, 900000 - result.summary.queue_lag_p95_ms)} total={900000} detail={`${Math.round(result.summary.queue_lag_p95_ms / 1000)}s p95`} />
           <DomainCoverageCard label="Runtime lag" scanned={Math.max(0, 900000 - result.summary.runtime_lag_p95_ms)} total={900000} detail={`${Math.round(result.summary.runtime_lag_p95_ms / 1000)}s p95`} />
           <DomainCoverageCard label="Collector failures" scanned={Math.max(0, result.summary.filtered_metrics - result.summary.collector_failure_count)} total={Math.max(result.summary.filtered_metrics, 1)} detail={`${result.summary.collector_failure_count} signals`} />

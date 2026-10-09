@@ -8272,6 +8272,8 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('table', { name: 'AWS platform observability metrics' })).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS platform observability traces' })).toBeInTheDocument();
     expect(screen.getAllByText(/Scan throughput/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('article', { name: 'Scan throughput' })).toHaveTextContent('12');
+    expect(screen.queryByRole('progressbar', { name: 'Scan throughput coverage' })).not.toBeInTheDocument();
     expect(screen.getAllByText(/Verification outcomes/i).length).toBeGreaterThan(0);
     expect(getPlatformObservability).toHaveBeenCalledWith(
       'workspace-a',
