@@ -4750,7 +4750,9 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'lambda-invoice-agent' })).toBeInTheDocument();
     expect(screen.getByText('metadata_only_no_secret_values_no_policy_bodies_no_payloads')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Runtime\s+1/i })).toHaveAttribute('aria-selected', 'true');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Machine identity details' })).getByRole('link', { name: /Runtime\s+1/i })
+    ).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('table', { name: 'Machine identity runtime events' })).toBeInTheDocument();
     expect(screen.getByText('s3:GetObject')).toBeInTheDocument();
     expect(getMachineIdentityDetail).toHaveBeenCalledWith(
@@ -4898,7 +4900,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('Reduce orders-deployer policy')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Remediation Center' })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Remediation center safety review' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Overview\s+1/i })).toHaveAttribute('aria-selected', 'true');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Remediation center sections' })).getByRole('link', { name: /Overview\s+1/i })
+    ).toHaveAttribute('aria-current', 'page');
     expect(getRemediationCenter).toHaveBeenCalledWith(
       'workspace-a',
       'production',
@@ -5008,7 +5012,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('Connect an AWS connector before viewing remediation lifecycle evidence.')).toBeInTheDocument();
     expect(screen.getByText('Finish AWS connector setup or choose another environment.')).toBeInTheDocument();
     expect(screen.queryByText('AWS connector is unavailable')).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Overview\s+0/i })).toHaveAttribute('aria-selected', 'true');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Remediation center sections' })).getByRole('link', { name: /Overview\s+0/i })
+    ).toHaveAttribute('aria-current', 'page');
     expect(getRemediationCenter).toHaveBeenCalledWith(
       'workspace-a',
       'production',
@@ -5270,9 +5276,11 @@ describe('Domain-first app routes', () => {
         workspaceID: 'workspace-a'
       }
     );
-    // Tab links preserve the active filter params so deep links survive navigation.
-    const dryRunsTab = screen.getByRole('tab', { name: /Dry-runs\s+1/i });
-    const href = dryRunsTab.getAttribute('href') ?? '';
+    // Navigation links preserve active filter params so deep links survive navigation.
+    const dryRunsLink = within(
+      screen.getByRole('navigation', { name: 'Remediation center sections' })
+    ).getByRole('link', { name: /Dry-runs\s+1/i });
+    const href = dryRunsLink.getAttribute('href') ?? '';
     expect(href).toContain('severity=high');
     expect(href).toContain('account_id=123456789012');
     expect(href).toContain('tab=dry_runs');
@@ -5466,7 +5474,9 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'support-assistant' })).toBeInTheDocument();
     expect(screen.getByText('metadata_only_no_secret_values_no_prompt_text_no_tool_payloads_no_workload_data_tenant_workspace_project_connector_account_region_scoped')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Runtime\s+1/i })).toHaveAttribute('aria-selected', 'true');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Agent identity details' })).getByRole('link', { name: /Runtime\s+1/i })
+    ).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('table', { name: 'Agent identity runtime calls' })).toBeInTheDocument();
     expect(screen.getByText('invoke-knowledge-base')).toBeInTheDocument();
     expect(getAgentIdentityDetail).toHaveBeenCalledWith(
