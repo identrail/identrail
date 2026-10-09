@@ -14,6 +14,18 @@ import {
 
 const EMAIL_LOCAL_PART_PATTERN = /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/i;
 const EMAIL_DOMAIN_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+const EMAIL_DOMAIN_CHARACTERS_PATTERN = /^[\p{L}\p{M}\p{N}.-\u3002\uFF0E\uFF61]+$/u;
+
+function normalizeEmailDomain(domain: string): string | null {
+  if (!EMAIL_DOMAIN_CHARACTERS_PATTERN.test(domain)) {
+    return null;
+  }
+  try {
+    return new URL(`http://${domain}`).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
 
 function isValidInviteEmail(email: string): boolean {
   if (email.length > 254) {
@@ -23,7 +35,11 @@ function isValidInviteEmail(email: string): boolean {
   if (extra.length || !localPart || localPart.length > 64 || !domain || !EMAIL_LOCAL_PART_PATTERN.test(localPart)) {
     return false;
   }
-  const labels = domain.split('.');
+  const asciiDomain = normalizeEmailDomain(domain);
+  if (!asciiDomain) {
+    return false;
+  }
+  const labels = asciiDomain.split('.');
   const topLevelDomain = labels[labels.length - 1] ?? '';
   return (
     labels.length > 1 &&

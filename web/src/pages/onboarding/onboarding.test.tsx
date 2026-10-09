@@ -578,9 +578,9 @@ describe('onboarding pages', () => {
       member: {
         tenant_id: 'tenant-a',
         workspace_id: 'production',
-        member_id: 'member-analyst-example-com',
-        user_id: 'analyst@example.com',
-        email: 'analyst@example.com',
+        member_id: 'member-analyst-bcher-de',
+        user_id: 'analyst@bücher.de',
+        email: 'analyst@bücher.de',
         role: 'viewer',
         status: 'invited',
         joined_at: '2026-05-14T10:00:00Z',
@@ -618,14 +618,14 @@ describe('onboarding pages', () => {
     expect(invite).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
 
-    fireEvent.change(emailInput, { target: { value: 'analyst@example.com' } });
+    fireEvent.change(emailInput, { target: { value: 'analyst@bücher.de' } });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
 
     await waitFor(() => {
       expect(invite).toHaveBeenCalledWith(
         'production',
-        expect.objectContaining({ email: 'analyst@example.com', role: 'viewer', status: 'invited' }),
+        expect.objectContaining({ email: 'analyst@bücher.de', role: 'viewer', status: 'invited' }),
         { tenantID: 'tenant-a', workspaceID: 'production' }
       );
       expect(complete).toHaveBeenCalled();
@@ -666,7 +666,7 @@ describe('onboarding pages', () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
-  it('clears stale email validation before finishing without invites', async () => {
+  it('clears stale validation and accepts internationalized domains when finishing without invites', async () => {
     const { apiClient, InvitePage } = await loadOnboardingModules();
     vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
       state: state({
@@ -692,7 +692,7 @@ describe('onboarding pages', () => {
     );
     expect(complete).not.toHaveBeenCalled();
 
-    fireEvent.change(emailInput, { target: { value: '' } });
+    fireEvent.change(emailInput, { target: { value: 'analyst@bücher.de' } });
     fireEvent.click(screen.getByRole('button', { name: 'Finish without invites' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Unable to finish');
@@ -711,12 +711,12 @@ describe('onboarding pages', () => {
 
     renderOnboarding(<InvitePage />, '/onboarding/invite');
     fireEvent.change(await screen.findByLabelText('Email addresses'), {
-      target: { value: 'first..last@example.com, user@-example.com, user@example..com' }
+      target: { value: 'first..last@example.com, user@-example.com, user@example..com, user@💩.example' }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'first..last@example.com, user@-example.com, user@example..com'
+      'first..last@example.com, user@-example.com, user@example..com, user@💩.example'
     );
     expect(invite).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
