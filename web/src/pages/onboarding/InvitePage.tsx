@@ -14,7 +14,7 @@ import {
 
 const EMAIL_LOCAL_ATOM_CHARACTER_PATTERN = /^(?:[a-zA-Z0-9!#$%&'*+\/=?^_`{|}~-]|[^\p{ASCII}\p{C}\p{Z}])$/u;
 const EMAIL_DOMAIN_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
-const EMAIL_DOMAIN_CHARACTERS_PATTERN = /^[\p{L}\p{M}\p{N}.-\u3002\uFF0E\uFF61]+$/u;
+const EMAIL_DOMAIN_CHARACTERS_PATTERN = /^[\p{L}\p{M}\p{N}.\u3002\uFF0E\uFF61-]+$/u;
 
 function isValidEmailLocalPart(localPart: string): boolean {
   return localPart.split('.').every((atom) => {

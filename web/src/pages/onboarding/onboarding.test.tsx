@@ -618,7 +618,7 @@ describe('onboarding pages', () => {
     expect(invite).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
 
-    fireEvent.change(emailInput, { target: { value: 'analyst@bücher.de, 用户@example.com' } });
+    fireEvent.change(emailInput, { target: { value: 'analyst@bücher.de, 用户@example.com, engineering@my-company.com' } });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
 
@@ -632,6 +632,12 @@ describe('onboarding pages', () => {
         2,
         'production',
         expect.objectContaining({ email: '用户@example.com', role: 'viewer', status: 'invited' }),
+        { tenantID: 'tenant-a', workspaceID: 'production' }
+      );
+      expect(invite).toHaveBeenNthCalledWith(
+        3,
+        'production',
+        expect.objectContaining({ email: 'engineering@my-company.com', role: 'viewer', status: 'invited' }),
         { tenantID: 'tenant-a', workspaceID: 'production' }
       );
       expect(complete).toHaveBeenCalled();
@@ -717,16 +723,20 @@ describe('onboarding pages', () => {
 
     renderOnboarding(<InvitePage />, '/onboarding/invite');
     const overlongUtf8LocalPart = '界'.repeat(22);
+    const malformedEmails = [
+      'first..last@example.com',
+      'user@-example.com',
+      'user@example..com',
+      'user@💩.example',
+      'user@example。com/path',
+      `${overlongUtf8LocalPart}@example.com`
+    ];
     fireEvent.change(await screen.findByLabelText('Email addresses'), {
-      target: {
-        value: `first..last@example.com, user@-example.com, user@example..com, user@💩.example, ${overlongUtf8LocalPart}@example.com`
-      }
+      target: { value: malformedEmails.join(', ') }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      `first..last@example.com, user@-example.com, user@example..com, user@💩.example, ${overlongUtf8LocalPart}@example.com`
-    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(malformedEmails.join(', '));
     expect(invite).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
   });
