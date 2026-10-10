@@ -644,6 +644,80 @@ describe('onboarding pages', () => {
     });
   });
 
+  it.each(['Invite and finish', 'Finish without invites'])('accepts quoted mailboxes through %s', async (action) => {
+    const { apiClient, InvitePage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({ current_step: 'invite', org_id: 'tenant-a', workspace_id: 'production' }),
+      redirect_path: '/onboarding/invite'
+    });
+    const invite = vi.spyOn(apiClient, 'upsertWorkspaceMember').mockImplementation(async (_, payload) => ({
+      member: {
+        ...payload,
+        tenant_id: 'tenant-a',
+        workspace_id: 'production',
+        joined_at: '2026-05-14T10:00:00Z',
+        updated_at: '2026-05-14T10:00:00Z'
+      }
+    }));
+    const complete = vi.spyOn(apiClient, 'completeOnboarding').mockResolvedValue({
+      state: state({ current_step: 'complete', org_id: 'tenant-a', workspace_id: 'production' }),
+      redirect_path: '/app/tenant-a/production'
+    });
+    const emails = [
+      '"john..doe"@example.com',
+      '"sales, ops; west@home"@example.com',
+      '"escaped\\"quote"@example.com',
+      '"back\\\\slash"@example.com',
+      '"用户..名"@bücher.de',
+      'ordinary@example.com'
+    ];
+
+    renderOnboarding(<InvitePage />, '/onboarding/invite');
+    fireEvent.change(await screen.findByLabelText('Email addresses'), {
+      target: { value: emails.slice(0, 2).join('; ') + '\n' + emails.slice(2).join(', ') }
+    });
+    const button = screen.getByRole('button', { name: action });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+
+    await waitFor(() => expect(complete).toHaveBeenCalledTimes(1));
+    expect(invite.mock.calls.map(([, payload]) => payload.email)).toEqual(action === 'Invite and finish' ? emails : []);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('rejects malformed quoted mailboxes before sending any invites or completing', async () => {
+    const { apiClient, InvitePage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({ current_step: 'invite', org_id: 'tenant-a', workspace_id: 'production' }),
+      redirect_path: '/onboarding/invite'
+    });
+    const invite = vi.spyOn(apiClient, 'upsertWorkspaceMember').mockRejectedValue(new Error('Unexpected invite request'));
+    const complete = vi.spyOn(apiClient, 'completeOnboarding').mockRejectedValue(new Error('Unexpected completion'));
+    const malformedEmails = [
+      '"unterminated@example.com',
+      '"unescaped"quote"@example.com',
+      '"dangling\\"@example.com',
+      '"line\nbreak"@example.com',
+      '"tab\tbreak"@example.com',
+      '"valid"suffix@example.com',
+      '"john..doe"@example.com@evil.com',
+      '"john..doe"@example.com/path'
+    ];
+
+    renderOnboarding(<InvitePage />, '/onboarding/invite');
+    const input = await screen.findByLabelText('Email addresses');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Invite and finish' })).toBeEnabled());
+    for (const email of malformedEmails) {
+      fireEvent.change(input, { target: { value: 'teammate@example.com, ' + email } });
+      for (const action of ['Invite and finish', 'Finish without invites']) {
+        fireEvent.click(screen.getByRole('button', { name: action }));
+        expect(await screen.findByRole('alert')).toHaveTextContent('Correct or remove invalid email addresses');
+        expect(invite, email).not.toHaveBeenCalled();
+        expect(complete, email).not.toHaveBeenCalled();
+      }
+    }
+  });
+
   it('clears stale invite errors before inline email validation', async () => {
     const { apiClient, InvitePage } = await loadOnboardingModules();
     vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({

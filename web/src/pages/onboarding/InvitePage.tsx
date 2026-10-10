@@ -15,8 +15,13 @@ import {
 const EMAIL_LOCAL_ATOM_CHARACTER_PATTERN = /^(?:[a-zA-Z0-9!#$%&'*+\/=?^_`{|}~-]|[^\p{ASCII}\p{C}\p{Z}])$/u;
 const EMAIL_DOMAIN_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 const EMAIL_DOMAIN_CHARACTERS_PATTERN = /^[\p{L}\p{M}\p{N}.\u3002\uFF0E\uFF61-]+$/u;
+// Quoted local parts allow printable text and backslash-escaped ASCII characters.
+const EMAIL_QUOTED_LOCAL_PART_PATTERN = /^"(?:[\x20-\x21\x23-\x5b\x5d-\x7e]|[^\p{ASCII}\p{C}\p{Z}]|\\[\x20-\x7e])*"$/u;
 
 function isValidEmailLocalPart(localPart: string): boolean {
+  if (localPart.startsWith('"')) {
+    return EMAIL_QUOTED_LOCAL_PART_PATTERN.test(localPart);
+  }
   return localPart.split('.').every((atom) => {
     return atom.length > 0 && Array.from(atom).every((character) => EMAIL_LOCAL_ATOM_CHARACTER_PATTERN.test(character));
   });
@@ -34,8 +39,14 @@ function normalizeEmailDomain(domain: string): string | null {
 }
 
 function isValidInviteEmail(email: string): boolean {
-  const [localPart, domain, ...extra] = email.split('@');
-  if (extra.length || !localPart || !domain || !isValidEmailLocalPart(localPart)) {
+  // A quoted local part may contain @; the final one separates the domain.
+  const separator = email.lastIndexOf('@');
+  if (separator < 1) {
+    return false;
+  }
+  const localPart = email.slice(0, separator);
+  const domain = email.slice(separator + 1);
+  if (!domain || !isValidEmailLocalPart(localPart)) {
     return false;
   }
   const localPartByteLength = new TextEncoder().encode(localPart).length;
@@ -57,9 +68,33 @@ function isValidInviteEmail(email: string): boolean {
   );
 }
 
+function splitInviteEmailTokens(value: string): string[] {
+  const tokens: string[] = [];
+  let token = '';
+  let quoted = false;
+  let escaped = false;
+
+  for (const character of value) {
+    if (!quoted && /[\s,;]/u.test(character)) {
+      if (token) tokens.push(token);
+      token = '';
+      continue;
+    }
+    token += character;
+    if (escaped) {
+      escaped = false;
+    } else if (quoted && character === '\\') {
+      escaped = true;
+    } else if (character === '"') {
+      quoted = !quoted;
+    }
+  }
+  if (token) tokens.push(token);
+  return tokens;
+}
+
 function parseInviteEmails(value: string): { invitees: string[]; invalidEmails: string[] } {
-  const tokens = value
-    .split(/[\s,;]+/)
+  const tokens = splitInviteEmailTokens(value)
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
   const invitees = new Set<string>();
