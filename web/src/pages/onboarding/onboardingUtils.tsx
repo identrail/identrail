@@ -57,14 +57,6 @@ export function onboardingProjectPath(state: OnboardingState | null): string {
   return state?.connector_type ? `${projectPath}?source=${encodeURIComponent(state.connector_type)}` : projectPath;
 }
 
-export function normalizeMemberToken(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 72);
-}
-
 export function routeAfterOnboardingResponse(navigate: NavigateFunction, redirectPath: string | undefined, fallback: string) {
   navigate(redirectPath && redirectPath.startsWith('/') ? redirectPath : fallback);
 }

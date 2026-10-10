@@ -106,6 +106,16 @@ describe('onboarding pages', () => {
     setFeatureFlagEnv(false);
   });
 
+  it('derives stable, collision-resistant member IDs for distinct invite emails', async () => {
+    const { workspaceMemberID } = await import('../../utils/workspaceMemberID');
+    const dottedAddress = await workspaceMemberID('alex.a@example.com');
+    const plusAddress = await workspaceMemberID('alex+a@example.com');
+
+    expect(dottedAddress).toMatch(/^member-[a-f0-9]{64}$/);
+    expect(plusAddress).not.toBe(dottedAddress);
+    expect(await workspaceMemberID('ALEX.A@example.com')).toBe(dottedAddress);
+  });
+
   it('shows dashboard as the terminal next step after onboarding is complete', async () => {
     vi.resetModules();
     const { OnboardingFrame } = await import('./onboardingUtils');
@@ -642,6 +652,79 @@ describe('onboarding pages', () => {
       );
       expect(complete).toHaveBeenCalled();
     });
+  });
+
+  it('assigns separate member IDs to addresses whose punctuation normalizes identically', async () => {
+    const { apiClient, InvitePage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'invite',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production'
+      }),
+      redirect_path: '/onboarding/invite'
+    });
+    const invite = vi.spyOn(apiClient, 'upsertWorkspaceMember').mockResolvedValue({
+      member: {
+        tenant_id: 'tenant-a',
+        workspace_id: 'production',
+        member_id: 'invite-placeholder',
+        user_id: 'placeholder@example.com',
+        email: 'placeholder@example.com',
+        role: 'viewer',
+        status: 'invited',
+        joined_at: '2026-05-14T10:00:00Z',
+        updated_at: '2026-05-14T10:00:00Z'
+      }
+    });
+    const complete = vi.spyOn(apiClient, 'completeOnboarding').mockResolvedValue({
+      state: state({ current_step: 'complete', org_id: 'tenant-a', workspace_id: 'production' }),
+      redirect_path: '/app/tenant-a/production'
+    });
+    renderOnboarding(<InvitePage />, '/onboarding/invite');
+
+    fireEvent.change(await screen.findByLabelText('Email addresses'), {
+      target: { value: 'alex.a@example.com, alex+a@example.com' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
+
+    await waitFor(() => expect(complete).toHaveBeenCalled());
+    expect(invite).toHaveBeenCalledTimes(2);
+    const payloads = invite.mock.calls.map(([, payload]) => payload);
+    expect(payloads.map((payload) => payload.user_id)).toEqual(['alex.a@example.com', 'alex+a@example.com']);
+    expect(new Set(payloads.map((payload) => payload.member_id)).size).toBe(2);
+  });
+
+  it('does not upsert any invite or complete onboarding when a member ID digest fails', async () => {
+    const { apiClient, InvitePage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'invite',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production'
+      }),
+      redirect_path: '/onboarding/invite'
+    });
+    const invite = vi.spyOn(apiClient, 'upsertWorkspaceMember').mockResolvedValue({ member: {} as any });
+    const complete = vi.spyOn(apiClient, 'completeOnboarding').mockResolvedValue({
+      state: state({ current_step: 'complete', org_id: 'tenant-a', workspace_id: 'production' }),
+      redirect_path: '/app/tenant-a/production'
+    });
+    const digest = vi.spyOn(globalThis.crypto.subtle, 'digest').mockRejectedValueOnce(new Error('Secure hashing failed.'));
+
+    renderOnboarding(<InvitePage />, '/onboarding/invite');
+
+    fireEvent.change(await screen.findByLabelText('Email addresses'), {
+      target: { value: 'alex.a@example.com, alex+b@example.com' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Secure hashing failed.');
+    expect(digest).toHaveBeenCalledTimes(2);
+    expect(invite).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
   });
 
   it.each(['Invite and finish', 'Finish without invites'])('accepts valid mailbox forms through %s', async (action) => {

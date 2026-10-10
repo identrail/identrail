@@ -2,11 +2,11 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router';
 import { apiClient, type OnboardingState } from '../../api/client';
 import { SkipForNow } from '../../components/onboarding/SkipForNow';
+import { workspaceMemberID } from '../../utils/workspaceMemberID';
 import {
   FEATURE_ONBOARDING_WIZARD,
   OnboardingFrame,
   loadOrStartOnboardingResponse,
-  normalizeMemberToken,
   onboardingAuth,
   routeAfterOnboardingResponse,
   routeToOnboardingStep
@@ -240,8 +240,10 @@ export function InvitePage() {
     setSaving(true);
     try {
       const auth = onboardingAuth(state);
-      for (const email of invitees) {
-        const memberID = `member-${normalizeMemberToken(email) || Date.now()}`;
+      const inviteRecords = await Promise.all(
+        invitees.map(async (email) => ({ email, memberID: await workspaceMemberID(email) }))
+      );
+      for (const { email, memberID } of inviteRecords) {
         await apiClient.upsertWorkspaceMember(
           state.workspace_id,
           {
