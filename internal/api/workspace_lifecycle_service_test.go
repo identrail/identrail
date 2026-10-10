@@ -368,6 +368,53 @@ func TestServiceWorkspaceMemberUpsertReusesExistingMembershipByLocalUser(t *test
 	}
 }
 
+func TestServiceWorkspaceMemberUpsertReusesExistingMembershipByUUIDWithoutEmail(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
+	store := svc.Store.(*db.MemoryStore)
+	target, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "uuid-member@example.com",
+		DisplayName:  "UUID Member",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed target user: %v", err)
+	}
+	const legacyMemberID = "member-uuid-legacy"
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		MemberID:    legacyMemberID,
+		UserID:      target.ID,
+		UserUUID:    target.ID,
+		Email:       target.PrimaryEmail,
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed existing membership: %v", err)
+	}
+
+	newMemberID := "member-" + strings.Repeat("b", 64)
+	member, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: newMemberID,
+		UserID:   target.ID,
+		Role:     "viewer",
+		Status:   "active",
+	}, ownerUUID)
+	if err != nil {
+		t.Fatalf("upsert with local UUID and no email: %v", err)
+	}
+	if member.MemberID != legacyMemberID || member.UserUUID != target.ID {
+		t.Fatalf("expected the existing UUID-bound membership to be reused, got %+v", member)
+	}
+	if _, err := store.GetWorkspaceMember(ctx, "workspace-a", newMemberID); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("unexpected duplicate membership under new ID: %v", err)
+	}
+	if _, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", target.ID); err != nil {
+		t.Fatalf("expected exactly one membership for the local user: %v", err)
+	}
+}
+
 func TestServiceWorkspaceMemberTargetUsesItsOwnIdentityNamespace(t *testing.T) {
 	svc, scopedCtx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
 	store := svc.Store.(*db.MemoryStore)

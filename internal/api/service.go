@@ -3771,17 +3771,29 @@ func findExistingWorkspaceMemberForTarget(
 			return db.TenancyWorkspaceMember{}, err
 		}
 
-		identity, err := store.GetUserIdentityBySubject(ctx, subject)
-		if err == nil {
-			member, err = store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, identity.UserID)
+		var userUUID string
+		identity, identityErr := store.GetUserIdentityBySubject(ctx, subject)
+		if identityErr == nil {
+			userUUID = identity.UserID
+		} else if errors.Is(identityErr, db.ErrNotFound) {
+			if isValidUUID(subject) {
+				user, userErr := store.GetUser(ctx, subject)
+				if userErr == nil {
+					userUUID = user.ID
+				} else if !errors.Is(userErr, db.ErrNotFound) {
+					return db.TenancyWorkspaceMember{}, userErr
+				}
+			}
+		} else if errors.Is(identityErr, db.ErrConflict) {
+			return db.TenancyWorkspaceMember{}, ErrInvalidTenancyRequest
+		} else {
+			return db.TenancyWorkspaceMember{}, identityErr
+		}
+		if userUUID != "" {
+			member, err = store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, userUUID)
 			if err == nil || !errors.Is(err, db.ErrNotFound) {
 				return member, err
 			}
-		} else if !errors.Is(err, db.ErrNotFound) {
-			if errors.Is(err, db.ErrConflict) {
-				return db.TenancyWorkspaceMember{}, ErrInvalidTenancyRequest
-			}
-			return db.TenancyWorkspaceMember{}, err
 		}
 	}
 
