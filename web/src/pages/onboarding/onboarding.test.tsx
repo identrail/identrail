@@ -644,7 +644,7 @@ describe('onboarding pages', () => {
     });
   });
 
-  it.each(['Invite and finish', 'Finish without invites'])('accepts quoted mailboxes through %s', async (action) => {
+  it.each(['Invite and finish', 'Finish without invites'])('accepts valid mailbox forms through %s', async (action) => {
     const { apiClient, InvitePage } = await loadOnboardingModules();
     vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
       state: state({ current_step: 'invite', org_id: 'tenant-a', workspace_id: 'production' }),
@@ -669,6 +669,9 @@ describe('onboarding pages', () => {
       '"escaped\\"quote"@example.com',
       '"back\\\\slash"@example.com',
       '"用户..名"@bücher.de',
+      'user@[192.0.2.1]',
+      'user@[ipv6:2001:db8::1]',
+      'user@[ipv6:2001:db8::ffff:192.0.2.1]',
       'ordinary@example.com'
     ];
 
@@ -701,7 +704,13 @@ describe('onboarding pages', () => {
       '"tab\tbreak"@example.com',
       '"valid"suffix@example.com',
       '"john..doe"@example.com@evil.com',
-      '"john..doe"@example.com/path'
+      '"john..doe"@example.com/path',
+      'user@[256.0.2.1]',
+      'user@[192.0.2]',
+      'user@[ipv6:12345::1]',
+      'user@[ipv6:fe80::1%eth0]',
+      'user@[example.com]',
+      'user@[192.0.2.1/path]'
     ];
 
     renderOnboarding(<InvitePage />, '/onboarding/invite');

@@ -38,6 +38,41 @@ function normalizeEmailDomain(domain: string): string | null {
   }
 }
 
+function isValidIpv4AddressLiteral(address: string): boolean {
+  const octets = address.split('.');
+  return (
+    octets.length === 4 &&
+    octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
+  );
+}
+
+function isValidIpv6AddressLiteral(address: string): boolean {
+  if (!/^[\da-f:.]+$/i.test(address)) {
+    return false;
+  }
+  try {
+    new URL(`http://[${address}]`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isValidEmailAddressLiteral(domain: string): boolean {
+  if (!domain.startsWith('[') || !domain.endsWith(']')) {
+    return false;
+  }
+  const address = domain.slice(1, -1);
+  if (isValidIpv4AddressLiteral(address)) {
+    return true;
+  }
+  const ipv6Prefix = 'ipv6:';
+  return (
+    address.slice(0, ipv6Prefix.length).toLowerCase() === ipv6Prefix &&
+    isValidIpv6AddressLiteral(address.slice(ipv6Prefix.length))
+  );
+}
+
 function isValidInviteEmail(email: string): boolean {
   // A quoted local part may contain @; the final one separates the domain.
   const separator = email.lastIndexOf('@');
@@ -52,6 +87,9 @@ function isValidInviteEmail(email: string): boolean {
   const localPartByteLength = new TextEncoder().encode(localPart).length;
   if (localPartByteLength > 64) {
     return false;
+  }
+  if (domain.startsWith('[') || domain.endsWith(']')) {
+    return isValidEmailAddressLiteral(domain) && localPartByteLength + domain.length + 1 <= 254;
   }
   const asciiDomain = normalizeEmailDomain(domain);
   if (!asciiDomain) {
