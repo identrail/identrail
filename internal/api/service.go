@@ -3862,28 +3862,66 @@ func resolveWorkspaceMemberUserUUID(
 	if subject == "" {
 		return "", ErrInvalidTenancyRequest
 	}
-	if existing.UserUUID != "" && strings.TrimSpace(existing.UserID) == subject {
-		return validateWorkspaceMemberUserUUID(ctx, store, existing.UserUUID, request.Status)
-	}
+	var subjectUUID string
 	// The member target is supplied independently of the caller. Do not use
 	// the caller's OIDC issuer here: an administrator from issuer A may manage
 	// a member whose subject belongs to issuer B. The provider-independent lookup
 	// accepts that case when the subject is unique and returns ErrConflict when
 	// it could bind to different local accounts.
-	if identity, err := store.GetUserIdentityBySubject(ctx, subject); err == nil {
-		return validateWorkspaceMemberUserUUID(ctx, store, identity.UserID, request.Status)
-	} else if !errors.Is(err, db.ErrNotFound) {
-		if errors.Is(err, db.ErrConflict) {
-			return "", ErrInvalidTenancyRequest
+	identity, err := store.GetUserIdentityBySubject(ctx, subject)
+	if err == nil {
+		subjectUUID = identity.UserID
+	} else if errors.Is(err, db.ErrNotFound) {
+		if isValidUUID(subject) {
+			// Some internal callers pass the local user UUID directly instead of an
+			// external provider subject. Resolve that form too, so it cannot be paired
+			// with another user's primary email. Provider subjects are arbitrary
+			// strings, so only query the UUID-backed user table for UUID-shaped values.
+			user, userErr := store.GetUser(ctx, subject)
+			if userErr == nil {
+				subjectUUID = user.ID
+			} else if !errors.Is(userErr, db.ErrNotFound) {
+				return "", userErr
+			}
 		}
+	} else if errors.Is(err, db.ErrConflict) {
+		return "", ErrInvalidTenancyRequest
+	} else {
 		return "", err
 	}
+
+	var emailUUID string
 	if email := strings.TrimSpace(request.Email); email != "" {
-		if user, err := store.GetUserByPrimaryEmail(ctx, email); err == nil {
-			return validateWorkspaceMemberUserUUID(ctx, store, user.ID, request.Status)
-		} else if !errors.Is(err, db.ErrNotFound) {
-			return "", err
+		user, emailErr := store.GetUserByPrimaryEmail(ctx, email)
+		if emailErr == nil {
+			emailUUID = user.ID
+		} else if !errors.Is(emailErr, db.ErrNotFound) {
+			return "", emailErr
 		}
+	}
+	if subjectUUID != "" && emailUUID != "" && subjectUUID != emailUUID {
+		return "", ErrInvalidTenancyRequest
+	}
+
+	// A member ID may select an existing row before identity resolution (or be
+	// supplied explicitly). Never transfer or clear a bound row based on a
+	// different or unresolved target; both submitted identifiers must agree with
+	// its existing local account when they resolve.
+	existingUUID := strings.TrimSpace(existing.UserUUID)
+	if existingUUID != "" {
+		if (subjectUUID != "" && subjectUUID != existingUUID) || (emailUUID != "" && emailUUID != existingUUID) {
+			return "", ErrInvalidTenancyRequest
+		}
+		if subjectUUID == existingUUID || emailUUID == existingUUID || strings.TrimSpace(existing.UserID) == subject {
+			return validateWorkspaceMemberUserUUID(ctx, store, existingUUID, request.Status)
+		}
+		return "", ErrInvalidTenancyRequest
+	}
+	if subjectUUID != "" {
+		return validateWorkspaceMemberUserUUID(ctx, store, subjectUUID, request.Status)
+	}
+	if emailUUID != "" {
+		return validateWorkspaceMemberUserUUID(ctx, store, emailUUID, request.Status)
 	}
 	if strings.EqualFold(strings.TrimSpace(request.Status), "active") {
 		// An active membership must be bound to a local account. Invited rows

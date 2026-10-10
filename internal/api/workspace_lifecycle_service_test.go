@@ -251,6 +251,71 @@ func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) 
 	}
 }
 
+func TestServiceWorkspaceMemberRejectsMismatchedSubjectAndEmail(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
+	store := svc.Store.(*db.MemoryStore)
+
+	owner, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "member-a@example.com",
+		DisplayName:  "Member A",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed member A: %v", err)
+	}
+	attacker, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "member-b@example.com",
+		DisplayName:  "Member B",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed member B: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: attacker.ID, Provider: "oidc:https://members.example.com", Subject: "subject-b",
+	}); err != nil {
+		t.Fatalf("seed member B identity: %v", err)
+	}
+	const existingMemberID = "member-a"
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		MemberID:    existingMemberID,
+		UserID:      "subject-a",
+		UserUUID:    owner.ID,
+		Email:       owner.PrimaryEmail,
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed member A membership: %v", err)
+	}
+
+	for _, memberID := range []string{"member-new", existingMemberID} {
+		_, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+			MemberID: memberID,
+			UserID:   "subject-b",
+			Email:    owner.PrimaryEmail,
+			Role:     "admin",
+			Status:   "active",
+		}, ownerUUID)
+		if !errors.Is(err, ErrInvalidTenancyRequest) {
+			t.Fatalf("upsert with member ID %q: expected mismatched identity to be rejected, got %v", memberID, err)
+		}
+	}
+
+	unchanged, err := store.GetWorkspaceMember(ctx, "workspace-a", existingMemberID)
+	if err != nil {
+		t.Fatalf("get original membership: %v", err)
+	}
+	if unchanged.UserUUID != owner.ID || unchanged.Role != "viewer" || unchanged.Status != "active" {
+		t.Fatalf("mismatched identity changed the original membership: %+v", unchanged)
+	}
+	if _, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", attacker.ID); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("mismatched identity created a membership for member B: %v", err)
+	}
+}
+
 func TestServiceWorkspaceMemberUpsertReusesExistingMembershipByLocalUser(t *testing.T) {
 	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
 	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
