@@ -3727,6 +3727,8 @@ func (s *Service) UpsertWorkspaceMemberAs(
 		existing, existingErr = findExistingWorkspaceMemberForTarget(ctx, s.Store, normalizedWorkspaceID, request)
 		if existingErr == nil {
 			request.MemberID = existing.MemberID
+		} else if !errors.Is(existingErr, db.ErrNotFound) {
+			return db.TenancyWorkspaceMember{}, existingErr
 		}
 	}
 	var existingMember db.TenancyWorkspaceMember
