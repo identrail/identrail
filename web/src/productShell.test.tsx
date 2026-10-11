@@ -11909,7 +11909,37 @@ describe('Domain-first app routes', () => {
     );
 
     fireEvent.click(await screen.findByRole('radio', { name: /Selected scope/i }));
-    fireEvent.click(screen.getByRole('tab', { name: /Account IDs/i }));
+    const ousTab = screen.getByRole('tab', { name: /OU IDs/i });
+    const accountsTab = screen.getByRole('tab', { name: /Account IDs/i });
+    expect(ousTab).toHaveAttribute('aria-selected', 'true');
+    expect(ousTab).toHaveAttribute('tabindex', '0');
+    expect(accountsTab).toHaveAttribute('tabindex', '-1');
+    const scopePanel = screen.getByRole('tabpanel');
+    expect(ousTab).toHaveAttribute('aria-controls', scopePanel.id);
+    expect(scopePanel).toHaveAttribute('aria-labelledby', ousTab.id);
+
+    const homeAtFirstTab = new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true });
+    fireEvent(ousTab, homeAtFirstTab);
+    expect(homeAtFirstTab.defaultPrevented).toBe(false);
+    expect(ousTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(ousTab, { key: 'ArrowRight' });
+    expect(accountsTab).toHaveFocus();
+    expect(accountsTab).toHaveAttribute('aria-selected', 'true');
+    expect(scopePanel).toHaveAttribute('aria-labelledby', accountsTab.id);
+
+    const endAtLastTab = new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true });
+    fireEvent(accountsTab, endAtLastTab);
+    expect(endAtLastTab.defaultPrevented).toBe(false);
+    expect(accountsTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(accountsTab, { key: 'ArrowRight' });
+    expect(ousTab).toHaveFocus();
+    fireEvent.keyDown(ousTab, { key: 'End' });
+    expect(accountsTab).toHaveFocus();
+    fireEvent.keyDown(accountsTab, { key: 'Home' });
+    expect(ousTab).toHaveFocus();
+    fireEvent.keyDown(ousTab, { key: 'End' });
     fireEvent.change(screen.getByLabelText(/Target account IDs/i), {
       target: { value: '111111111111, 222222222222' }
     });
