@@ -582,6 +582,24 @@ export type DomainCoverageCardProps = {
   detail?: ReactNode;
 };
 
+export type DomainMetricCardProps = {
+  label: string;
+  value: ReactNode;
+  detail?: ReactNode;
+};
+
+export function DomainMetricCard({ label, value, detail }: DomainMetricCardProps) {
+  return (
+    <article className="idt-domain-coverage-card idt-domain-metric-card" aria-label={label}>
+      <header>
+        <span>{label}</span>
+        <strong>{value}</strong>
+      </header>
+      {detail ? <p>{detail}</p> : null}
+    </article>
+  );
+}
+
 export function DomainCoverageCard({ label, scanned, total, detail }: DomainCoverageCardProps) {
   const pct = total > 0 ? Math.min(100, Math.round((scanned / total) * 100)) : 0;
   const tone: Tone = pct >= 90 ? 'success' : pct >= 60 ? 'info' : pct >= 30 ? 'warning' : 'danger';

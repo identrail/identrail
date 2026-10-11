@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   DomainActionFooter,
   DomainCoverageCard,
+  DomainMetricCard,
   DomainDataTable,
   DomainDetailDrawer,
   DomainDetailPanel,
@@ -246,6 +247,16 @@ describe('DomainFoundation', () => {
     expect(progress).toHaveAttribute('aria-valuemax', '4');
     expect(screen.getByText('75%')).toBeInTheDocument();
     expect(screen.getByText(/3 of 4 scanned/)).toBeInTheDocument();
+  });
+
+  it('renders a scalar metric without implying percentage coverage', () => {
+    render(<DomainMetricCard label="Scan throughput" value="12" detail="targets/hour" />);
+
+    const metric = screen.getByRole('article', { name: 'Scan throughput' });
+    expect(metric).toHaveTextContent('12');
+    expect(metric).toHaveTextContent('targets/hour');
+    expect(metric).not.toHaveTextContent(/%/);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
   it('renders finding summary cards with severity, count, and navigation', () => {
