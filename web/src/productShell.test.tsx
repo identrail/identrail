@@ -4270,6 +4270,101 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('keeps AWS organization and permission coverage unmeasured without evidence', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: { ...connectedAWS, permission_checks: [] }
+    });
+    const dashboardAPIs = mockAWSCoverageDashboardAPIs(api);
+    dashboardAPIs.getOrganizationsTopology.mockResolvedValue({
+      topology: {
+        ...readyAWSOrganizationsTopology,
+        summary: {
+          ...readyAWSOrganizationsTopology.summary,
+          account_count: 0,
+          organizational_unit_count: 0,
+          scan_eligible_accounts: 0
+        },
+        accounts: [],
+        organizational_units: []
+      }
+    });
+
+    const { ProductAWSAccountsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/accounts?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/accounts" element={<ProductAWSAccountsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(dashboardAPIs.getOrganizationsTopology).toHaveBeenCalled());
+    expect(await screen.findByText(/0 OUs/)).toBeInTheDocument();
+    const organizationsCard = screen.getByRole('article', { name: 'Organizations accounts coverage' });
+    const permissionsCard = screen.getByRole('article', { name: 'Permission evidence coverage' });
+    expect(organizationsCard).toHaveTextContent('—');
+    expect(organizationsCard).toHaveTextContent('Measured · no accounts found');
+    expect(within(organizationsCard).queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(permissionsCard).toHaveTextContent('—');
+    expect(permissionsCard).toHaveTextContent('No validation checks available');
+    expect(within(permissionsCard).queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('keeps account and region coverage unmeasured before the coverage plan loads', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const dashboardAPIs = mockAWSCoverageDashboardAPIs(api);
+    dashboardAPIs.getCoveragePlan.mockResolvedValue({ plan: null } as any);
+
+    const { ProductAWSAccountsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/accounts?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/accounts" element={<ProductAWSAccountsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    for (const name of ['Account coverage', 'Region coverage']) {
+      const card = await screen.findByRole('article', { name });
+      expect(card).toHaveTextContent('—');
+      expect(card).toHaveTextContent('Not measured');
+      expect(card).not.toHaveTextContent('0 of 1 scanned');
+      expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument();
+    }
+  });
+
   it('keeps the disconnected AWS accounts state focused on setup', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({

@@ -25769,6 +25769,10 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
   line-height: 1;
 }
 
+.idt-domain-coverage-card.is-neutral header strong {
+  color: var(--app-muted);
+}
+
 .idt-domain-coverage-bar {
   position: relative;
   height: 0.42rem;
