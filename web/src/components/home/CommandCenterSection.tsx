@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { handleTabListKeyDown } from '../ui/tabKeyboard';
 
 const COMMAND_VIEWS = [
   {
@@ -68,7 +69,12 @@ export function CommandCenterSection() {
         <div className="idt-command-copy">
           <h2 id="command-center-title">One operating view for machine identity risk.</h2>
 
-          <div className="idt-command-tabs" role="tablist" aria-label="Command center views">
+          <div
+            className="idt-command-tabs"
+            role="tablist"
+            aria-label="Command center views"
+            onKeyDown={handleTabListKeyDown}
+          >
             {COMMAND_VIEWS.map((view) => {
               const isActive = view.id === activeView.id;
               return (
@@ -79,7 +85,9 @@ export function CommandCenterSection() {
                   role="tab"
                   aria-controls="command-panel"
                   aria-selected={isActive}
+                  tabIndex={isActive ? 0 : -1}
                   className={isActive ? 'is-active' : ''}
+                  onFocus={() => setActiveViewId(view.id)}
                   onClick={() => setActiveViewId(view.id)}
                 >
                   <span aria-hidden="true" />
