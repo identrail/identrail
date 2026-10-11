@@ -8,6 +8,7 @@ allow-dependencies-licenses:
   - pkg:golang/golang.org/x/mod
   - pkg:golang/golang.org/x/net
   - pkg:golang/golang.org/x/sync
+  - pkg:golang/golang.org/x/sys
   - pkg:golang/golang.org/x/text
   - pkg:golang/golang.org/x/tools
   - pkg:golang/google.golang.org/protobuf
