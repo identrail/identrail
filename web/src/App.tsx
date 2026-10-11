@@ -3422,13 +3422,11 @@ function PricingPage() {
             aria-label="Pricing cadence"
           >
             <ToggleGroupItem value="monthly">Monthly</ToggleGroupItem>
-            <ToggleGroupItem value="annual">
-              Annual <span className="ui-toggle-group__save">Billed annually</span>
-            </ToggleGroupItem>
+            <ToggleGroupItem value="annual">Annual</ToggleGroupItem>
           </ToggleGroup>
         </div>
         <p className="idt-pricing-note">
-          Pro is billed per user per month. Annual pricing applies when you choose Annual. Every plan supports read-only onboarding before enforcement changes.
+          Every plan starts with read-only onboarding; enforcement changes remain under your control.
         </p>
 
         <div className="idt-pricing-grid idt-pricing-section">
@@ -3469,6 +3467,11 @@ function PricingPage() {
                   </motion.span>
                 </AnimatePresence>
                 <span>/user/mo</span>
+              </p>
+              <p className="idt-price-billing-note" aria-live="polite">
+                {annual
+                  ? '$30 per user per month, billed annually at $360 per user.'
+                  : 'Billed monthly at $39 per user.'}
               </p>
               <p className="idt-plan-fit">
                 <strong>Best for:</strong> Fast time-to-value without managing infrastructure.

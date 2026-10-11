@@ -27,6 +27,7 @@ import {
   Sun,
   Trash2
 } from 'lucide-react';
+import { workspaceMemberID } from './utils/workspaceMemberID';
 import {
   ApiError,
   apiClient,
@@ -1872,22 +1873,6 @@ function productSessionKey(scope: ProductSession | null | undefined): string {
     return '';
   }
   return `${scope.tenantID}:${scope.workspaceID}:${scope.projectID ?? ''}`;
-}
-
-function normalizeMemberID(value: string): string {
-  const normalized = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64);
-  return normalized || 'member';
-}
-
-function deriveMemberID(userID: string, email: string): string {
-  const userToken = normalizeMemberID(userID);
-  const emailToken = normalizeMemberID(email.split('@')[0] ?? '');
-  const token = userToken || emailToken;
-  return token ? `member-${token}`.slice(0, 72) : `member-${Date.now()}`;
 }
 
 function normalizeProjectToken(value: string): string {
@@ -34956,10 +34941,11 @@ export function ProductWorkspacesPage() {
         throw new Error('User ID is required.');
       }
       const auth = buildProductAuthContext(scope);
+      const memberID = await workspaceMemberID(email || userID);
       await apiClient.upsertWorkspaceMember(
         scope.workspaceID,
         {
-          member_id: deriveMemberID(userID, email),
+          member_id: memberID,
           user_id: userID,
           email: email || undefined,
           role: inviteInput.role,

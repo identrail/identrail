@@ -13393,6 +13393,18 @@ html[data-theme='light'] .idt-pricing-decision-console {
   font-size: inherit;
 }
 
+.idt-pricing-card-motion > .idt-pricing-card > .idt-price-billing-note {
+  margin: -0.4rem 0 0;
+  color: #a1a1aa;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.idt-pricing-page .idt-pricing-card.is-featured .idt-price-billing-note,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-card.is-featured .idt-price-billing-note {
+  color: #52525b;
+}
+
 .idt-pricing-card-motion > .idt-pricing-card > ul {
   align-self: start;
   margin-top: 0.55rem;
