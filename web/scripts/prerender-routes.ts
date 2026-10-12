@@ -94,9 +94,9 @@ const ROUTE_META: Record<string, RouteMeta> = {
       'Compare Open Source, Hosted SaaS, and Enterprise machine identity security plans based on team size, deployment needs, and controls.'
   },
   '/roi-assessment': {
-    title: 'ROI Assessment | Quantify Machine Identity Risk Reduction',
+    title: 'ROI Assessment | Machine Identity Security Impact Model',
     description:
-      'Estimate expected risk reduction and operational impact from machine identity hardening with an ROI-first assessment workflow.'
+      'Compare Identrail Pro pricing with your own estimate of analyst time recovered and fully loaded labor cost.'
   },
   '/deployment-models': {
     title: 'Deployment Models | Self-Hosted, SaaS, and Enterprise Options',
