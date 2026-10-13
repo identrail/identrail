@@ -32,6 +32,7 @@ import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
 import { Card } from './components/ui/card';
 import { Separator } from './components/ui/separator';
+import { handleTabListKeyDown } from './components/ui/tabKeyboard';
 import { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group';
 import {
   ProductAppIndexRedirect,
@@ -1815,14 +1816,21 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
         </div>
       </div>
 
-      <div className="idt-demo-view-toggle" role="tablist" aria-label="Trust path explorer view">
+      <div
+        className="idt-demo-view-toggle"
+        role="tablist"
+        aria-label="Trust path explorer view"
+        onKeyDown={handleTabListKeyDown}
+      >
         <button
           id={graphTabId}
           type="button"
           role="tab"
           aria-controls={graphPanelId}
           aria-selected={viewMode === 'graph'}
+          tabIndex={viewMode === 'graph' ? 0 : -1}
           className={viewMode === 'graph' ? 'is-active' : ''}
+          onFocus={() => setViewMode('graph')}
           onClick={() => setViewMode('graph')}
         >
           Graph
@@ -1833,7 +1841,9 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
           role="tab"
           aria-controls={listPanelId}
           aria-selected={viewMode === 'list'}
+          tabIndex={viewMode === 'list' ? 0 : -1}
           className={viewMode === 'list' ? 'is-active' : ''}
+          onFocus={() => setViewMode('list')}
           onClick={() => setViewMode('list')}
         >
           List
@@ -2006,6 +2016,13 @@ function RoiCalculator() {
   const [incidentCost, setIncidentCost] = useState(195000);
   const [hoursPerWeek, setHoursPerWeek] = useState(44);
 
+  const selectProfile = (profile: (typeof profiles)[number]) => {
+    setActiveProfileId(profile.id);
+    setIdentities(profile.identities);
+    setIncidentCost(profile.incidentCost);
+    setHoursPerWeek(profile.hoursPerWeek);
+  };
+
   const output = useMemo(() => {
     const annualHours = hoursPerWeek * 52;
     const laborSavings = annualHours * 110;
@@ -2027,19 +2044,25 @@ function RoiCalculator() {
         title="Model impact with conservative assumptions"
         body="Use a planning model to estimate labor savings and reduced incident exposure from better trust-path visibility."
       />
-      <div className="idt-roi-profiles" role="tablist" aria-label="ROI profiles">
+      <div
+        className="idt-roi-profiles"
+        role="tablist"
+        aria-label="ROI profiles"
+        onKeyDown={handleTabListKeyDown}
+      >
         {profiles.map((profile) => (
           <button
             key={profile.id}
             type="button"
             role="tab"
             aria-selected={activeProfileId === profile.id}
+            tabIndex={activeProfileId === profile.id ? 0 : -1}
             className={activeProfileId === profile.id ? 'is-active' : ''}
+            onFocus={() => {
+              if (activeProfileId !== profile.id) selectProfile(profile);
+            }}
             onClick={() => {
-              setActiveProfileId(profile.id);
-              setIdentities(profile.identities);
-              setIncidentCost(profile.incidentCost);
-              setHoursPerWeek(profile.hoursPerWeek);
+              if (activeProfileId !== profile.id) selectProfile(profile);
             }}
           >
             {profile.label}
