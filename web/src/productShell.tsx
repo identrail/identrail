@@ -27,6 +27,7 @@ import {
   Sun,
   Trash2
 } from 'lucide-react';
+import { workspaceMemberID } from './utils/workspaceMemberID';
 import {
   ApiError,
   apiClient,
@@ -1872,22 +1873,6 @@ function productSessionKey(scope: ProductSession | null | undefined): string {
     return '';
   }
   return `${scope.tenantID}:${scope.workspaceID}:${scope.projectID ?? ''}`;
-}
-
-function normalizeMemberID(value: string): string {
-  const normalized = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64);
-  return normalized || 'member';
-}
-
-function deriveMemberID(userID: string, email: string): string {
-  const userToken = normalizeMemberID(userID);
-  const emailToken = normalizeMemberID(email.split('@')[0] ?? '');
-  const token = userToken || emailToken;
-  return token ? `member-${token}`.slice(0, 72) : `member-${Date.now()}`;
 }
 
 function normalizeProjectToken(value: string): string {
@@ -11485,12 +11470,11 @@ function AWSMachineIdentityDetailTabs({
 }) {
   const tabCounts = new Map((detail?.tabs ?? []).map((tab) => [tab.id, tab.count]));
   return (
-    <div className="idt-inline-actions" role="tablist" aria-label="Machine identity detail tabs">
+    <nav className="idt-inline-actions" aria-label="Machine identity details">
       {AWS_MACHINE_IDENTITY_DETAIL_TAB_IDS.map((tabID) => (
         <Link
           key={tabID}
-          role="tab"
-          aria-selected={activeTab === tabID}
+          aria-current={activeTab === tabID ? 'page' : undefined}
           aria-label={`${AWS_MACHINE_IDENTITY_DETAIL_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
           className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
           to={awsMachineIdentityDetailLink(scope, selectedEnvironmentID, identity, tabID)}
@@ -11499,7 +11483,7 @@ function AWSMachineIdentityDetailTabs({
           <span>{tabCounts.get(tabID) ?? 0}</span>
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -11980,12 +11964,11 @@ function AWSAgentIdentityDetailTabs({
 }) {
   const tabCounts = new Map((detail?.tabs ?? []).map((tab) => [tab.id, tab.count]));
   return (
-    <div className="idt-inline-actions" role="tablist" aria-label="Agent identity detail tabs">
+    <nav className="idt-inline-actions" aria-label="Agent identity details">
       {AWS_AGENT_IDENTITY_DETAIL_TAB_IDS.map((tabID) => (
         <Link
           key={tabID}
-          role="tab"
-          aria-selected={activeTab === tabID}
+          aria-current={activeTab === tabID ? 'page' : undefined}
           aria-label={`${AWS_AGENT_IDENTITY_DETAIL_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
           className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
           to={awsAgentIdentityDetailLink(scope, selectedEnvironmentID, agent, tabID)}
@@ -11994,7 +11977,7 @@ function AWSAgentIdentityDetailTabs({
           <span>{tabCounts.get(tabID) ?? 0}</span>
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -12554,12 +12537,11 @@ function AWSRemediationCenterTabs({
 }) {
   const tabCounts = new Map((center?.tabs ?? []).map((tab) => [tab.id, tab.count]));
   return (
-    <div className="idt-inline-actions" role="tablist" aria-label="Remediation center tabs">
+    <nav className="idt-inline-actions" aria-label="Remediation center sections">
       {AWS_REMEDIATION_CENTER_TAB_IDS.map((tabID) => (
         <Link
           key={tabID}
-          role="tab"
-          aria-selected={activeTab === tabID}
+          aria-current={activeTab === tabID ? 'page' : undefined}
           aria-label={`${AWS_REMEDIATION_CENTER_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
           className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
           to={awsRemediationCenterLink(scope, selectedEnvironmentID, tabID, searchParams)}
@@ -12568,7 +12550,7 @@ function AWSRemediationCenterTabs({
           <span>{tabCounts.get(tabID) ?? 0}</span>
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -35017,10 +34999,11 @@ export function ProductWorkspacesPage() {
         throw new Error('User ID is required.');
       }
       const auth = buildProductAuthContext(scope);
+      const memberID = await workspaceMemberID(email || userID);
       await apiClient.upsertWorkspaceMember(
         scope.workspaceID,
         {
-          member_id: deriveMemberID(userID, email),
+          member_id: memberID,
           user_id: userID,
           email: email || undefined,
           role: inviteInput.role,

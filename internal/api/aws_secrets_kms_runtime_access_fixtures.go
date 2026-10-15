@@ -153,32 +153,32 @@ func awsSecretsKMSRuntimeAccessFixtureInputs(accountID string, region string, fi
 		// runtime accesses remain visible but cannot be confirmed
 		// against a static grant.
 		return observed, nil, []AWSSecretsKMSRuntimeAccessDiagnostic{{
-				Collector:   secretsaccess.CollectorName,
-				SourceID:    "static_reachability",
-				Code:        "static_reachability_unavailable",
-				Message:     "KMS and Secrets Manager static reachability could not be loaded; observed accesses cannot be confirmed.",
-				Remediation: "Retry the static reachability collectors and re-run the correlation without discarding observed evidence.",
-				Retryable:   true,
-			}}, []AWSSecretsKMSRuntimeAccessCoverageGap{{
-				Capability:  "static_reachability_join",
-				Status:      "partial_failure",
-				Reason:      "Static reachability edges were unavailable, so observed accesses could not be confirmed against grants.",
-				Remediation: "Retry KMS/Secrets Manager reachability collection and re-run the correlation.",
-			}}, []string{"static reachability join is incomplete; observed accesses are unconfirmed"}, []string{"Retry the static reachability collectors and re-run the correlation."}, awsPlatformDependencyStatusDegraded, true
+			Collector:   secretsaccess.CollectorName,
+			SourceID:    "static_reachability",
+			Code:        "static_reachability_unavailable",
+			Message:     "KMS and Secrets Manager static reachability could not be loaded; observed accesses cannot be confirmed.",
+			Remediation: "Retry the static reachability collectors and re-run the correlation without discarding observed evidence.",
+			Retryable:   true,
+		}}, []AWSSecretsKMSRuntimeAccessCoverageGap{{
+			Capability:  "static_reachability_join",
+			Status:      "partial_failure",
+			Reason:      "Static reachability edges were unavailable, so observed accesses could not be confirmed against grants.",
+			Remediation: "Retry KMS/Secrets Manager reachability collection and re-run the correlation.",
+		}}, []string{"static reachability join is incomplete; observed accesses are unconfirmed"}, []string{"Retry the static reachability collectors and re-run the correlation."}, awsPlatformDependencyStatusDegraded, true
 	case "permission_denied":
 		return nil, nil, []AWSSecretsKMSRuntimeAccessDiagnostic{{
-				Collector:   secretsaccess.CollectorName,
-				SourceID:    "cloudtrail",
-				Code:        "permission_denied",
-				Message:     "Runtime event sources are not authorized for this connector; no Secrets Manager / KMS runtime access can be correlated.",
-				Remediation: "Grant metadata-only CloudTrail access. Do not grant secret-value or decrypt reads.",
-				Retryable:   true,
-			}}, []AWSSecretsKMSRuntimeAccessCoverageGap{{
-				Capability:  "secrets_kms_runtime_access",
-				Status:      "permission_denied",
-				Reason:      "Runtime event source cannot be queried with the current connector permissions.",
-				Remediation: "Add read-only CloudTrail access and retry.",
-			}}, []string{"runtime event sources are not authorized for this connector"}, []string{"Grant metadata-only CloudTrail access; do not grant secret-value or decrypt reads."}, awsPlatformDependencyStatusBlocked, true
+			Collector:   secretsaccess.CollectorName,
+			SourceID:    "cloudtrail",
+			Code:        "permission_denied",
+			Message:     "Runtime event sources are not authorized for this connector; no Secrets Manager / KMS runtime access can be correlated.",
+			Remediation: "Grant metadata-only CloudTrail access. Do not grant secret-value or decrypt reads.",
+			Retryable:   true,
+		}}, []AWSSecretsKMSRuntimeAccessCoverageGap{{
+			Capability:  "secrets_kms_runtime_access",
+			Status:      "permission_denied",
+			Reason:      "Runtime event source cannot be queried with the current connector permissions.",
+			Remediation: "Add read-only CloudTrail access and retry.",
+		}}, []string{"runtime event sources are not authorized for this connector"}, []string{"Grant metadata-only CloudTrail access; do not grant secret-value or decrypt reads."}, awsPlatformDependencyStatusBlocked, true
 	default:
 		return observed, static, nil, awsSecretsKMSRuntimeAccessBaseCoverageGaps(), nil, nil, awsPlatformDependencyStatusReady, true
 	}

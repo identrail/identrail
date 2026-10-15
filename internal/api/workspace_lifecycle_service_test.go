@@ -49,6 +49,23 @@ func setupWorkspaceLifecycleServiceHarness(t *testing.T) (*Service, context.Cont
 	return svc, scopedCtx, user.ID
 }
 
+type workspaceMemberUserUUIDLookupErrorStore struct {
+	db.Store
+	userUUID string
+	err      error
+}
+
+func (s workspaceMemberUserUUIDLookupErrorStore) GetWorkspaceMemberByUserUUID(
+	ctx context.Context,
+	workspaceID string,
+	userUUID string,
+) (db.TenancyWorkspaceMember, error) {
+	if userUUID == s.userUUID {
+		return db.TenancyWorkspaceMember{}, s.err
+	}
+	return s.Store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, userUUID)
+}
+
 func TestServiceWorkspaceLifecycleEmptyIDReturnsInvalid(t *testing.T) {
 	// Every lifecycle entrypoint validates the workspace id at the
 	// service boundary and refuses with ErrInvalidTenancyRequest before
@@ -189,10 +206,11 @@ func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) 
 	}
 	adminRequest := request
 	adminRequest.MemberID = "member-admin-created"
-	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", adminRequest, admin.ID); err != nil {
+	adminMember, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", adminRequest, admin.ID)
+	if err != nil {
 		t.Fatalf("expected admin member write to succeed, got %v", err)
 	}
-	if err := svc.DeleteWorkspaceMemberAs(ctx, "workspace-a", adminRequest.MemberID, admin.ID); err != nil {
+	if err := svc.DeleteWorkspaceMemberAs(ctx, "workspace-a", adminMember.MemberID, admin.ID); err != nil {
 		t.Fatalf("expected admin member delete to succeed, got %v", err)
 	}
 
@@ -247,6 +265,226 @@ func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) 
 	}
 	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, "00000000-0000-0000-0000-000000000099"); !errors.Is(err, ErrWorkspaceAdminRequired) {
 		t.Fatalf("expected orphan owner write to be denied, got %v", err)
+	}
+}
+
+func TestServiceWorkspaceMemberRejectsMismatchedSubjectAndEmail(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
+	store := svc.Store.(*db.MemoryStore)
+
+	owner, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "member-a@example.com",
+		DisplayName:  "Member A",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed member A: %v", err)
+	}
+	attacker, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "member-b@example.com",
+		DisplayName:  "Member B",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed member B: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID: attacker.ID, Provider: "oidc:https://members.example.com", Subject: "subject-b",
+	}); err != nil {
+		t.Fatalf("seed member B identity: %v", err)
+	}
+	const existingMemberID = "member-a"
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		MemberID:    existingMemberID,
+		UserID:      "subject-a",
+		UserUUID:    owner.ID,
+		Email:       owner.PrimaryEmail,
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed member A membership: %v", err)
+	}
+
+	for _, memberID := range []string{"member-new", existingMemberID} {
+		_, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+			MemberID: memberID,
+			UserID:   "subject-b",
+			Email:    owner.PrimaryEmail,
+			Role:     "admin",
+			Status:   "active",
+		}, ownerUUID)
+		if !errors.Is(err, ErrInvalidTenancyRequest) {
+			t.Fatalf("upsert with member ID %q: expected mismatched identity to be rejected, got %v", memberID, err)
+		}
+	}
+
+	unchanged, err := store.GetWorkspaceMember(ctx, "workspace-a", existingMemberID)
+	if err != nil {
+		t.Fatalf("get original membership: %v", err)
+	}
+	if unchanged.UserUUID != owner.ID || unchanged.Role != "viewer" || unchanged.Status != "active" {
+		t.Fatalf("mismatched identity changed the original membership: %+v", unchanged)
+	}
+	if _, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", attacker.ID); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("mismatched identity created a membership for member B: %v", err)
+	}
+}
+
+func TestServiceWorkspaceMemberUpsertReusesExistingMembershipByLocalUser(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
+	store := svc.Store.(*db.MemoryStore)
+	target, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "alex@example.com",
+		DisplayName:  "Alex",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed target user: %v", err)
+	}
+	const legacyMemberID = "member-alex-example-com"
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		MemberID:    legacyMemberID,
+		UserID:      target.ID,
+		UserUUID:    target.ID,
+		Email:       target.PrimaryEmail,
+		Role:        "viewer",
+		Status:      "invited",
+	}); err != nil {
+		t.Fatalf("seed existing membership: %v", err)
+	}
+
+	newMemberID := "member-" + strings.Repeat("a", 64)
+	member, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: newMemberID,
+		UserID:   target.ID,
+		Email:    target.PrimaryEmail,
+		Role:     "viewer",
+		Status:   "invited",
+	}, ownerUUID)
+	if err != nil {
+		t.Fatalf("upsert with changed member ID: %v", err)
+	}
+	if member.MemberID != legacyMemberID || member.UserUUID != target.ID {
+		t.Fatalf("expected the existing local-user membership to be reused, got %+v", member)
+	}
+	if _, err := store.GetWorkspaceMember(ctx, "workspace-a", newMemberID); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("unexpected duplicate membership under new ID: %v", err)
+	}
+	byUser, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", target.ID)
+	if err != nil {
+		t.Fatalf("lookup reused membership by local user: %v", err)
+	}
+	if byUser.MemberID != legacyMemberID {
+		t.Fatalf("expected one membership under the original ID, got %+v", byUser)
+	}
+}
+
+func TestServiceWorkspaceMemberUpsertReusesExistingMembershipByUUIDWithoutEmail(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
+	store := svc.Store.(*db.MemoryStore)
+	target, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "uuid-member@example.com",
+		DisplayName:  "UUID Member",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed target user: %v", err)
+	}
+	const legacyMemberID = "member-uuid-legacy"
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		MemberID:    legacyMemberID,
+		UserID:      target.ID,
+		UserUUID:    target.ID,
+		Email:       target.PrimaryEmail,
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed existing membership: %v", err)
+	}
+
+	newMemberID := "member-" + strings.Repeat("b", 64)
+	member, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+		MemberID: newMemberID,
+		UserID:   target.ID,
+		Role:     "viewer",
+		Status:   "active",
+	}, ownerUUID)
+	if err != nil {
+		t.Fatalf("upsert with local UUID and no email: %v", err)
+	}
+	if member.MemberID != legacyMemberID || member.UserUUID != target.ID {
+		t.Fatalf("expected the existing UUID-bound membership to be reused, got %+v", member)
+	}
+	if _, err := store.GetWorkspaceMember(ctx, "workspace-a", newMemberID); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("unexpected duplicate membership under new ID: %v", err)
+	}
+	if _, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", target.ID); err != nil {
+		t.Fatalf("expected exactly one membership for the local user: %v", err)
+	}
+}
+
+func TestServiceWorkspaceMemberUpsertReturnsTargetDeduplicationLookupErrors(t *testing.T) {
+	for _, lookupErr := range []error{errors.New("membership lookup failed"), db.ErrConflict} {
+		name := lookupErr.Error()
+		t.Run(name, func(t *testing.T) {
+			svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+			ctx = sessionauth.WithSubjectSource(ctx, sessionauth.SubjectSourceSession)
+			store := svc.Store.(*db.MemoryStore)
+			target, err := store.UpsertUser(context.Background(), db.User{
+				PrimaryEmail: "lookup-error@example.com",
+				Status:       "active",
+			})
+			if err != nil {
+				t.Fatalf("seed target user: %v", err)
+			}
+			const existingMemberID = "member-existing-lookup-error"
+			if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+				TenantID:    "tenant-a",
+				WorkspaceID: "workspace-a",
+				MemberID:    existingMemberID,
+				UserID:      "legacy-provider-subject",
+				UserUUID:    target.ID,
+				Email:       target.PrimaryEmail,
+				Role:        "viewer",
+				Status:      "active",
+			}); err != nil {
+				t.Fatalf("seed existing membership: %v", err)
+			}
+
+			svc.Store = workspaceMemberUserUUIDLookupErrorStore{
+				Store:    store,
+				userUUID: target.ID,
+				err:      lookupErr,
+			}
+			newMemberID := "member-new-lookup-error"
+			if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", WorkspaceMemberUpsertRequest{
+				MemberID: newMemberID,
+				UserID:   target.ID,
+				Role:     "admin",
+				Status:   "active",
+			}, ownerUUID); !errors.Is(err, lookupErr) {
+				t.Fatalf("expected target membership lookup error %v, got %v", lookupErr, err)
+			}
+			if _, err := store.GetWorkspaceMember(ctx, "workspace-a", newMemberID); !errors.Is(err, db.ErrNotFound) {
+				t.Fatalf("lookup failure created a duplicate membership: %v", err)
+			}
+			member, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", target.ID)
+			if err != nil {
+				t.Fatalf("get existing membership after lookup failure: %v", err)
+			}
+			if member.MemberID != existingMemberID || member.Role != "viewer" {
+				t.Fatalf("lookup failure changed the existing membership: %+v", member)
+			}
+		})
 	}
 }
 
