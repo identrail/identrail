@@ -569,6 +569,62 @@ describe('App', () => {
     expect(screen.queryByText('Billed monthly at $39 per user.')).not.toBeInTheDocument();
   });
 
+  it('supports keyboard navigation in the ROI profile tabs', () => {
+    setCurrentPath('/roi-assessment');
+    render(<App />);
+
+    const profileTabs = within(screen.getByRole('tablist', { name: 'ROI profiles' })).getAllByRole('tab');
+    const midmarketTab = screen.getByRole('tab', { name: 'Mid-market platform team' });
+    const enterpriseTab = screen.getByRole('tab', { name: 'Enterprise multi-account AWS' });
+
+    expect(profileTabs.filter((tab) => tab.getAttribute('tabindex') === '0')).toHaveLength(1);
+    expect(midmarketTab).toHaveAttribute('tabIndex', '0');
+    enterpriseTab.focus();
+    fireEvent.keyDown(enterpriseTab, { key: 'ArrowRight' });
+
+    const startupTab = screen.getByRole('tab', { name: 'Startup cloud-native' });
+    expect(startupTab).toHaveFocus();
+    expect(startupTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('Number of machine identities')).toHaveValue(900);
+
+    const identitiesInput = screen.getByLabelText('Number of machine identities');
+    fireEvent.change(identitiesInput, { target: { value: '1234' } });
+    act(() => {
+      identitiesInput.focus();
+      startupTab.focus();
+    });
+    expect(identitiesInput).toHaveValue(1234);
+
+    fireEvent.keyDown(startupTab, { key: 'ArrowLeft' });
+    expect(enterpriseTab).toHaveFocus();
+    fireEvent.keyDown(enterpriseTab, { key: 'Home' });
+    expect(startupTab).toHaveFocus();
+    fireEvent.keyDown(startupTab, { key: 'End' });
+    expect(enterpriseTab).toHaveFocus();
+
+    fireEvent.keyDown(enterpriseTab, { key: 'ArrowLeft', ctrlKey: true });
+    expect(enterpriseTab).toHaveFocus();
+    expect(identitiesInput).toHaveValue(9800);
+  });
+
+  it('supports keyboard navigation in the trust graph view tabs', () => {
+    setCurrentPath('/product');
+    render(<App />);
+
+    const trustGraphTabs = within(screen.getByRole('tablist', { name: 'Trust path explorer view' }));
+    const graphTab = trustGraphTabs.getByRole('tab', { name: 'Graph' });
+    const listTab = trustGraphTabs.getByRole('tab', { name: 'List' });
+    expect(graphTab).toHaveAttribute('tabIndex', '0');
+    expect(listTab).toHaveAttribute('tabIndex', '-1');
+
+    graphTab.focus();
+    fireEvent.keyDown(graphTab, { key: 'ArrowRight' });
+
+    expect(listTab).toHaveFocus();
+    expect(listTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', listTab.id);
+  });
+
   it('keeps pricing content visible and controls stateful with reduced motion', async () => {
     vi.stubGlobal(
       'matchMedia',
@@ -4148,6 +4204,8 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: /Severity composition/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /Top finding types/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /Notes for leadership/i })).toBeInTheDocument();
+    const domainFilter = screen.getByRole('group', { name: 'Filter executive report by domain' });
+    expect(within(domainFilter).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('link', { name: /Review findings/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Download report/i })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
@@ -4174,9 +4232,10 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: /Unknown report domain/i })).toBeInTheDocument();
     expect(screen.getByText('awss')).toBeInTheDocument();
-    // The segmented switch stays interactive so the user can recover.
-    expect(screen.getByRole('tab', { name: 'All' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'AWS' })).toBeInTheDocument();
+    // The domain filter stays interactive without claiming tab semantics.
+    const domainFilter = screen.getByRole('group', { name: 'Filter executive report by domain' });
+    expect(within(domainFilter).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
+    expect(within(domainFilter).getByRole('button', { name: 'AWS' })).toHaveAttribute('aria-pressed', 'false');
     // No executive-report fetch was issued for the bad URL.
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining('/v1/enterprise/reports/executive'),

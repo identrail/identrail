@@ -1,4 +1,4 @@
-import { ChangeEvent, Component, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, Component, FormEvent, ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -11470,12 +11470,11 @@ function AWSMachineIdentityDetailTabs({
 }) {
   const tabCounts = new Map((detail?.tabs ?? []).map((tab) => [tab.id, tab.count]));
   return (
-    <div className="idt-inline-actions" role="tablist" aria-label="Machine identity detail tabs">
+    <nav className="idt-inline-actions" aria-label="Machine identity details">
       {AWS_MACHINE_IDENTITY_DETAIL_TAB_IDS.map((tabID) => (
         <Link
           key={tabID}
-          role="tab"
-          aria-selected={activeTab === tabID}
+          aria-current={activeTab === tabID ? 'page' : undefined}
           aria-label={`${AWS_MACHINE_IDENTITY_DETAIL_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
           className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
           to={awsMachineIdentityDetailLink(scope, selectedEnvironmentID, identity, tabID)}
@@ -11484,7 +11483,7 @@ function AWSMachineIdentityDetailTabs({
           <span>{tabCounts.get(tabID) ?? 0}</span>
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -11965,12 +11964,11 @@ function AWSAgentIdentityDetailTabs({
 }) {
   const tabCounts = new Map((detail?.tabs ?? []).map((tab) => [tab.id, tab.count]));
   return (
-    <div className="idt-inline-actions" role="tablist" aria-label="Agent identity detail tabs">
+    <nav className="idt-inline-actions" aria-label="Agent identity details">
       {AWS_AGENT_IDENTITY_DETAIL_TAB_IDS.map((tabID) => (
         <Link
           key={tabID}
-          role="tab"
-          aria-selected={activeTab === tabID}
+          aria-current={activeTab === tabID ? 'page' : undefined}
           aria-label={`${AWS_AGENT_IDENTITY_DETAIL_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
           className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
           to={awsAgentIdentityDetailLink(scope, selectedEnvironmentID, agent, tabID)}
@@ -11979,7 +11977,7 @@ function AWSAgentIdentityDetailTabs({
           <span>{tabCounts.get(tabID) ?? 0}</span>
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -12539,12 +12537,11 @@ function AWSRemediationCenterTabs({
 }) {
   const tabCounts = new Map((center?.tabs ?? []).map((tab) => [tab.id, tab.count]));
   return (
-    <div className="idt-inline-actions" role="tablist" aria-label="Remediation center tabs">
+    <nav className="idt-inline-actions" aria-label="Remediation center sections">
       {AWS_REMEDIATION_CENTER_TAB_IDS.map((tabID) => (
         <Link
           key={tabID}
-          role="tab"
-          aria-selected={activeTab === tabID}
+          aria-current={activeTab === tabID ? 'page' : undefined}
           aria-label={`${AWS_REMEDIATION_CENTER_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
           className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
           to={awsRemediationCenterLink(scope, selectedEnvironmentID, tabID, searchParams)}
@@ -12553,7 +12550,7 @@ function AWSRemediationCenterTabs({
           <span>{tabCounts.get(tabID) ?? 0}</span>
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -23717,6 +23714,45 @@ type AWSStackSetScopeStepProps = {
   persistedSelfManagedUnsupported: boolean;
 };
 
+function handleTabListKeyDown<T>(
+  event: ReactKeyboardEvent<HTMLDivElement>,
+  values: readonly T[],
+  onSelect: (value: T) => void
+): void {
+  if (event.altKey || event.ctrlKey || event.metaKey) {
+    return;
+  }
+
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    return;
+  }
+
+  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)'));
+  const currentIndex = tabs.indexOf(event.target as HTMLButtonElement);
+  if (currentIndex < 0 || tabs.length !== values.length) {
+    return;
+  }
+
+  let nextIndex: number;
+  if (event.key === 'Home') {
+    nextIndex = 0;
+  } else if (event.key === 'End') {
+    nextIndex = tabs.length - 1;
+  } else if (event.key === 'ArrowRight') {
+    nextIndex = (currentIndex + 1) % tabs.length;
+  } else {
+    nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+  }
+
+  if (nextIndex === currentIndex) {
+    return;
+  }
+
+  event.preventDefault();
+  tabs[nextIndex]?.focus();
+  onSelect(values[nextIndex]);
+}
+
 function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
   const {
     mode,
@@ -23745,6 +23781,7 @@ function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
     setupMessage,
     persistedSelfManagedUnsupported
   } = props;
+  const scopePanelID = useId();
   const isOrganization = mode === 'organization';
   const isSelectedOUs = mode === 'selected_ous';
   const isSelectedAccounts = mode === 'selected_accounts';
@@ -23792,11 +23829,21 @@ function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
         </div>
 
         {(isSelectedOUs || isSelectedAccounts) ? (
-          <div className="idt-aws-scope-subtoggle" role="tablist" aria-label="Selected scope type">
+          <div
+            className="idt-aws-scope-subtoggle"
+            role="tablist"
+            aria-label="Selected scope type"
+            onKeyDown={(event) =>
+              handleTabListKeyDown(event, ['selected_ous', 'selected_accounts'] as const, onChooseMode)
+            }
+          >
             <button
               type="button"
               role="tab"
+              id={`${scopePanelID}-ous-tab`}
+              aria-controls={`${scopePanelID}-panel`}
               aria-selected={isSelectedOUs}
+              tabIndex={isSelectedOUs ? 0 : -1}
               className={`idt-aws-scope-subtoggle-option ${isSelectedOUs ? 'is-selected' : ''}`}
               onClick={() => onChooseMode('selected_ous')}
             >
@@ -23805,7 +23852,10 @@ function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
             <button
               type="button"
               role="tab"
+              id={`${scopePanelID}-accounts-tab`}
+              aria-controls={`${scopePanelID}-panel`}
               aria-selected={isSelectedAccounts}
+              tabIndex={isSelectedAccounts ? 0 : -1}
               className={`idt-aws-scope-subtoggle-option ${isSelectedAccounts ? 'is-selected' : ''}`}
               onClick={() => onChooseMode('selected_accounts')}
             >
@@ -23814,7 +23864,16 @@ function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
           </div>
         ) : null}
 
-        <div className="idt-aws-scope-fields">
+        <div
+          id={`${scopePanelID}-panel`}
+          className="idt-aws-scope-fields"
+          role={isSelectedOUs || isSelectedAccounts ? 'tabpanel' : undefined}
+          aria-labelledby={
+            isSelectedOUs || isSelectedAccounts
+              ? `${scopePanelID}-${isSelectedOUs ? 'ous' : 'accounts'}-tab`
+              : undefined
+          }
+        >
           <label>
             Target regions
             <input
@@ -34493,15 +34552,14 @@ export function ProductExecutiveReportPage() {
   // The segmented switch is rendered both on the report itself and inside the
   // invalid-domain error panel, so the user can recover from a bad URL.
   const renderDomainSwitch = () => (
-    <div className="idt-exec-report__domain" role="tablist" aria-label="Report domain">
+    <div className="idt-exec-report__domain" role="group" aria-label="Filter executive report by domain">
       {EXECUTIVE_REPORT_DOMAIN_OPTIONS.map((option) => {
         const active = option.value === selectedDomain && invalidDomainRaw === null;
         return (
           <button
             key={option.value || 'all'}
             type="button"
-            role="tab"
-            aria-selected={active}
+            aria-pressed={active}
             className={`idt-exec-report__domain-tab${active ? ' is-active' : ''}`}
             onClick={() => handleDomainChange(option.value)}
             disabled={loadingReport && active}
