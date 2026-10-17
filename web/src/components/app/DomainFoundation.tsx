@@ -580,30 +580,42 @@ export type DomainCoverageCardProps = {
   scanned: number;
   total: number;
   detail?: ReactNode;
+  measured?: boolean;
+  emptyMessage?: ReactNode;
 };
 
-export function DomainCoverageCard({ label, scanned, total, detail }: DomainCoverageCardProps) {
-  const pct = total > 0 ? Math.min(100, Math.round((scanned / total) * 100)) : 0;
-  const tone: Tone = pct >= 90 ? 'success' : pct >= 60 ? 'info' : pct >= 30 ? 'warning' : 'danger';
+export function DomainCoverageCard({ label, scanned, total, detail, measured, emptyMessage }: DomainCoverageCardProps) {
+  const hasValidCounts = Number.isFinite(scanned) && scanned >= 0 && Number.isFinite(total) && total >= 0;
+  const hasMeasurement = hasValidCounts && (measured ?? total > 0);
+  const pct = hasMeasurement && total > 0 ? Math.min(100, Math.round((scanned / total) * 100)) : null;
+  const knownEmpty = hasMeasurement && total === 0;
+  const tone: Tone = pct === null ? 'neutral' : pct >= 90 ? 'success' : pct >= 60 ? 'info' : pct >= 30 ? 'warning' : 'danger';
+  const accessibleLabel = label.toLowerCase().endsWith(' coverage') ? label : `${label} coverage`;
   return (
-    <article className={classNames(['idt-domain-coverage-card', `is-${tone}`])} aria-label={`${label} coverage`}>
+    <article className={classNames(['idt-domain-coverage-card', `is-${tone}`])} aria-label={accessibleLabel}>
       <header>
         <span>{label}</span>
-        <strong>{pct}%</strong>
+        <strong>{pct === null ? '—' : `${pct}%`}</strong>
       </header>
-      <div
-        className="idt-domain-coverage-bar"
-        role="progressbar"
-        aria-label={`${label} coverage`}
-        aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={scanned}
-        aria-valuetext={`${scanned} of ${total} ${label.toLowerCase()} scanned`}
-      >
-        <span style={{ width: `${pct}%` }} aria-hidden="true" />
-      </div>
+      {pct === null ? null : (
+        <div
+          className="idt-domain-coverage-bar"
+          role="progressbar"
+          aria-label={`${label} coverage`}
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-valuenow={scanned}
+          aria-valuetext={`${scanned} of ${total} ${label.toLowerCase()} scanned`}
+        >
+          <span style={{ width: `${pct}%` }} aria-hidden="true" />
+        </div>
+      )}
       <p>
-        {scanned} of {total} scanned
+        {!hasMeasurement
+          ? 'Not measured'
+          : knownEmpty
+            ? emptyMessage ?? 'Measured · no coverage targets'
+            : `${scanned} of ${total} scanned`}
         {detail ? <> · {detail}</> : null}
       </p>
     </article>

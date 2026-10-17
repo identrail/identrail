@@ -248,6 +248,41 @@ describe('DomainFoundation', () => {
     expect(screen.getByText(/3 of 4 scanned/)).toBeInTheDocument();
   });
 
+  it('does not present an unknown denominator as zero-percent coverage', () => {
+    render(<DomainCoverageCard label="Permission evidence" scanned={0} total={0} detail="No checks available" />);
+
+    const card = screen.getByRole('article', { name: 'Permission evidence coverage' });
+    expect(card).toHaveTextContent('—');
+    expect(card).toHaveTextContent('Not measured · No checks available');
+    expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('distinguishes a measured empty scope from missing or invalid measurements', () => {
+    render(
+      <>
+        <DomainCoverageCard
+          label="Organizations accounts"
+          scanned={0}
+          total={0}
+          measured
+          emptyMessage="Measured · no accounts found"
+        />
+        <DomainCoverageCard label="Invalid coverage" scanned={Number.NaN} total={4} />
+      </>
+    );
+
+    const empty = screen.getByRole('article', { name: 'Organizations accounts coverage' });
+    expect(empty).toHaveTextContent('—');
+    expect(empty).toHaveTextContent('Measured · no accounts found');
+    expect(empty).not.toHaveTextContent('0%');
+    expect(within(empty).queryByRole('progressbar')).not.toBeInTheDocument();
+
+    const invalid = screen.getByRole('article', { name: 'Invalid coverage' });
+    expect(invalid).toHaveTextContent('Not measured');
+    expect(invalid).not.toHaveTextContent('0%');
+    expect(within(invalid).queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
   it('renders finding summary cards with severity, count, and navigation', () => {
     render(
       <MemoryRouter>

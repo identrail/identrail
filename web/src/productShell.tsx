@@ -6608,15 +6608,34 @@ function AWSAccountsInventoryContent({
         />
       ) : null}
       <section className="idt-aws-inventory-coverage" aria-label="AWS account and region coverage map">
-        <DomainCoverageCard label="Account coverage" scanned={coveredAccounts} total={plan?.summary.account_count ?? 1} detail="Configured accounts" />
-        <DomainCoverageCard label="Region coverage" scanned={coveredRegions} total={plan?.summary.region_count ?? 1} detail={plan ? `${plan.summary.coverage_percent}% target coverage` : hasHealthyCoverage ? connection?.region ?? 'Pending' : 'Pending'} />
+        <DomainCoverageCard
+          label="Account coverage"
+          scanned={coveredAccounts}
+          total={plan?.summary.account_count ?? 0}
+          measured={Boolean(plan)}
+          detail="Configured accounts"
+        />
+        <DomainCoverageCard
+          label="Region coverage"
+          scanned={coveredRegions}
+          total={plan?.summary.region_count ?? 0}
+          measured={Boolean(plan)}
+          detail={plan ? `${plan.summary.coverage_percent}% target coverage` : hasHealthyCoverage ? connection?.region ?? 'Pending' : 'Pending'}
+        />
         <DomainCoverageCard
           label="Organizations accounts"
-          scanned={topology?.summary.scan_eligible_accounts ?? coveredAccounts}
-          total={topology?.summary.account_count ?? plan?.summary.account_count ?? 1}
-          detail={topology ? `${topology.fixture_state === 'live' ? 'Live AWS · ' : ''}${topology.summary.organizational_unit_count} OUs` : 'Topology pending'}
+          scanned={topology?.summary.scan_eligible_accounts ?? 0}
+          total={topology?.summary.account_count ?? 0}
+          measured={Boolean(topology)}
+          emptyMessage="Measured · no accounts found"
+          detail={topology ? `${topology.fixture_state === 'live' ? 'Live AWS · ' : ''}${topology.summary.organizational_unit_count} OUs` : 'Topology not loaded'}
         />
-        <DomainCoverageCard label="Permission evidence" scanned={passedChecks} total={Math.max(totalChecks, 1)} detail="Read-only validation" />
+        <DomainCoverageCard
+          label="Permission evidence"
+          scanned={passedChecks}
+          total={totalChecks}
+          detail={totalChecks > 0 ? 'Read-only validation' : 'No validation checks available'}
+        />
       </section>
       {coverageAPI ? (
         <DomainStatusPanel
