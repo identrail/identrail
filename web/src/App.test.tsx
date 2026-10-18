@@ -569,42 +569,16 @@ describe('App', () => {
     expect(screen.queryByText('Billed monthly at $39 per user.')).not.toBeInTheDocument();
   });
 
-  it('supports keyboard navigation in the ROI profile tabs', () => {
+  it('uses editable ROI assumptions instead of preset profiles', () => {
     setCurrentPath('/roi-assessment');
     render(<App />);
 
-    const profileTabs = within(screen.getByRole('tablist', { name: 'ROI profiles' })).getAllByRole('tab');
-    const midmarketTab = screen.getByRole('tab', { name: 'Mid-market platform team' });
-    const enterpriseTab = screen.getByRole('tab', { name: 'Enterprise multi-account AWS' });
-
-    expect(profileTabs.filter((tab) => tab.getAttribute('tabindex') === '0')).toHaveLength(1);
-    expect(midmarketTab).toHaveAttribute('tabIndex', '0');
-    enterpriseTab.focus();
-    fireEvent.keyDown(enterpriseTab, { key: 'ArrowRight' });
-
-    const startupTab = screen.getByRole('tab', { name: 'Startup cloud-native' });
-    expect(startupTab).toHaveFocus();
-    expect(startupTab).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByLabelText('Number of machine identities')).toHaveValue(900);
-
-    const identitiesInput = screen.getByLabelText('Number of machine identities');
-    fireEvent.change(identitiesInput, { target: { value: '1234' } });
-    act(() => {
-      identitiesInput.focus();
-      startupTab.focus();
-    });
-    expect(identitiesInput).toHaveValue(1234);
-
-    fireEvent.keyDown(startupTab, { key: 'ArrowLeft' });
-    expect(enterpriseTab).toHaveFocus();
-    fireEvent.keyDown(enterpriseTab, { key: 'Home' });
-    expect(startupTab).toHaveFocus();
-    fireEvent.keyDown(startupTab, { key: 'End' });
-    expect(enterpriseTab).toHaveFocus();
-
-    fireEvent.keyDown(enterpriseTab, { key: 'ArrowLeft', ctrlKey: true });
-    expect(enterpriseTab).toHaveFocus();
-    expect(identitiesInput).toHaveValue(9800);
+    expect(screen.queryByRole('tablist', { name: 'ROI profiles' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Number of machine identities')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Average machine-identity incident cost (USD)')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Pro seats')).toHaveValue(1);
+    expect(screen.getByLabelText('Hours recovered per seat each week')).toHaveValue(0);
+    expect(screen.getByLabelText('Loaded labor cost (USD per hour)')).toHaveValue(0);
   });
 
   it('supports keyboard navigation in the trust graph view tabs', () => {
@@ -875,9 +849,33 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Model risk-reduction impact with transparent assumptions/i
+        name: /Estimate the value of analyst time reclaimed/i
       })
     ).toBeInTheDocument();
+  });
+
+  it('calculates ROI from user-entered capacity assumptions and current Pro pricing', () => {
+    setCurrentPath('/roi-assessment');
+    render(<App />);
+
+    expect(screen.getByText(/Annual Pro cost:/)).toHaveTextContent('$360');
+    expect(screen.getByText(/Estimated capacity value:/)).toHaveTextContent('$0');
+    expect(screen.getByText(/Modeled net annual value:/)).toHaveTextContent('-$360');
+
+    fireEvent.change(screen.getByLabelText('Pro seats'), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText('Hours recovered per seat each week'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('Loaded labor cost (USD per hour)'), { target: { value: '100' } });
+
+    expect(screen.getByText(/Annual Pro cost:/)).toHaveTextContent('$1,800');
+    expect(screen.getByText(/Annual time recovered:/)).toHaveTextContent('520 hours');
+    expect(screen.getByText(/Estimated capacity value:/)).toHaveTextContent('$52,000');
+    expect(screen.getByText(/Modeled net annual value:/)).toHaveTextContent('$50,200');
+    expect(screen.getByText(/Modeled return:/)).toHaveTextContent('2,788.9%');
+    expect(screen.queryByText(/Reduced incident exposure|High-risk identities reduced/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Monthly', { exact: true }));
+    expect(screen.getByText(/Annual Pro cost:/)).toHaveTextContent('$2,340');
+    expect(screen.getByText(/Modeled net annual value:/)).toHaveTextContent('$49,660');
   });
 
   it('renders full FAQ route', () => {
