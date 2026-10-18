@@ -86,7 +86,7 @@ jobs:
       CI_POSTGRES_PASSWORD: ci-pg-${{ github.run_id }}-${{ github.run_attempt }}
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: identrail
           POSTGRES_PASSWORD: ${{ env.CI_POSTGRES_PASSWORD }}

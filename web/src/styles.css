@@ -13047,6 +13047,12 @@ html[data-theme='light'] .idt-page-hero-rich::after,
   --pricing-bright: #fafafa;
 }
 
+.idt-roi-page {
+  --pricing-line: rgba(255, 255, 255, 0.14);
+  --pricing-muted: #a1a1aa;
+  --pricing-bright: #fafafa;
+}
+
 .idt-pricing-page > .idt-page-hero-rich,
 html[data-theme='light'] .idt-pricing-page > .idt-page-hero-rich {
   grid-template-columns: minmax(320px, 0.76fr) minmax(0, 1.24fr);
