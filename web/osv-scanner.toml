@@ -1,0 +1,4 @@
+[[IgnoredVulns]]
+id = "CVE-2023-54404"
+ignoreUntil = 2027-01-31
+reason = "Temporary accepted risk for a true positive: Zod 3.25.76 is reachable only through the Lighthouse CI development toolchain (chromium-bidi -> Puppeteer -> Lighthouse -> @lhci/cli), not Identrail's production dependencies or runtime source. The upstream toolchain requires Zod ^3.24.1; forcing Zod 4 would violate that contract. Reassess before expiry and upgrade or replace the toolchain to use patched Zod >=4.6.6. Do not extend this exception without review."
