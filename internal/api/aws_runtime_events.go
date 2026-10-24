@@ -917,32 +917,32 @@ func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState
 			retained = append(retained, record)
 		}
 		return retained, []AWSRuntimeEventDiagnostic{{
-				Collector:   "aws_runtime_events",
-				SourceID:    "access-analyzer",
-				Code:        "access_analyzer_source_failed",
-				Message:     "Access Analyzer source failed; CloudTrail and IAM last-used signals remain visible.",
-				Remediation: "Retry only the Access Analyzer source and preserve retained runtime evidence.",
-				Retryable:   true,
-			}}, []AWSRuntimeEventCoverageGap{{
-				Capability:  "access_analyzer",
-				Status:      "partial_failure",
-				Reason:      "Access Analyzer findings could not be listed in this fixture.",
-				Remediation: "Retry Access Analyzer collection without discarding CloudTrail or IAM last-used signals.",
-			}}
+			Collector:   "aws_runtime_events",
+			SourceID:    "access-analyzer",
+			Code:        "access_analyzer_source_failed",
+			Message:     "Access Analyzer source failed; CloudTrail and IAM last-used signals remain visible.",
+			Remediation: "Retry only the Access Analyzer source and preserve retained runtime evidence.",
+			Retryable:   true,
+		}}, []AWSRuntimeEventCoverageGap{{
+			Capability:  "access_analyzer",
+			Status:      "partial_failure",
+			Reason:      "Access Analyzer findings could not be listed in this fixture.",
+			Remediation: "Retry Access Analyzer collection without discarding CloudTrail or IAM last-used signals.",
+		}}
 	case "permission_denied":
 		return []AWSRuntimeEventRecord{}, []AWSRuntimeEventDiagnostic{{
-				Collector:   "aws_runtime_events",
-				SourceID:    "iam-access-signals",
-				Code:        "permission_denied",
-				Message:     "Runtime evidence permissions are not available for CloudTrail, IAM last-used, or Access Analyzer ingestion.",
-				Remediation: "Grant metadata-only CloudTrail LookupEvents, IAM Access Advisor, and Access Analyzer list permissions. Do not grant payload, secret-value, decrypt, or object-body reads.",
-				Retryable:   true,
-			}}, []AWSRuntimeEventCoverageGap{{
-				Capability:  "iam_access_signals",
-				Status:      "permission_denied",
-				Reason:      "Runtime signal sources cannot be queried with the current connector permissions.",
-				Remediation: "Add read-only event lookup, IAM last-used, and Access Analyzer permissions and retry.",
-			}}
+			Collector:   "aws_runtime_events",
+			SourceID:    "iam-access-signals",
+			Code:        "permission_denied",
+			Message:     "Runtime evidence permissions are not available for CloudTrail, IAM last-used, or Access Analyzer ingestion.",
+			Remediation: "Grant metadata-only CloudTrail LookupEvents, IAM Access Advisor, and Access Analyzer list permissions. Do not grant payload, secret-value, decrypt, or object-body reads.",
+			Retryable:   true,
+		}}, []AWSRuntimeEventCoverageGap{{
+			Capability:  "iam_access_signals",
+			Status:      "permission_denied",
+			Reason:      "Runtime signal sources cannot be queried with the current connector permissions.",
+			Remediation: "Add read-only event lookup, IAM last-used, and Access Analyzer permissions and retry.",
+		}}
 	default:
 		return records, nil, nil
 	}

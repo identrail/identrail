@@ -171,32 +171,32 @@ func awsAgentRuntimeAccessFixtureInputs(accountID string, region string, fixture
 		// The agent inventory failed to load; observed tool-calls remain
 		// visible but cannot be confirmed against declarations.
 		return observed, nil, nil, false, []AWSAgentRuntimeAccessDiagnostic{{
-				Collector:   agentaccess.CollectorName,
-				SourceID:    "agent_inventory",
-				Code:        "agent_inventory_unavailable",
-				Message:     "The AI-agent inventory could not be loaded; observed tool-calls cannot be confirmed against declarations.",
-				Remediation: "Retry the AI-agent inventory collection and re-run the correlation without discarding observed evidence.",
-				Retryable:   true,
-			}}, []AWSAgentRuntimeAccessCoverageGap{{
-				Capability:  "agent_inventory_join",
-				Status:      "partial_failure",
-				Reason:      "The agent inventory was unavailable, so observed tool-calls could not be confirmed against declared tools.",
-				Remediation: "Retry the AI-agent inventory collection and re-run the correlation.",
-			}}, []string{"agent inventory join is incomplete; observed tool-calls are unconfirmed"}, []string{"Retry the AI-agent inventory collection and re-run the correlation."}, awsPlatformDependencyStatusDegraded, true
+			Collector:   agentaccess.CollectorName,
+			SourceID:    "agent_inventory",
+			Code:        "agent_inventory_unavailable",
+			Message:     "The AI-agent inventory could not be loaded; observed tool-calls cannot be confirmed against declarations.",
+			Remediation: "Retry the AI-agent inventory collection and re-run the correlation without discarding observed evidence.",
+			Retryable:   true,
+		}}, []AWSAgentRuntimeAccessCoverageGap{{
+			Capability:  "agent_inventory_join",
+			Status:      "partial_failure",
+			Reason:      "The agent inventory was unavailable, so observed tool-calls could not be confirmed against declared tools.",
+			Remediation: "Retry the AI-agent inventory collection and re-run the correlation.",
+		}}, []string{"agent inventory join is incomplete; observed tool-calls are unconfirmed"}, []string{"Retry the AI-agent inventory collection and re-run the correlation."}, awsPlatformDependencyStatusDegraded, true
 	case "permission_denied":
 		return nil, nil, nil, true, []AWSAgentRuntimeAccessDiagnostic{{
-				Collector:   agentaccess.CollectorName,
-				SourceID:    "cloudtrail",
-				Code:        "permission_denied",
-				Message:     "Runtime event sources are not authorized for this connector; no agent tool-calls can be correlated.",
-				Remediation: "Grant metadata-only CloudTrail access. Do not grant prompt, completion, or tool-payload reads.",
-				Retryable:   true,
-			}}, []AWSAgentRuntimeAccessCoverageGap{{
-				Capability:  "agent_runtime_access",
-				Status:      "permission_denied",
-				Reason:      "Runtime event source cannot be queried with the current connector permissions.",
-				Remediation: "Add read-only CloudTrail access and retry.",
-			}}, []string{"runtime event sources are not authorized for this connector"}, []string{"Grant metadata-only CloudTrail access; do not grant prompt/completion/tool-payload reads."}, awsPlatformDependencyStatusBlocked, true
+			Collector:   agentaccess.CollectorName,
+			SourceID:    "cloudtrail",
+			Code:        "permission_denied",
+			Message:     "Runtime event sources are not authorized for this connector; no agent tool-calls can be correlated.",
+			Remediation: "Grant metadata-only CloudTrail access. Do not grant prompt, completion, or tool-payload reads.",
+			Retryable:   true,
+		}}, []AWSAgentRuntimeAccessCoverageGap{{
+			Capability:  "agent_runtime_access",
+			Status:      "permission_denied",
+			Reason:      "Runtime event source cannot be queried with the current connector permissions.",
+			Remediation: "Add read-only CloudTrail access and retry.",
+		}}, []string{"runtime event sources are not authorized for this connector"}, []string{"Grant metadata-only CloudTrail access; do not grant prompt/completion/tool-payload reads."}, awsPlatformDependencyStatusBlocked, true
 	default:
 		return observed, declared, known, true, nil, awsAgentRuntimeAccessBaseCoverageGaps(), nil, nil, awsPlatformDependencyStatusReady, true
 	}

@@ -564,6 +564,47 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /Annual/i }));
     await waitFor(() => expect(document.querySelector('.idt-pricing-card.is-featured .idt-price-value')).toHaveTextContent('30'));
     expect(within(featuredHeroPlan as HTMLElement).getByText('Billed annually')).toBeInTheDocument();
+    expect(screen.getByText('$30 per user per month, billed annually at $360 per user.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Monthly/i }));
+    await waitFor(() => expect(document.querySelector('.idt-pricing-card.is-featured .idt-price-value')).toHaveTextContent('39'));
+    expect(screen.getByText('Billed monthly at $39 per user.')).toBeInTheDocument();
+    expect(
+      screen.queryByText('$30 per user per month, billed annually at $360 per user.')
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Annual/i }));
+    await waitFor(() => expect(document.querySelector('.idt-pricing-card.is-featured .idt-price-value')).toHaveTextContent('30'));
+    expect(screen.getByText('$30 per user per month, billed annually at $360 per user.')).toBeInTheDocument();
+    expect(screen.queryByText('Billed monthly at $39 per user.')).not.toBeInTheDocument();
+  });
+
+  it('uses editable ROI assumptions instead of preset profiles', () => {
+    setCurrentPath('/roi-assessment');
+    render(<App />);
+
+    expect(screen.queryByRole('tablist', { name: 'ROI profiles' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Number of machine identities')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Average machine-identity incident cost (USD)')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Pro seats')).toHaveValue(1);
+    expect(screen.getByLabelText('Hours recovered per seat each week')).toHaveValue(0);
+    expect(screen.getByLabelText('Loaded labor cost (USD per hour)')).toHaveValue(0);
+  });
+
+  it('supports keyboard navigation in the trust graph view tabs', () => {
+    setCurrentPath('/product');
+    render(<App />);
+
+    const trustGraphTabs = within(screen.getByRole('tablist', { name: 'Trust path explorer view' }));
+    const graphTab = trustGraphTabs.getByRole('tab', { name: 'Graph' });
+    const listTab = trustGraphTabs.getByRole('tab', { name: 'List' });
+    expect(graphTab).toHaveAttribute('tabIndex', '0');
+    expect(listTab).toHaveAttribute('tabIndex', '-1');
+
+    graphTab.focus();
+    fireEvent.keyDown(graphTab, { key: 'ArrowRight' });
+
+    expect(listTab).toHaveFocus();
+    expect(listTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', listTab.id);
   });
 
   it('keeps pricing content visible and controls stateful with reduced motion', async () => {
@@ -816,9 +857,33 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Model risk-reduction impact with transparent assumptions/i
+        name: /Estimate the value of analyst time reclaimed/i
       })
     ).toBeInTheDocument();
+  });
+
+  it('calculates ROI from user-entered capacity assumptions and current Pro pricing', () => {
+    setCurrentPath('/roi-assessment');
+    render(<App />);
+
+    expect(screen.getByText(/Annual Pro cost:/)).toHaveTextContent('$360');
+    expect(screen.getByText(/Estimated capacity value:/)).toHaveTextContent('$0');
+    expect(screen.getByText(/Modeled net annual value:/)).toHaveTextContent('-$360');
+
+    fireEvent.change(screen.getByLabelText('Pro seats'), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText('Hours recovered per seat each week'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('Loaded labor cost (USD per hour)'), { target: { value: '100' } });
+
+    expect(screen.getByText(/Annual Pro cost:/)).toHaveTextContent('$1,800');
+    expect(screen.getByText(/Annual time recovered:/)).toHaveTextContent('520 hours');
+    expect(screen.getByText(/Estimated capacity value:/)).toHaveTextContent('$52,000');
+    expect(screen.getByText(/Modeled net annual value:/)).toHaveTextContent('$50,200');
+    expect(screen.getByText(/Modeled return:/)).toHaveTextContent('2,788.9%');
+    expect(screen.queryByText(/Reduced incident exposure|High-risk identities reduced/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Monthly', { exact: true }));
+    expect(screen.getByText(/Annual Pro cost:/)).toHaveTextContent('$2,340');
+    expect(screen.getByText(/Modeled net annual value:/)).toHaveTextContent('$49,660');
   });
 
   it('renders full FAQ route', () => {
@@ -4145,6 +4210,8 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: /Severity composition/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /Top finding types/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /Notes for leadership/i })).toBeInTheDocument();
+    const domainFilter = screen.getByRole('group', { name: 'Filter executive report by domain' });
+    expect(within(domainFilter).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('link', { name: /Review findings/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Download report/i })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
@@ -4171,9 +4238,10 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: /Unknown report domain/i })).toBeInTheDocument();
     expect(screen.getByText('awss')).toBeInTheDocument();
-    // The segmented switch stays interactive so the user can recover.
-    expect(screen.getByRole('tab', { name: 'All' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'AWS' })).toBeInTheDocument();
+    // The domain filter stays interactive without claiming tab semantics.
+    const domainFilter = screen.getByRole('group', { name: 'Filter executive report by domain' });
+    expect(within(domainFilter).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
+    expect(within(domainFilter).getByRole('button', { name: 'AWS' })).toHaveAttribute('aria-pressed', 'false');
     // No executive-report fetch was issued for the bad URL.
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining('/v1/enterprise/reports/executive'),
