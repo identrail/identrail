@@ -4750,7 +4750,9 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'lambda-invoice-agent' })).toBeInTheDocument();
     expect(screen.getByText('metadata_only_no_secret_values_no_policy_bodies_no_payloads')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Runtime\s+1/i })).toHaveAttribute('aria-selected', 'true');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Machine identity details' })).getByRole('link', { name: /Runtime\s+1/i })
+    ).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('table', { name: 'Machine identity runtime events' })).toBeInTheDocument();
     expect(screen.getByText('s3:GetObject')).toBeInTheDocument();
     expect(getMachineIdentityDetail).toHaveBeenCalledWith(
@@ -4898,7 +4900,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('Reduce orders-deployer policy')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Remediation Center' })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Remediation center safety review' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Overview\s+1/i })).toHaveAttribute('aria-selected', 'true');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Remediation center sections' })).getByRole('link', { name: /Overview\s+1/i })
+    ).toHaveAttribute('aria-current', 'page');
     expect(getRemediationCenter).toHaveBeenCalledWith(
       'workspace-a',
       'production',
@@ -5008,7 +5012,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('Connect an AWS connector before viewing remediation lifecycle evidence.')).toBeInTheDocument();
     expect(screen.getByText('Finish AWS connector setup or choose another environment.')).toBeInTheDocument();
     expect(screen.queryByText('AWS connector is unavailable')).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Overview\s+0/i })).toHaveAttribute('aria-selected', 'true');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Remediation center sections' })).getByRole('link', { name: /Overview\s+0/i })
+    ).toHaveAttribute('aria-current', 'page');
     expect(getRemediationCenter).toHaveBeenCalledWith(
       'workspace-a',
       'production',
@@ -5270,9 +5276,11 @@ describe('Domain-first app routes', () => {
         workspaceID: 'workspace-a'
       }
     );
-    // Tab links preserve the active filter params so deep links survive navigation.
-    const dryRunsTab = screen.getByRole('tab', { name: /Dry-runs\s+1/i });
-    const href = dryRunsTab.getAttribute('href') ?? '';
+    // Navigation links preserve active filter params so deep links survive navigation.
+    const dryRunsLink = within(
+      screen.getByRole('navigation', { name: 'Remediation center sections' })
+    ).getByRole('link', { name: /Dry-runs\s+1/i });
+    const href = dryRunsLink.getAttribute('href') ?? '';
     expect(href).toContain('severity=high');
     expect(href).toContain('account_id=123456789012');
     expect(href).toContain('tab=dry_runs');
@@ -5466,7 +5474,9 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'support-assistant' })).toBeInTheDocument();
     expect(screen.getByText('metadata_only_no_secret_values_no_prompt_text_no_tool_payloads_no_workload_data_tenant_workspace_project_connector_account_region_scoped')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Runtime\s+1/i })).toHaveAttribute('aria-selected', 'true');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Agent identity details' })).getByRole('link', { name: /Runtime\s+1/i })
+    ).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('table', { name: 'Agent identity runtime calls' })).toBeInTheDocument();
     expect(screen.getByText('invoke-knowledge-base')).toBeInTheDocument();
     expect(getAgentIdentityDetail).toHaveBeenCalledWith(
@@ -8272,6 +8282,8 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('table', { name: 'AWS platform observability metrics' })).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS platform observability traces' })).toBeInTheDocument();
     expect(screen.getAllByText(/Scan throughput/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('article', { name: 'Scan throughput' })).toHaveTextContent('12');
+    expect(screen.queryByRole('progressbar', { name: 'Scan throughput coverage' })).not.toBeInTheDocument();
     expect(screen.getAllByText(/Verification outcomes/i).length).toBeGreaterThan(0);
     expect(getPlatformObservability).toHaveBeenCalledWith(
       'workspace-a',
@@ -11909,7 +11921,37 @@ describe('Domain-first app routes', () => {
     );
 
     fireEvent.click(await screen.findByRole('radio', { name: /Selected scope/i }));
-    fireEvent.click(screen.getByRole('tab', { name: /Account IDs/i }));
+    const ousTab = screen.getByRole('tab', { name: /OU IDs/i });
+    const accountsTab = screen.getByRole('tab', { name: /Account IDs/i });
+    expect(ousTab).toHaveAttribute('aria-selected', 'true');
+    expect(ousTab).toHaveAttribute('tabindex', '0');
+    expect(accountsTab).toHaveAttribute('tabindex', '-1');
+    const scopePanel = screen.getByRole('tabpanel');
+    expect(ousTab).toHaveAttribute('aria-controls', scopePanel.id);
+    expect(scopePanel).toHaveAttribute('aria-labelledby', ousTab.id);
+
+    const homeAtFirstTab = new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true });
+    fireEvent(ousTab, homeAtFirstTab);
+    expect(homeAtFirstTab.defaultPrevented).toBe(false);
+    expect(ousTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(ousTab, { key: 'ArrowRight' });
+    expect(accountsTab).toHaveFocus();
+    expect(accountsTab).toHaveAttribute('aria-selected', 'true');
+    expect(scopePanel).toHaveAttribute('aria-labelledby', accountsTab.id);
+
+    const endAtLastTab = new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true });
+    fireEvent(accountsTab, endAtLastTab);
+    expect(endAtLastTab.defaultPrevented).toBe(false);
+    expect(accountsTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(accountsTab, { key: 'ArrowRight' });
+    expect(ousTab).toHaveFocus();
+    fireEvent.keyDown(ousTab, { key: 'End' });
+    expect(accountsTab).toHaveFocus();
+    fireEvent.keyDown(accountsTab, { key: 'Home' });
+    expect(ousTab).toHaveFocus();
+    fireEvent.keyDown(ousTab, { key: 'End' });
     fireEvent.change(screen.getByLabelText(/Target account IDs/i), {
       target: { value: '111111111111, 222222222222' }
     });

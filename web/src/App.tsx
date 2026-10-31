@@ -32,6 +32,7 @@ import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
 import { Card } from './components/ui/card';
 import { Separator } from './components/ui/separator';
+import { handleTabListKeyDown } from './components/ui/tabKeyboard';
 import { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group';
 import {
   ProductAppIndexRedirect,
@@ -1104,14 +1105,23 @@ function ProductHeroVisual() {
 
 type PricingHeroVisualProps = {
   proPrice: number;
+  billingCadence: 'Billed annually' | 'Billed monthly';
 };
 
-function PricingHeroVisual({ proPrice }: PricingHeroVisualProps) {
+function PricingHeroVisual({ proPrice, billingCadence }: PricingHeroVisualProps) {
   const shouldReduceMotion = useReducedMotion();
   const transition = shouldReduceMotion
     ? { duration: 0 }
     : { duration: 0.42, ease: [0.22, 1, 0.36, 1] as const };
-  const paths = [
+  const paths: Array<{
+    name: string;
+    price: string;
+    unit: string;
+    cadence?: string;
+    summary: string;
+    detail: string;
+    featured?: boolean;
+  }> = [
     {
       name: 'Open Source',
       price: '$0',
@@ -1123,6 +1133,7 @@ function PricingHeroVisual({ proPrice }: PricingHeroVisualProps) {
       name: 'Pro',
       price: `$${proPrice}`,
       unit: '/user/mo',
+      cadence: billingCadence,
       summary: 'Managed speed',
       detail: 'Hosted graph and guided setup',
       featured: true
@@ -1169,6 +1180,7 @@ function PricingHeroVisual({ proPrice }: PricingHeroVisualProps) {
               <strong>{path.price}</strong>
               {path.unit ? <small>{path.unit}</small> : null}
             </div>
+            {path.cadence ? <span className="idt-pricing-path-cadence">{path.cadence}</span> : null}
             <p>{path.summary}</p>
             <span className="idt-pricing-path-detail">{path.detail}</span>
           </motion.div>
@@ -1815,14 +1827,21 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
         </div>
       </div>
 
-      <div className="idt-demo-view-toggle" role="tablist" aria-label="Trust path explorer view">
+      <div
+        className="idt-demo-view-toggle"
+        role="tablist"
+        aria-label="Trust path explorer view"
+        onKeyDown={handleTabListKeyDown}
+      >
         <button
           id={graphTabId}
           type="button"
           role="tab"
           aria-controls={graphPanelId}
           aria-selected={viewMode === 'graph'}
+          tabIndex={viewMode === 'graph' ? 0 : -1}
           className={viewMode === 'graph' ? 'is-active' : ''}
+          onFocus={() => setViewMode('graph')}
           onClick={() => setViewMode('graph')}
         >
           Graph
@@ -1833,7 +1852,9 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
           role="tab"
           aria-controls={listPanelId}
           aria-selected={viewMode === 'list'}
+          tabIndex={viewMode === 'list' ? 0 : -1}
           className={viewMode === 'list' ? 'is-active' : ''}
+          onFocus={() => setViewMode('list')}
           onClick={() => setViewMode('list')}
         >
           List
@@ -1940,13 +1961,15 @@ type RoiNumberFieldProps = {
   label: string;
   value: number;
   min: number;
+  max?: number;
   step: number;
   onChange: (value: number) => void;
 };
 
-function RoiNumberField({ id, label, value, min, step, onChange }: RoiNumberFieldProps) {
+function RoiNumberField({ id, label, value, min, max, step, onChange }: RoiNumberFieldProps) {
   const updateValue = (next: number) => {
-    const safe = Math.max(min, Math.round(next));
+    const finiteValue = Number.isFinite(next) ? next : min;
+    const safe = Math.min(max ?? Number.MAX_SAFE_INTEGER, Math.max(min, Math.round(finiteValue)));
     onChange(safe);
   };
 
@@ -1959,12 +1982,13 @@ function RoiNumberField({ id, label, value, min, step, onChange }: RoiNumberFiel
           className="idt-roi-number-input"
           type="number"
           min={min}
+          max={max}
           step={step}
           inputMode="numeric"
           value={value}
           onChange={(event) => {
             const parsed = Number(event.target.value);
-            if (Number.isNaN(parsed)) {
+            if (!Number.isFinite(parsed)) {
               return;
             }
             updateValue(parsed);
@@ -1976,119 +2000,111 @@ function RoiNumberField({ id, label, value, min, step, onChange }: RoiNumberFiel
   );
 }
 
-function RoiCalculator() {
-  const profiles = [
-    {
-      id: 'startup',
-      label: 'Startup cloud-native',
-      identities: 900,
-      incidentCost: 95000,
-      hoursPerWeek: 16
-    },
-    {
-      id: 'midmarket',
-      label: 'Mid-market platform team',
-      identities: 3200,
-      incidentCost: 195000,
-      hoursPerWeek: 44
-    },
-    {
-      id: 'enterprise',
-      label: 'Enterprise multi-account AWS',
-      identities: 9800,
-      incidentCost: 420000,
-      hoursPerWeek: 88
-    }
-  ] as const;
+const PRO_PRICE_PER_USER_MONTH = {
+  monthly: 39,
+  annual: 30
+} as const;
 
-  const [activeProfileId, setActiveProfileId] = useState<(typeof profiles)[number]['id']>('midmarket');
-  const [identities, setIdentities] = useState(3200);
-  const [incidentCost, setIncidentCost] = useState(195000);
-  const [hoursPerWeek, setHoursPerWeek] = useState(44);
+const USD_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0
+});
+
+function RoiCalculator() {
+  const [annual, setAnnual] = useState(true);
+  const [seats, setSeats] = useState(1);
+  const [hoursRecoveredPerSeat, setHoursRecoveredPerSeat] = useState(0);
+  const [laborCostPerHour, setLaborCostPerHour] = useState(0);
 
   const output = useMemo(() => {
-    const annualHours = hoursPerWeek * 52;
-    const laborSavings = annualHours * 110;
-    const expectedIncidentReduction = incidentCost * 0.87;
-    const identityRiskDelta = Math.round(identities * 0.32);
+    const proPrice = annual ? PRO_PRICE_PER_USER_MONTH.annual : PRO_PRICE_PER_USER_MONTH.monthly;
+    const annualProCost = seats * proPrice * 12;
+    const annualHoursRecovered = hoursRecoveredPerSeat * 52 * seats;
+    const annualCapacityValue = annualHoursRecovered * laborCostPerHour;
+    const netAnnualValue = annualCapacityValue - annualProCost;
 
     return {
-      laborSavings,
-      expectedIncidentReduction,
-      identityRiskDelta,
-      estimatedTotal: laborSavings + expectedIncidentReduction
+      annualProCost,
+      annualHoursRecovered,
+      annualCapacityValue,
+      netAnnualValue,
+      returnPercent: (netAnnualValue / annualProCost) * 100
     };
-  }, [hoursPerWeek, incidentCost, identities]);
+  }, [annual, hoursRecoveredPerSeat, laborCostPerHour, seats]);
 
   return (
     <section className="idt-roi" aria-label="ROI calculator">
       <SectionTitle
         eyebrow="ROI Calculator"
-        title="Model impact with conservative assumptions"
-        body="Use a planning model to estimate labor savings and reduced incident exposure from better trust-path visibility."
+        title="Model the value of time your team can reclaim"
+        body="Use hours and labor costs your team can support. This estimate does not assume incident prevention or a fixed productivity gain."
       />
-      <div className="idt-roi-profiles" role="tablist" aria-label="ROI profiles">
-        {profiles.map((profile) => (
-          <button
-            key={profile.id}
-            type="button"
-            role="tab"
-            aria-selected={activeProfileId === profile.id}
-            className={activeProfileId === profile.id ? 'is-active' : ''}
-            onClick={() => {
-              setActiveProfileId(profile.id);
-              setIdentities(profile.identities);
-              setIncidentCost(profile.incidentCost);
-              setHoursPerWeek(profile.hoursPerWeek);
-            }}
-          >
-            {profile.label}
-          </button>
-        ))}
-      </div>
       <div className="idt-roi-grid">
-        <RoiNumberField
-          id="roi-identities"
-          label="Number of machine identities"
-          value={identities}
-          min={100}
-          step={100}
-          onChange={setIdentities}
-        />
-        <RoiNumberField
-          id="roi-incident-cost"
-          label="Average machine-identity incident cost (USD)"
-          value={incidentCost}
-          min={10000}
-          step={5000}
-          onChange={setIncidentCost}
-        />
-        <RoiNumberField
-          id="roi-triage-hours"
-          label="Weekly hours spent on identity triage"
-          value={hoursPerWeek}
-          min={1}
-          step={1}
-          onChange={setHoursPerWeek}
-        />
+        <div className="idt-roi-inputs">
+          <RoiNumberField
+            id="roi-seats"
+            label="Pro seats"
+            value={seats}
+            min={1}
+            max={100000}
+            step={1}
+            onChange={setSeats}
+          />
+          <RoiNumberField
+            id="roi-hours-recovered"
+            label="Hours recovered per seat each week"
+            value={hoursRecoveredPerSeat}
+            min={0}
+            max={168}
+            step={1}
+            onChange={setHoursRecoveredPerSeat}
+          />
+          <RoiNumberField
+            id="roi-labor-cost"
+            label="Loaded labor cost (USD per hour)"
+            value={laborCostPerHour}
+            min={0}
+            max={1000000}
+            step={10}
+            onChange={setLaborCostPerHour}
+          />
+          <div className="idt-roi-billing">
+            <p className="idt-eyebrow">Pro billing</p>
+            <ToggleGroup
+              value={annual ? 'annual' : 'monthly'}
+              onValueChange={(value) => {
+                if (value === 'annual') setAnnual(true);
+                if (value === 'monthly') setAnnual(false);
+              }}
+              aria-label="ROI pricing cadence"
+            >
+              <ToggleGroupItem value="monthly">Monthly</ToggleGroupItem>
+              <ToggleGroupItem value="annual">Annual</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+        </div>
 
-        <div className="idt-roi-output" aria-live="polite">
-          <p>
-            Annual labor savings: <strong>${output.laborSavings.toLocaleString()}</strong>
-          </p>
-          <p>
-            Reduced incident exposure: <strong>${output.expectedIncidentReduction.toLocaleString()}</strong>
-          </p>
-          <p>
-            High-risk identities reduced: <strong>{output.identityRiskDelta.toLocaleString()}</strong>
-          </p>
-          <p className="idt-roi-total">
-            Estimated annual impact: <strong>${output.estimatedTotal.toLocaleString()}</strong>
-          </p>
-          <p className="idt-roi-note">
-            Model assumptions: labor hour rate $110/hr, incident reduction coefficient 0.87, high-risk identity reduction
-            coefficient 0.32.
-          </p>
+        <div className="idt-roi-results">
+          <div className="idt-roi-output" aria-live="polite">
+            <p>
+              Annual Pro cost: <strong>{USD_FORMATTER.format(output.annualProCost)}</strong>
+            </p>
+            <p>
+              Annual time recovered: <strong>{output.annualHoursRecovered.toLocaleString()} hours</strong>
+            </p>
+            <p>
+              Estimated capacity value: <strong>{USD_FORMATTER.format(output.annualCapacityValue)}</strong>
+            </p>
+            <p className="idt-roi-total">
+              Modeled net annual value: <strong>{USD_FORMATTER.format(output.netAnnualValue)}</strong>
+            </p>
+            <p>Modeled return: <strong>{output.returnPercent.toLocaleString('en-US', { maximumFractionDigits: 1 })}%</strong></p>
+            <p className="idt-roi-note">
+              Scenario only. Uses your hours, labor rate, seat count, and displayed Pro price. Recovered capacity is not cash
+              savings; no incident risk reduction is included.
+            </p>
+          </div>
         </div>
       </div>
     </section>
@@ -3379,7 +3395,7 @@ function PricingPage() {
   const [salesModalOpen, setSalesModalOpen] = useState(false);
   const shouldReduceMotion = useReducedMotion();
 
-  const proPrice = annual ? 30 : 39;
+  const proPrice = annual ? PRO_PRICE_PER_USER_MONTH.annual : PRO_PRICE_PER_USER_MONTH.monthly;
   const sectionMotion = shouldReduceMotion
     ? { initial: false as const, whileInView: undefined, viewport: undefined }
     : {
@@ -3395,7 +3411,7 @@ function PricingPage() {
         title="Pricing that matches your control boundary"
         body="Start self-hosted, move to hosted Pro, or add private controls when your program requires them."
         variant="pricing"
-        visual={<PricingHeroVisual proPrice={proPrice} />}
+        visual={<PricingHeroVisual proPrice={proPrice} billingCadence={annual ? 'Billed annually' : 'Billed monthly'} />}
         actions={
           <>
             <ScanIntakeCTA className="idt-btn idt-btn-primary" />
@@ -3422,13 +3438,11 @@ function PricingPage() {
             aria-label="Pricing cadence"
           >
             <ToggleGroupItem value="monthly">Monthly</ToggleGroupItem>
-            <ToggleGroupItem value="annual">
-              Annual <span className="ui-toggle-group__save">Billed annually</span>
-            </ToggleGroupItem>
+            <ToggleGroupItem value="annual">Annual</ToggleGroupItem>
           </ToggleGroup>
         </div>
         <p className="idt-pricing-note">
-          Pro is billed per user per month. Annual pricing applies when you choose Annual. Every plan supports read-only onboarding before enforcement changes.
+          Every plan starts with read-only onboarding; enforcement changes remain under your control.
         </p>
 
         <div className="idt-pricing-grid idt-pricing-section">
@@ -3469,6 +3483,11 @@ function PricingPage() {
                   </motion.span>
                 </AnimatePresence>
                 <span>/user/mo</span>
+              </p>
+              <p className="idt-price-billing-note" aria-live="polite">
+                {annual
+                  ? '$30 per user per month, billed annually at $360 per user.'
+                  : 'Billed monthly at $39 per user.'}
               </p>
               <p className="idt-plan-fit">
                 <strong>Best for:</strong> Fast time-to-value without managing infrastructure.
@@ -3577,7 +3596,7 @@ function RoiAssessmentPage() {
   useSeo({
     title: 'ROI Assessment | Machine Identity Security Impact Model',
     description:
-      'Run a transparent ROI assessment for machine identity security risk reduction with editable assumptions and impact calculations.',
+      'Compare Identrail Pro pricing with your own estimate of analyst time recovered and fully loaded labor cost.',
     path: '/roi-assessment'
   });
 
@@ -3585,8 +3604,8 @@ function RoiAssessmentPage() {
     <div className="idt-marketing-page idt-modern-public-page idt-roi-page">
       <PageHero
         eyebrow="ROI Assessment"
-        title="Model risk-reduction impact with transparent assumptions"
-        body="This tool is a planning model, not a guarantee. Adjust each input to match your environment and validate assumptions with your security and finance stakeholders."
+        title="Estimate the value of analyst time reclaimed"
+        body="Compare your expected time savings with Pro pricing. This planning model uses your inputs and does not estimate incident prevention or guaranteed cash savings."
         variant="pricing"
         actions={
           <>
@@ -3601,8 +3620,8 @@ function RoiAssessmentPage() {
       <section className="idt-section idt-shell">
         <RoiCalculator />
         <p className="idt-roi-disclaimer">
-          Assumptions: labor savings = weekly triage hours × 52 × $110; incident exposure reduction coefficient = 0.87; high-risk
-          identity reduction coefficient = 0.32.
+          Calculations use 52 weeks per year and current published Pro pricing. Confirm your time and labor-cost estimates
+          with your team before using this scenario in a business case.
         </p>
       </section>
 

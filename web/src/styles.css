@@ -1506,6 +1506,28 @@ h3 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.8rem;
+  align-items: start;
+}
+
+.idt-roi-inputs,
+.idt-roi-results {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+}
+
+.idt-roi-billing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--idt-line);
+  border-radius: 12px;
+}
+
+.idt-roi-billing .idt-eyebrow {
+  margin: 0;
 }
 
 .idt-roi label,
@@ -3110,30 +3132,6 @@ body {
 .idt-roi {
   border-color: rgba(158, 176, 210, 0.26);
   background: linear-gradient(165deg, rgba(10, 14, 22, 0.9), rgba(8, 12, 18, 0.88));
-}
-
-.idt-roi-profiles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.48rem;
-  margin: -0.2rem 0 0.9rem;
-}
-
-.idt-roi-profiles button {
-  border: 1px solid rgba(159, 180, 215, 0.26);
-  background: rgba(13, 18, 29, 0.56);
-  color: #d5e0f3;
-  border-radius: 999px;
-  min-height: 34px;
-  padding: 0 0.72rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
-.idt-roi-profiles button.is-active {
-  border-color: rgba(201, 214, 237, 0.8);
-  background: rgba(201, 214, 237, 0.16);
-  color: #f1f6ff;
 }
 
 .idt-roi-note {
@@ -13049,6 +13047,12 @@ html[data-theme='light'] .idt-page-hero-rich::after,
   --pricing-bright: #fafafa;
 }
 
+.idt-roi-page {
+  --pricing-line: rgba(255, 255, 255, 0.14);
+  --pricing-muted: #a1a1aa;
+  --pricing-bright: #fafafa;
+}
+
 .idt-pricing-page > .idt-page-hero-rich,
 html[data-theme='light'] .idt-pricing-page > .idt-page-hero-rich {
   grid-template-columns: minmax(320px, 0.76fr) minmax(0, 1.24fr);
@@ -13223,6 +13227,16 @@ html[data-theme='light'] .idt-pricing-decision-console {
   color: #52525b;
 }
 
+.idt-pricing-path-cadence {
+  color: var(--pricing-muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.idt-pricing-path-option.is-featured .idt-pricing-path-cadence {
+  color: #52525b;
+}
+
 .idt-pricing-path-option p {
   margin: 0;
   color: var(--pricing-bright);
@@ -13391,6 +13405,18 @@ html[data-theme='light'] .idt-pricing-decision-console {
   margin-left: 0;
   color: inherit;
   font-size: inherit;
+}
+
+.idt-pricing-card-motion > .idt-pricing-card > .idt-price-billing-note {
+  margin: -0.4rem 0 0;
+  color: #a1a1aa;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.idt-pricing-page .idt-pricing-card.is-featured .idt-price-billing-note,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-card.is-featured .idt-price-billing-note {
+  color: #52525b;
 }
 
 .idt-pricing-card-motion > .idt-pricing-card > ul {
@@ -13566,6 +13592,15 @@ html[data-theme='light'] .idt-pricing-page .idt-pricing-featured-badge {
   html[data-theme='light'] .idt-pricing-page > .idt-page-hero-rich {
     padding-top: 3rem;
     padding-bottom: 3.5rem;
+  }
+
+  .idt-roi-billing {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .idt-roi-billing .ui-toggle-group {
+    width: 100%;
   }
 
   .idt-pricing-page .idt-page-hero-copy h1 {
@@ -20099,23 +20134,6 @@ html[data-theme='light'] .idt-modern-public-page .idt-compare-table tbody th {
 .idt-modern-public-page .idt-compare-table tbody tr:nth-child(even) td,
 html[data-theme='light'] .idt-modern-public-page .idt-compare-table tbody tr:nth-child(even) td {
   background: #050505;
-}
-
-.idt-modern-public-page .idt-roi-profiles,
-html[data-theme='light'] .idt-modern-public-page .idt-roi-profiles {
-  border: 1px solid #242424;
-  background: #050505;
-}
-
-.idt-modern-public-page .idt-roi-profiles button,
-html[data-theme='light'] .idt-modern-public-page .idt-roi-profiles button {
-  color: #a1a1aa;
-}
-
-.idt-modern-public-page .idt-roi-profiles button.is-active,
-html[data-theme='light'] .idt-modern-public-page .idt-roi-profiles button.is-active {
-  background: #ffffff;
-  color: #000000;
 }
 
 .idt-modern-public-page .idt-roi-number-input,

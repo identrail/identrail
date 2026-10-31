@@ -166,32 +166,32 @@ func awsS3RuntimeAccessFixtureInputs(accountID string, region string, fixtureSta
 		}}, nil, []string{"runtime correlation includes delayed or low-confidence evidence"}, []string{"Review delayed CloudTrail delivery before using correlations for remediation."}, awsPlatformDependencyStatusDegraded, true
 	case "partial_failure":
 		return observed, nil, []AWSS3RuntimeAccessDiagnostic{{
-				Collector:   s3access.CollectorName,
-				SourceID:    "static_reachability",
-				Code:        "static_reachability_unavailable",
-				Message:     "S3 bucket reachability could not be loaded; observed accesses cannot be confirmed.",
-				Remediation: "Retry the S3 reachability collector and re-run the correlation without discarding observed evidence.",
-				Retryable:   true,
-			}}, []AWSS3RuntimeAccessCoverageGap{{
-				Capability:  "static_reachability_join",
-				Status:      "partial_failure",
-				Reason:      "Static reachability edges were unavailable, so observed accesses could not be confirmed against grants.",
-				Remediation: "Retry S3 reachability collection and re-run the correlation.",
-			}}, []string{"static reachability join is incomplete; observed accesses are unconfirmed"}, []string{"Retry the S3 reachability collector and re-run the correlation."}, awsPlatformDependencyStatusDegraded, true
+			Collector:   s3access.CollectorName,
+			SourceID:    "static_reachability",
+			Code:        "static_reachability_unavailable",
+			Message:     "S3 bucket reachability could not be loaded; observed accesses cannot be confirmed.",
+			Remediation: "Retry the S3 reachability collector and re-run the correlation without discarding observed evidence.",
+			Retryable:   true,
+		}}, []AWSS3RuntimeAccessCoverageGap{{
+			Capability:  "static_reachability_join",
+			Status:      "partial_failure",
+			Reason:      "Static reachability edges were unavailable, so observed accesses could not be confirmed against grants.",
+			Remediation: "Retry S3 reachability collection and re-run the correlation.",
+		}}, []string{"static reachability join is incomplete; observed accesses are unconfirmed"}, []string{"Retry the S3 reachability collector and re-run the correlation."}, awsPlatformDependencyStatusDegraded, true
 	case "permission_denied":
 		return nil, nil, []AWSS3RuntimeAccessDiagnostic{{
-				Collector:   s3access.CollectorName,
-				SourceID:    "cloudtrail",
-				Code:        "permission_denied",
-				Message:     "Runtime event sources are not authorized for this connector; no S3 runtime access can be correlated.",
-				Remediation: "Grant metadata-only CloudTrail access. Do not grant object-content reads.",
-				Retryable:   true,
-			}}, []AWSS3RuntimeAccessCoverageGap{{
-				Capability:  "s3_runtime_access",
-				Status:      "permission_denied",
-				Reason:      "Runtime event source cannot be queried with the current connector permissions.",
-				Remediation: "Add read-only CloudTrail access and retry.",
-			}}, []string{"runtime event sources are not authorized for this connector"}, []string{"Grant metadata-only CloudTrail access; do not grant object-content reads."}, awsPlatformDependencyStatusBlocked, true
+			Collector:   s3access.CollectorName,
+			SourceID:    "cloudtrail",
+			Code:        "permission_denied",
+			Message:     "Runtime event sources are not authorized for this connector; no S3 runtime access can be correlated.",
+			Remediation: "Grant metadata-only CloudTrail access. Do not grant object-content reads.",
+			Retryable:   true,
+		}}, []AWSS3RuntimeAccessCoverageGap{{
+			Capability:  "s3_runtime_access",
+			Status:      "permission_denied",
+			Reason:      "Runtime event source cannot be queried with the current connector permissions.",
+			Remediation: "Add read-only CloudTrail access and retry.",
+		}}, []string{"runtime event sources are not authorized for this connector"}, []string{"Grant metadata-only CloudTrail access; do not grant object-content reads."}, awsPlatformDependencyStatusBlocked, true
 	default:
 		return observed, static, nil, awsS3RuntimeAccessBaseCoverageGaps(), nil, nil, awsPlatformDependencyStatusReady, true
 	}
