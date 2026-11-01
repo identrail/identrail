@@ -6641,7 +6641,7 @@ function AWSAccountsInventoryContent({
           label="Organizations accounts"
           scanned={topology?.summary.scan_eligible_accounts ?? 0}
           total={topology?.summary.account_count ?? 0}
-          measured={Boolean(topology)}
+          measured={topology?.status === 'ready'}
           emptyMessage="Measured · no accounts found"
           detail={topology ? `${topology.fixture_state === 'live' ? 'Live AWS · ' : ''}${topology.summary.organizational_unit_count} OUs` : 'Topology not loaded'}
         />

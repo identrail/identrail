@@ -4270,7 +4270,10 @@ describe('Domain-first app routes', () => {
     );
   });
 
-  it('keeps AWS organization and permission coverage unmeasured without evidence', async () => {
+  it.each([
+    { status: 'ready' as const, expectedState: 'Measured · no accounts found' },
+    { status: 'blocked' as const, expectedState: 'Not measured' }
+  ])('shows $expectedState for a zero-account $status Organizations result', async ({ status, expectedState }) => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
@@ -4293,6 +4296,7 @@ describe('Domain-first app routes', () => {
     dashboardAPIs.getOrganizationsTopology.mockResolvedValue({
       topology: {
         ...readyAWSOrganizationsTopology,
+        status,
         summary: {
           ...readyAWSOrganizationsTopology.summary,
           account_count: 0,
@@ -4319,7 +4323,7 @@ describe('Domain-first app routes', () => {
     const organizationsCard = screen.getByRole('article', { name: 'Organizations accounts coverage' });
     const permissionsCard = screen.getByRole('article', { name: 'Permission evidence coverage' });
     expect(organizationsCard).toHaveTextContent('—');
-    expect(organizationsCard).toHaveTextContent('Measured · no accounts found');
+    expect(organizationsCard).toHaveTextContent(expectedState);
     expect(within(organizationsCard).queryByRole('progressbar')).not.toBeInTheDocument();
     expect(permissionsCard).toHaveTextContent('—');
     expect(permissionsCard).toHaveTextContent('No validation checks available');
