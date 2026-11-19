@@ -1,3 +1,8 @@
 [[IgnoredVulns]]
 id = "GO-2026-5932"
 reason = "Identrail does not import golang.org/x/crypto/openpgp; x/crypto is retained for crewjam/saml XML encryption RIPEMD-160 support, verified with go list -deps ./..."
+
+[[IgnoredVulns]]
+id = "GO-2026-6909"
+ignoreUntil = 2026-12-18
+reason = "Upgraded github.com/crewjam/saml to v0.5.2, which adds nil-safe assertion validation and namespace-qualified SAML NameID parsing with regression tests. The current GO-2026-6909 OSV record has no fixed-version event and still flags v0.5.2. Recheck after 30 days and remove this exception once the OSV record reflects the upstream fix."
